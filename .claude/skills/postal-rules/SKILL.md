@@ -13,6 +13,15 @@ description: Delivery-time algorithm, database invariants, RLS rules and push co
 5. **Read receipts are private** (`letter_receipts`, with `opened_by`: slit / seal / replay); the sender sees them only if *both* opted in. `open_letter(id, opened_by)` is idempotent — queue it offline and retry.
 6. Every change to a migration needs a PGlite test; Supabase-only pieces are stubbed in `tests/dispatch.test.ts`.
 
+## Tracking (`src/letter/tracking/itinerary.ts`, migrations 004–005, `post-letter`)
+- **One generator, two places.** `itinerary.ts` is self-contained and copied verbatim to `supabase/functions/_shared/` (`npm run sync:shared`; `tests/shared.test.ts` fails if they differ). The server generates; the app's lab only previews.
+- **Route FR→BY** (inferred, Oct 2026): Lille box → PIC Lille-Lesquin → Roissy (dispatch Tue/Fri 20:00) → by road through BE/DE/PL, unscanned → border Kukuryki–Козловичи (3 % closed ≈ a week) → MINSK PI 2 (ул. Вокзальная 22, 09–18 daily; 4 % customs) → ОПС 220030 → delivery round 10:00/16:00 Mon–Sat. All of it is data at the top of the file; re-route there. Open questions in `docs/research/tracking-*.md`.
+- **Calibration is a product choice:** `scale` 1.0 ("romantic") gives p05 ≈ 13 d, p50 ≈ 17 d, p95 ≈ 25 d; real reports are longer (≈ 1.6).
+- **The promise:** at posting the day window `[lo, hi]` (recipient's zone) always contains `deliver_at`, which is exactly the EMI scan. Never later than shown.
+- **Tiers:** `postal` = the itinerary decides `deliver_at` (`record_posting`, service role). `express`/`standard` keep `compute_deliver_at` and replay the same journey compressed into it (`record_tracking`); express shows only EMA → EMD → EMI.
+- **RLS:** a scan is visible when `visible and at <= now()`; the recipient only after `collected_at`; silent waypoints (WPT/XBX) never. Retrieval deletes the journey. `reveal_tracking()` stamps `revealed_at` each minute for Realtime.
+- **Copy:** official lines in the language of the post office that scanned (FR legs French, BY legs Russian); couple notes in the viewer's language; silence is explained, never framed as loss. A registered number (S10, valid check digit) heads the slip.
+
 ## Delivery tiers (`compute_deliver_at`)
 - Post rounds: **10:00 and 16:00 in the recipient's time zone, no Sunday rounds** (`next_post_round`, DST-safe by doing wall-clock math in Postgres).
 - `express`: next round ≥ 2 h after posting.

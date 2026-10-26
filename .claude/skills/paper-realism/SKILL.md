@@ -57,6 +57,12 @@ The illusion breaks on the *first* digital-looking detail. Every rule below exis
 - Mailbox FR: batterie, anthracite RAL 7016, 260 × 260 mm doors, 235 × 26 mm slot with an inner flap, aluminium-framed nameplate with the name in capitals. Mail shows as envelope corners drooping out of the slot (up to 3, offset), then a chalked «+N».
 - An object going into a slot darkens as it enters (a gradient in its own space): a clip alone looks like a mask.
 
+## Tracking map (`TrackingMap.tsx`, `scripts/build-map.mjs`)
+- Natural Earth 1:50m (world-atlas), Lambert conformal conic (parallels 47°/56°, rotate −15°), baked to `assets/map/europe.json` (≤ 60 KB). The app re-projects with `tracking/project.ts` (tested against d3, < 0.5 px).
+- Old atlas plate: waterlined sea (4 widening coast strokes, fading), warm paper land, the couple's two countries washed in watercolour, coast inked twice (a `Discrete`-wobbled line over a fine one), dash-dot borders clipped to land, names in their own languages in spaced capitals, a neat-line frame.
+- Sizes are specified in screen points and divided by the zoom when baking, so text stays legible at any size.
+- Route: pencil dashes for the plan, ink for the travelled part (trimmed `<Path end>`, replayed in 2.5 s on open), the envelope (with a red R label) parked at the last scan, tiny calendar postmarks at the hubs reached, and during silences a pencil circle «где-то здесь?» at the estimated position.
+
 ## Wax types
 - **Brittle** (traditional sealing wax): may crack in the post (hairline crack on delivery) and snaps when opened.
 - **Flexible** (modern glue-gun wax): survives the post intact; under the pull it stretches and bends along the flap edge, then lets go of the paper whole and leaves with the flap, leaving a faint film (≤ 8 % wax colour) and a few lifted fibres on the body. No crumbs.

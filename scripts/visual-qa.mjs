@@ -41,6 +41,10 @@ const SHOTS = [
   { name: 'mbru-3-out', path: '/lab/mailbox?seed=1407&waiting=3&t=0.18' },
   { name: 'mbru-front', path: '/lab/mailbox?seed=1407&t=0.25' },
   { name: 'mb-empty', path: '/lab/mailbox?seed=1407&waiting=0' },
+  // tracking Lille → Minsk: day 1 (FR scans) · day 6 (silence after Roissy) · day 15 (Minsk) · delivered · express · sender in French
+  ...[1, 6, 15, 30].map((d) => ({ name: `track-day${d}`, path: `/lab/track?seed=1407&day=${d}` })),
+  { name: 'track-express', path: '/lab/track?seed=1407&tier=express&day=1' },
+  { name: 'track-fr', path: '/lab/track?seed=1407&viewer=sender&day=15' },
   // flexible wax: no transit crack · bending · peeled off whole, film left behind
   ...[0.3, 0.345, 0.42, 0.5].map((t) => ({ name: `flex-${t}`, path: `/lab/mailbox?seed=1407&open=seal&wax=flexible&t=${t}` })),
 ];

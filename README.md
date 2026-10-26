@@ -14,6 +14,7 @@ A private app for two people that simulates sending and receiving real letters. 
 | Сложить | `/lab/fold` | Gesture-driven tri-fold: hinged panels in perspective, seeded off-third creases, face swap with ink show-through, moving shadows, crease haptics |
 | Конверт | `/lab/envelope` | Slide the folded letter into the envelope, close the flap in perspective, hold to pour sealing wax (brittle sealing wax or modern flexible wax), release to press a brass seal that leaves your monogram in relief |
 | Отправить | `/lab/post` | Post the sealed envelope into a Почта wall box (turns to go in short edge first) or a French street box (long edge first); it catches on the seal, darkens into the slot; take it back until the collection time |
+| Где письмо? | `/lab/track` | Tracking a registered letter Lille → Minsk on an old-atlas paper map: real hubs (Lesquin, Roissy, MINSK PI 2), realistic delays and silences, official scan lines in French/Russian with handwritten notes, a promise window that always holds; fake clock, three tiers, both viewers |
 | Получить | `/lab/mailbox` | Your подъезд mailbox in Moscow (envelopes show through the peek holes) or your boîte aux lettres in Paris (corners poke out of the slot); several letters wait in order; open the door, take the envelope out, read the address side (stamp, postmark, wear), flip it, then either slit the fold with a paper knife or break the wax seal (it strains, snaps along the flap edge, chips fly), pull the letter out, unfold; re-reading skips the ceremony |
 
 Backend (`supabase/`):
@@ -24,6 +25,7 @@ Backend (`supabase/`):
 - recipients see nothing until the letter is collected; collection and delivery are written so Realtime fires
 - private read receipts
 - per-minute dispatch to an Expo push Edge Function
+- delivery tracking: a «Как настоящая почта» tier whose realistic itinerary decides the delivery time, scans revealed by the clock, a `post-letter` Edge Function sharing the app's generator
 
 ## Run it
 
@@ -39,7 +41,7 @@ The labs need no backend. Skia, Reanimated and haptics need a **development buil
 1. Create a Supabase project and copy `.env.example` → `.env.local`.
 2. Apply the migrations: `supabase db push`, or use the Supabase MCP.
 3. Store the `project_url` and `service_role_key` secrets in Vault (see the header of `supabase/migrations/20261026000002_delivery_push.sql`).
-4. Deploy the push function: `supabase functions deploy deliver`.
+4. Deploy the functions: `supabase functions deploy deliver` and `supabase functions deploy post-letter`. The app posts through `post-letter`.
 5. You both sign in once with a magic link. Then run `supabase/seed.sql` with your e-mails and cities.
 
 ## Checks
@@ -48,6 +50,8 @@ The labs need no backend. Skia, Reanimated and haptics need a **development buil
 npm test                                  # handwriting layout, SkSL compile, RU/FR glyph coverage, SQL + RLS (PGlite)
 npm run typecheck && npm run lint
 npm run export:web && npm run qa:visual   # phone + laptop screenshots in qa-screens/
+npm run build:map                         # re-bake assets/map/europe.json (Natural Earth)
+npm run sync:shared                       # copy the itinerary generator to supabase/functions/_shared
 ```
 
 ## Working on it with Claude Code

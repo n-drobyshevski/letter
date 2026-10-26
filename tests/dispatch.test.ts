@@ -14,6 +14,7 @@ const read = (f: string) => readFileSync(new URL(`../supabase/migrations/${f}`, 
 const STUBS = `
 create role anon nologin;
 create role authenticated nologin;
+create role service_role nologin;
 create schema auth;
 create table auth.users (id uuid primary key);
 create function auth.uid() returns uuid language sql stable as $$
@@ -51,6 +52,8 @@ test('due letters get one push, retrieved and future ones none', async () => {
   await db.exec(read('20261026000001_letters.sql'));
   await db.exec(withoutExtensions(read('20261026000002_delivery_push.sql')));
   await db.exec(read('20261027000003_collection_visibility.sql'));
+  await db.exec(read('20261027000004_tier_postal.sql'));
+  await db.exec(read('20261027000005_tracking.sql'));
 
   const A = '00000000-0000-0000-0000-00000000000a';
   const B = '00000000-0000-0000-0000-00000000000b';
@@ -80,6 +83,9 @@ test('due letters get one push, retrieved and future ones none', async () => {
   assert.deepEqual(jobs.rows.map((j) => [j.name, j.schedule]), [
     ['deliver-mail', '* * * * *'],
     ['collect-mail', '* * * * *'],
+    ['reveal-tracking', '* * * * *'],
   ]);
+  const realtime = await db.query<{ tablename: string }>(`select tablename from pg_publication_tables where pubname = 'supabase_realtime' order by 1`);
+  assert.deepEqual(realtime.rows.map((r) => r.tablename), ['letters', 'tracking_events']);
   await db.close();
 });
