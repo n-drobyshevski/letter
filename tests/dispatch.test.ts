@@ -54,6 +54,7 @@ test('due letters get one push, retrieved and future ones none', async () => {
   await db.exec(read('20261027000003_collection_visibility.sql'));
   await db.exec(read('20261027000004_tier_postal.sql'));
   await db.exec(read('20261027000005_tracking.sql'));
+  await db.exec(read('20261028000006_tracking_estimate.sql'));
 
   const A = '00000000-0000-0000-0000-00000000000a';
   const B = '00000000-0000-0000-0000-00000000000b';

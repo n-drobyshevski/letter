@@ -1,4 +1,4 @@
--- One couple, two people. Run once after both of you have signed in (magic link),
+-- One couple, two people. Run once after creating both accounts (Authentication → Users),
 -- replacing the e-mails, cities and coordinates. There is deliberately no pairing UI.
 with c as (insert into public.couples default values returning id)
 insert into public.profiles (id, couple_id, display_name, pet_name, city, lat, lon, tz, locale)

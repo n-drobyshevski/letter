@@ -8,7 +8,7 @@
 // Only France → Belarus is routed so far; other pairs post without tracking.
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 
-import { generateItinerary, type Tier } from '../_shared/itinerary.ts';
+import { generateItinerary, routed as isRouted, type Tier } from '../_shared/itinerary.ts';
 
 type Body = {
   tier: Tier | 'scheduled';
@@ -18,9 +18,16 @@ type Body = {
   scheduledFor?: string;
 };
 
-const json = (data: unknown, status = 200) => Response.json(data, { status });
+// The laptop calls this from the browser: answer the CORS preflight.
+const CORS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+};
+const json = (data: unknown, status = 200) => Response.json(data, { status, headers: CORS });
 
 Deno.serve(async (req) => {
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
   const url = Deno.env.get('SUPABASE_URL')!;
   const asUser = createClient(url, Deno.env.get('SUPABASE_ANON_KEY')!, {
     global: { headers: { Authorization: req.headers.get('authorization') ?? '' } },
@@ -33,7 +40,7 @@ Deno.serve(async (req) => {
   const { data: me } = await admin.from('profiles').select('couple_id, tz').eq('id', auth.user.id).single();
   if (!me) return json({ error: 'not a member of a couple' }, 403);
   const { data: them } = await admin.from('profiles').select('tz').eq('couple_id', me.couple_id).neq('id', auth.user.id).single();
-  const routed = me.tz === 'Europe/Paris' && them?.tz === 'Europe/Minsk';
+  const routed = isRouted(me.tz, them?.tz);
 
   if (input.tier === 'postal') {
     if (!routed) return json({ error: 'real-post delivery is only routed France → Belarus for now' }, 422);
@@ -76,6 +83,7 @@ Deno.serve(async (req) => {
     });
     // A letter without tracking is still a letter: never fail the posting over it.
     if (trackingError) console.error('tracking not recorded', letter.id, trackingError.message);
+    else return json({ ...letter, tracking: { route: it.route, s10: it.s10, window: it.window } });
   }
   return json(letter);
 });

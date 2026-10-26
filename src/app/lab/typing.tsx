@@ -1,5 +1,6 @@
 import { Canvas, Group, Paint, Path, Picture } from '@shopify/react-native-skia';
-import { useMemo, useReducer, useState } from 'react';
+import { Link } from 'expo-router';
+import { useEffect, useMemo, useReducer, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { GestureDetector, usePanGesture } from 'react-native-gesture-handler';
 import { useDerivedValue, useSharedValue, withTiming } from 'react-native-reanimated';
@@ -7,6 +8,7 @@ import { scheduleOnRN } from 'react-native-worklets';
 
 import { Choice } from '@/components/Choice';
 import { Desk } from '@/components/Desk';
+import { setDraft } from '@/lib/draft';
 import { useLabParams } from '@/lib/params';
 import { useLetterPicture, type LetterLook } from '@/letter/LetterSheet';
 import { writingArea } from '@/letter/renderLetter';
@@ -40,6 +42,13 @@ export default function TypingLab() {
   const [text, setText] = useState('Привет! Пишу тебе прямо на бумаге.\nÇa marche aussi en français.');
   const [editing, setEditing] = useState(false);
   const [{ strokes, live }, pen$] = useReducer(penReducer, { strokes: [], live: [] });
+  // Only what you actually wrote becomes the draft the postbox sends (not the demo line).
+  const [touched, setTouched] = useState(false);
+  useEffect(() => {
+    if (touched || strokes.length) setDraft({ text: touched ? text : '', strokes, sheetWidth: size.width, look });
+    // look is rebuilt each render from stable values
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [touched, text, strokes, size.width]);
 
   const { picture: paperPic } = useLetterPicture('', look, size.width, size.height, 0, 'paper');
   const { picture: inkPic, overflow } = useLetterPicture(text, look, size.width, size.height, 0, 'ink');
@@ -93,7 +102,10 @@ export default function TypingLab() {
         <TextInput
           multiline
           value={text}
-          onChangeText={setText}
+          onChangeText={(v) => {
+            setText(v);
+            setTouched(true);
+          }}
           onFocus={onFocus}
           onBlur={onBlur}
           editable={mode === 'keyboard'}
@@ -122,6 +134,11 @@ export default function TypingLab() {
         <Pressable onPress={() => pen$({ type: 'clear' })}>
           <Text style={styles.link}>Стереть перо</Text>
         </Pressable>
+      )}
+      {(touched || strokes.length > 0) && (
+        <Link dismissTo href="/lab/post" style={styles.link}>
+          Отнести на почту →
+        </Link>
       )}
     </Desk>
   );

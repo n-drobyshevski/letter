@@ -66,6 +66,11 @@ type Vertex = { lat: number; lon: number; name?: { fr: string; ru: string }; cou
 const PARIS = 'Europe/Paris';
 const MINSK = 'Europe/Minsk';
 
+/** Whether a sender → recipient pair (by time zone) has a route. Only France → Belarus so far. */
+export function routed(fromTz: string | null | undefined, toTz: string | null | undefined): boolean {
+  return fromTz === PARIS && toTz === MINSK;
+}
+
 /** Road polyline Lille → Minsk (vertices also used to place events on the map). */
 export const FR_BY_POLYLINE: Vertex[] = [
   { lat: 50.637, lon: 3.063, name: { fr: 'Lille', ru: 'Лилль' }, country: 'fr', tz: PARIS },

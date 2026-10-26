@@ -1,11 +1,10 @@
 import { useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Choice } from '@/components/Choice';
 import { Desk } from '@/components/Desk';
 import { useLabParams } from '@/lib/params';
-import { TrackingMap } from '@/letter/TrackingMap';
-import { TrackingTimeline } from '@/letter/TrackingTimeline';
+import { TrackingView } from '@/letter/TrackingView';
 import { shortDate, clock, type Lang } from '@/letter/tracking/copy';
 import { generateItinerary, nextDeliveryRound, routeLengthKm, zoned, type Tier } from '@/letter/tracking/itinerary';
 
@@ -30,10 +29,6 @@ const HOUR = 3600e3;
 
 export default function TrackLab() {
   const q = useLabParams();
-  const { width: sw } = useWindowDimensions();
-  const wide = sw >= 900;
-  const mapWidth = Math.round(wide ? Math.min(sw * 0.58, 820) : Math.min(sw, 520));
-
   const [tier, setTier] = useState<Tier>((q.tier as Tier) ?? 'postal');
   const [viewer, setViewer] = useState<'sender' | 'recipient'>(q.viewer === 'sender' ? 'sender' : 'recipient');
   const [seed, setSeed] = useState(q.seed ?? 1407);
@@ -53,11 +48,6 @@ export default function TrackLab() {
   const viewerTz = viewer === 'sender' ? 'Europe/Paris' : 'Europe/Minsk';
   const step = (h: number) => setHours((v) => Math.max(0, Math.min(v + h, (end - COLLECT.getTime()) / HOUR + 6)));
 
-  const map = <TrackingMap itinerary={itinerary} now={now} width={mapWidth} lang={lang} />;
-  const timeline = (
-    <TrackingTimeline itinerary={itinerary} now={now} lang={lang} viewerTz={viewerTz} recipientTz="Europe/Minsk" />
-  );
-
   return (
     <Desk title={lang === 'ru' ? 'Где письмо?' : 'Où est ma lettre ?'} hint="Lille → Минск">
       <View style={styles.controls}>
@@ -76,17 +66,7 @@ export default function TrackLab() {
           <Text style={styles.link}>Другое письмо · seed {seed}</Text>
         </Pressable>
       </View>
-      {wide ? (
-        <View style={styles.wide}>
-          {map}
-          <View style={styles.side}>{timeline}</View>
-        </View>
-      ) : (
-        <>
-          <View style={styles.mapWrap}>{map}</View>
-          {timeline}
-        </>
-      )}
+      <TrackingView itinerary={itinerary} now={now} lang={lang} viewerTz={viewerTz} recipientTz="Europe/Minsk" />
     </Desk>
   );
 }
@@ -106,7 +86,4 @@ const styles = StyleSheet.create({
   step: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 3, backgroundColor: '#4a3a2e' },
   stepText: { color: '#e4d6bf', fontSize: 13 },
   link: { color: '#b9a88f', fontSize: 12, textDecorationLine: 'underline' },
-  mapWrap: { marginHorizontal: -16 },
-  wide: { flexDirection: 'row', gap: 20, alignItems: 'flex-start' },
-  side: { width: 400 },
 });

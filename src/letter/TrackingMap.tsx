@@ -176,9 +176,15 @@ type Props = {
   now: Date;
   width: number;
   lang: Lang;
+  /**
+   * Where the letter probably is now (0..1 along the route), from the server's
+   * tracking_estimate: a real letter's silent waypoints never reach the client.
+   * Omit to estimate from a full itinerary (lab); null hides the guess.
+   */
+  estimate?: number | null;
 };
 
-export function TrackingMap({ itinerary, now, width, lang }: Props) {
+export function TrackingMap({ itinerary, now, width, lang, estimate }: Props) {
   const faces = useTypefaces();
   const height = Math.round(width * 0.66);
   const seed = Number.parseInt(itinerary.s10.replace(/\D/g, '').slice(0, 6), 10);
@@ -244,8 +250,8 @@ export function TrackingMap({ itinerary, now, width, lang }: Props) {
   const target = last ? toProj(last.routeT) : 0;
   const delivered = last?.code === 'EMI';
   const silentHours = last ? (nowMs - Date.parse(last.at)) / 3600e3 : 0;
-  const guess = toProj(estimatedRouteT(itinerary, now));
-  const showGuess = !!last && !delivered && silentHours >= 18 && guess - target > 0.01;
+  const guess = toProj(estimate === undefined ? estimatedRouteT(itinerary, now) : (estimate ?? 0));
+  const showGuess = estimate !== null && !!last && !delivered && silentHours >= 18 && guess - target > 0.01;
 
   // Inked trail: replayed from the start when the screen opens, then follows the clock.
   const shown = useSharedValue(0);

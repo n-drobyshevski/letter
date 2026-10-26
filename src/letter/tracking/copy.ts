@@ -68,14 +68,17 @@ function longDay(key: string, lang: Lang) {
   return `${d} ${MONTHS[lang][m - 1]}`;
 }
 
+/** A fixed arrival (express, standard, scheduled): "Придёт 29 октября около 10:00". */
+export function arrivalLine(deliverAt: string, lang: Lang, recipientTz: string) {
+  const at = Date.parse(deliverAt);
+  return lang === 'ru'
+    ? `Придёт ${longDay(local(at, recipientTz).key, 'ru')} около ${clock(at, recipientTz)}`
+    : `Arrivée le ${longDay(local(at, recipientTz).key, 'fr')} vers ${clock(at, recipientTz).replace(':', ' h ')}`;
+}
+
 /** The promise made at posting. */
 export function windowLine(it: Itinerary, lang: Lang, recipientTz: string) {
-  if (it.tier !== 'postal') {
-    const at = Date.parse(it.deliverAt);
-    return lang === 'ru'
-      ? `Придёт ${longDay(local(at, recipientTz).key, 'ru')} около ${clock(at, recipientTz)}`
-      : `Arrivée le ${longDay(local(at, recipientTz).key, 'fr')} vers ${clock(at, recipientTz).replace(':', ' h ')}`;
-  }
+  if (it.tier !== 'postal') return arrivalLine(it.deliverAt, lang, recipientTz);
   const { lo, hi } = it.window;
   if (lo === hi) return lang === 'ru' ? `Придёт ${longDay(lo, 'ru')}` : `Arrivée le ${longDay(lo, 'fr')}`;
   // "между 19 и 26 ноября", but "между 30 октября и 5 ноября" across months.

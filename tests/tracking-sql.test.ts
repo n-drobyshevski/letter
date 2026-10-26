@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { PGlite } from '@electric-sql/pglite';
 
-import { generateItinerary, visibleAt } from '../src/letter/tracking/itinerary';
+import { estimatedRouteT, generateItinerary, visibleAt } from '../src/letter/tracking/itinerary';
 
 /** The tracking tables, written by the server, read by the couple through RLS. */
 
@@ -23,6 +23,7 @@ grant execute on function auth.uid() to anon, authenticated, service_role;
 const A = '00000000-0000-0000-0000-00000000000a'; // in Lille
 const B = '00000000-0000-0000-0000-00000000000b'; // in Minsk
 const C = '00000000-0000-0000-0000-0000000000cc';
+const D = '00000000-0000-0000-0000-00000000000d'; // signed in, not in the couple
 let db: PGlite;
 
 async function as<T>(role: string, user: string | null, fn: () => Promise<T>) {
@@ -37,12 +38,12 @@ async function as<T>(role: string, user: string | null, fn: () => Promise<T>) {
 before(async () => {
   db = new PGlite();
   await db.exec(STUB);
-  for (const f of ['20261026000001_letters.sql', '20261027000003_collection_visibility.sql', '20261027000004_tier_postal.sql', '20261027000005_tracking.sql']) {
+  for (const f of ['20261026000001_letters.sql', '20261027000003_collection_visibility.sql', '20261027000004_tier_postal.sql', '20261027000005_tracking.sql', '20261028000006_tracking_estimate.sql']) {
     await db.exec(migration(f));
   }
   await db.exec(`
     grant select on all tables in schema public to authenticated;
-    insert into auth.users values ('${A}'), ('${B}');
+    insert into auth.users values ('${A}'), ('${B}'), ('${D}');
     insert into public.couples (id) values ('${C}');
     insert into public.profiles (id, couple_id, display_name, city, lat, lon, tz, locale) values
       ('${A}', '${C}', 'M', 'Lille', 50.637, 3.063, 'Europe/Paris', 'fr'),
@@ -127,6 +128,35 @@ describe('tracking', () => {
     await db.query(`select public.collect_posted()`);
     const afterCollect = await as('authenticated', B, () => db.query<{ code: string }>(`select code from public.tracking_events where letter_id = $1 order by seq`, [letter.id]));
     assert.deepEqual(afterCollect.rows.map((r) => r.code), shouldSee);
+  });
+
+  test('the server estimates where the letter is now from the silent legs too, for the couple only', async () => {
+    const { it, letter } = await post(31);
+    const estimate = (user: string) =>
+      as('authenticated', user, () => db.query<{ e: number | null }>(`select public.tracking_estimate($1) e`, [letter.id])).then(
+        (r) => r.rows[0].e,
+      );
+    assert.equal(await estimate(A), 0, 'still in the box: at the start of the route');
+
+    await age(letter.id, 8);
+    const at = new Date(Date.now() + 8 * 864e5);
+    const expected = estimatedRouteT(it, at);
+    const sender = await estimate(A);
+    assert.ok(sender !== null && Math.abs(sender - expected) < 1e-3, `sender: ${sender} ≈ ${expected}`);
+    assert.ok(sender! >= visibleAt(it, at).at(-1)!.routeT - 1e-4, 'never behind the last scan');
+
+    assert.equal(await estimate(B), null, 'recipient: nothing before collection');
+    assert.equal(await estimate(D), null, 'someone else: nothing');
+    await assert.rejects(
+      as('anon', null, () => db.query(`select public.tracking_estimate($1)`, [letter.id])),
+      /permission denied/,
+    );
+    await db.query(`select public.collect_posted()`);
+    const recipient = await estimate(B);
+    assert.ok(recipient !== null && Math.abs(recipient - expected) < 1e-3);
+
+    await age(letter.id, 60);
+    assert.equal(await estimate(A), 1, 'delivered: at the end of the route');
   });
 
   test('reveal stamps each scan once (Realtime), and retrieval removes the journey', async () => {
