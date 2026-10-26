@@ -245,7 +245,7 @@ function LivePost({ couple, onOffline }: { couple: Couple; onOffline: () => void
         <View style={styles.choices}>
           <Choice options={tiers} value={tier} onChange={setTier} />
           {isEmptyDraft(draft) && (
-            <Link href="/lab/typing" style={styles.link}>
+            <Link href="/write" style={styles.link}>
               {copy.toDesk}
             </Link>
           )}

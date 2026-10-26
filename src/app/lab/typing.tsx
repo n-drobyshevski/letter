@@ -136,7 +136,7 @@ export default function TypingLab() {
         </Pressable>
       )}
       {(touched || strokes.length > 0) && (
-        <Link dismissTo href="/lab/post" style={styles.link}>
+        <Link dismissTo href="/post" style={styles.link}>
           Отнести на почту →
         </Link>
       )}

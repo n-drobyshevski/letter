@@ -213,7 +213,7 @@ export type Mailbox = { waiting: MailLetter[]; opened: MailLetter[]; loaded: boo
  * shoebox of opened ones. Refreshes on Realtime changes to my letters, at the
  * next delivery time, and when the app comes back to the foreground.
  */
-export function useMailbox(couple: Couple | null): Mailbox {
+export function useMailbox(couple: Couple | null, refreshKey = 0): Mailbox {
   const [box, setBox] = useState<Mailbox>({ waiting: [], opened: [], loaded: false });
   useEffect(() => {
     if (!supabase || !couple) return;
@@ -262,7 +262,7 @@ export function useMailbox(couple: Couple | null): Mailbox {
       foreground.remove();
       db.removeChannel(channel);
     };
-  }, [couple]);
+  }, [couple, refreshKey]);
   return box;
 }
 

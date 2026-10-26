@@ -87,7 +87,7 @@ export function windowLine(it: Itinerary, lang: Lang, recipientTz: string) {
   return lang === 'ru' ? `Придёт между ${from('ru')} и ${longDay(hi, 'ru')}` : `Arrivée entre le ${from('fr')} et le ${longDay(hi, 'fr')}`;
 }
 
-function plural(n: number, one: string, few: string, many: string) {
+export function plural(n: number, one: string, few: string, many: string) {
   const m10 = n % 10;
   const m100 = n % 100;
   if (m10 === 1 && m100 !== 11) return one;

@@ -5,7 +5,17 @@ A private app for two people that simulates sending and receiving real letters. 
 - **Plan & roadmap:** [`docs/plan.md`](docs/plan.md)
 - **Research** (stack, realism, animation, product, AI tooling): [`docs/research/`](docs/research)
 
-## Status: week-1 spikes
+## The app
+
+| Screen | Route | What it is |
+|---|---|---|
+| Home | `/` | Your mailbox (a red flag when something is waiting), the letter on your desk, letters on their way in both directions, the ones you have read. Signed out: the sign-in card. No backend: the lab index |
+| Write | `/write` | The desk (same screen as `/lab/typing`) |
+| Post | `/post` | The postbox (same as `/lab/post`) |
+| Mailbox | `/mailbox` | Your mailbox (same as `/lab/mailbox`) |
+| Track | `/track/<id>` | A letter's journey |
+
+## Status: week-1 spikes (`/lab`)
 
 | Lab | Route | What it proves |
 |---|---|---|

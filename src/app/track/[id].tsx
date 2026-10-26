@@ -86,8 +86,8 @@ export default function TrackScreen() {
           {letter.retrieved_at ? '' : `${NO_TRACKING[lang]} ${promiseLine(letter, lang, recipientTz)}`}
         </Text>
       )}
-      <Link dismissTo href="/lab/post" style={styles.link}>
-        {lang === 'ru' ? '← к почтовому ящику' : '← à la boîte aux lettres'}
+      <Link dismissTo href="/" style={styles.link}>
+        {lang === 'ru' ? '← домой' : '← accueil'}
       </Link>
     </Desk>
   );
