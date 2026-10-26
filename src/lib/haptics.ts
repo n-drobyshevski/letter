@@ -29,6 +29,12 @@ export const feel = {
     (android
       ? Haptics.performAndroidHapticsAsync(Haptics.AndroidHaptics.Segment_Frequent_Tick)
       : Haptics.selectionAsync()),
+  /** Sealing wax snapping: short, hard, and only once. */
+  crack: () =>
+    enabled &&
+    (android
+      ? Haptics.performAndroidHapticsAsync(Haptics.AndroidHaptics.Reject)
+      : Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy)),
   /** A mailbox door swinging open. */
   door: () => enabled && Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium),
 };

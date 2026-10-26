@@ -7,7 +7,7 @@ import { useMotionPrefs } from '@/lib/useMotionPrefs';
 import type { EnvelopeLook } from '@/letter/EnvelopeCeremony';
 import { FoldableLetter } from '@/letter/FoldableLetter';
 import { LetterSheet, useLetterPicture, type LetterLook } from '@/letter/LetterSheet';
-import { ReceivingCeremony, type ReceiveStage } from '@/letter/ReceivingCeremony';
+import { ReceivingCeremony, type OpenedBy, type ReceiveStage } from '@/letter/ReceivingCeremony';
 import { SAMPLE_LETTER } from '@/letter/samples';
 import { SHEET_RATIO } from '@/letter/sheet';
 
@@ -17,7 +17,7 @@ const HINTS: Record<ReceiveStage, string> = {
   0: 'В ящике что-то белеет. Открой ящик',
   1: 'Достань письмо',
   2: 'Переверни конверт',
-  3: 'Проведи ножом вдоль сгиба',
+  3: 'Сломай печать или проведи ножом вдоль сгиба',
   4: 'Достань письмо из конверта',
   5: 'Разверни',
 };
@@ -39,6 +39,7 @@ export default function MailboxLab() {
   const [stage, setStage] = useState<ReceiveStage>(0);
   const [advanceKey, setAdvanceKey] = useState(0);
   const [replayKey, setReplayKey] = useState(0);
+  const [openedBy, setOpenedBy] = useState<OpenedBy | null>(null);
   const { needsButtons } = useMotionPrefs();
 
   const letterLook: LetterLook = { paper: 'cotton', ink: 'blueBlack', font: 'badScript', seed };
@@ -52,7 +53,8 @@ export default function MailboxLab() {
     if (s === 5) setTimeout(() => setPhase('unfold'), 350);
   };
 
-  const hint = phase === 'mailbox' ? HINTS[stage] : phase === 'unfold' ? 'Разверни: потяни вниз' : 'От Н., из Москвы';
+  const readHint = openedBy === 'seal' ? 'От Н., из Москвы · печать сломана' : 'От Н., из Москвы';
+  const hint = phase === 'mailbox' ? HINTS[stage] : phase === 'unfold' ? 'Разверни: потяни вниз' : readHint;
 
   return (
     <Desk title="Почтовый ящик · кв. 47" hint={hint} scroll={phase === 'read'}>
@@ -72,6 +74,9 @@ export default function MailboxLab() {
             fixedT={fixedReceive}
             onStage={onStage}
             advanceKey={advanceKey}
+            openMode={q.open === 'seal' ? 'seal' : 'slit'}
+            // The real app calls open_letter(id, openedBy).
+            onOpened={setOpenedBy}
           />
         </View>
       )}

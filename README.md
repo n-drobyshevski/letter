@@ -14,7 +14,7 @@ A private app for two people that simulates sending and receiving real letters. 
 | Сложить | `/lab/fold` | Gesture-driven tri-fold: hinged panels in perspective, seeded off-third creases, face swap with ink show-through, moving shadows, crease haptics |
 | Конверт | `/lab/envelope` | Slide the folded letter into the envelope, close the flap in perspective, hold to pour sealing wax, release to press a brass seal that leaves your monogram in relief |
 | Отправить | `/lab/post` | Post the sealed envelope into a Почта wall box: it turns to go in short edge first, catches on the seal, darkens into the slot; take it back until the handwritten collection time |
-| Получить | `/lab/mailbox` | Your подъезд mailbox (the envelope shows through the peek holes): open the door, take the envelope out, read the address side (stamp, postmark, wear), flip it, slit the fold with a paper knife, pull the letter out, unfold; re-reading skips the ceremony |
+| Получить | `/lab/mailbox` | Your подъезд mailbox (the envelope shows through the peek holes): open the door, take the envelope out, read the address side (stamp, postmark, wear), flip it, then either slit the fold with a paper knife or break the wax seal (it strains, snaps along the flap edge, chips fly), pull the letter out, unfold; re-reading skips the ceremony |
 
 Backend (`supabase/`):
 - schema, RLS and the server-side delivery algorithm

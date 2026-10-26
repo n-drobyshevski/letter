@@ -1,6 +1,7 @@
 import {
   Canvas,
   Circle,
+  DiscretePathEffect,
   Group,
   LinearGradient,
   Path,
@@ -15,15 +16,25 @@ import {
 import { useEffect, useMemo } from 'react';
 import { View } from 'react-native';
 import { GestureDetector, usePanGesture } from 'react-native-gesture-handler';
-import { useAnimatedReaction, useDerivedValue, useSharedValue, withSpring } from 'react-native-reanimated';
+import {
+  Easing,
+  useAnimatedReaction,
+  useDerivedValue,
+  useSharedValue,
+  withSpring,
+  withTiming,
+  type SharedValue,
+} from 'react-native-reanimated';
 import { scheduleOnRN } from 'react-native-worklets';
 
 import { feel } from '../lib/haptics';
+import { WAX, type Rgb } from '../theme/stationery';
 import { mulberry32, subSeed, wobble } from '../lib/random';
 import { envelopeGeometry, recordEnvelope, recordFoldedLetter } from './envelope';
 import type { EnvelopeLook } from './EnvelopeCeremony';
 import { recordEnvelopeFront, type Address, type Postmark } from './envelopeFront';
 import { mailboxLayout, recordDoor, recordMailboxBank } from './steelBox';
+import { breakGeometry, crumbAt, crumbs as makeCrumbs, fibreTears, type Crumb } from './sealBreak';
 import { slitCatches, slitEdge } from './tear';
 import { useTypefaces } from './useTypefaces';
 import { WaxSeal } from './WaxSeal';
@@ -33,7 +44,9 @@ import { WaxSeal } from './WaxSeal';
  *   0 door   tap to unlock and swing it open, or drag it open (hinge on the left)
  *   1 take   pull the envelope up and out of the box (or tap)
  *   2 flip   tap to turn it over: address side → seal side
- *   3 slit   run the paper knife along the top fold from either corner
+ *   3 open   either run the paper knife along the top fold from either corner,
+ *            or pull the flap up by the seal: the wax strains, snaps along the flap
+ *            edge (one half lifts with the flap, one stays), and the flap swings open
  *   4 pull   draw the folded letter up out of the slit
  * Unfolding is FoldableLetter, started folded. Re-reading skips all of this.
  */
@@ -78,9 +91,34 @@ type Props = {
   onStage?: (s: ReceiveStage) => void;
   /** Bump to advance the current stage without a gesture (accessibility). */
   advanceKey?: number;
+  /** For fixedT frames: which way the envelope is opened. */
+  openMode?: OpenedBy;
+  onOpened?: (by: OpenedBy) => void;
 };
 
-export function ReceivingCeremony({ width, height, look, address, postmark, letterFront, letterBack, sheet, flat, fixedT, onStage, advanceKey }: Props) {
+export type OpenedBy = 'slit' | 'seal';
+
+/** The seal snaps after 14 pt of pull; until then (break < SNAP) the wax only strains. */
+const SNAP = 0.2;
+const FLAP_OPEN = Math.PI * 0.985;
+const CRUMB_SECONDS = 0.7;
+
+export function ReceivingCeremony({
+  width,
+  height,
+  look,
+  address,
+  postmark,
+  letterFront,
+  letterBack,
+  sheet,
+  flat,
+  fixedT,
+  onStage,
+  advanceKey,
+  openMode = 'slit',
+  onOpened,
+}: Props) {
   const faces = useTypefaces();
   const L = useMemo(() => mailboxLayout(width, height), [width, height]);
   const { door } = L;
@@ -105,6 +143,25 @@ export function ReceivingCeremony({ width, height, look, address, postmark, lett
   }, [ew, look.seed]);
   const catches = useMemo(() => slitCatches(ew, look.seed), [ew, look.seed]);
 
+  // Breaking the seal: the flap piece (jagged through the wax), the crack, crumbs, torn fibres.
+  const broken = useMemo(() => {
+    const geo = breakGeometry(g, look.seed);
+    const poly = (pts: number[], close: boolean) => {
+      const b = Skia.PathBuilder.Make().moveTo(pts[0], pts[1]);
+      for (let i = 2; i < pts.length; i += 2) b.lineTo(pts[i], pts[i + 1]);
+      if (close) b.close();
+      return b.detach();
+    };
+    const fibres = Skia.PathBuilder.Make();
+    for (const [x0, y0, x1, y1] of fibreTears(g, look.seed)) fibres.moveTo(x0, y0).lineTo(x1, y1);
+    return {
+      flapPiece: poly(geo.flapPiece, true),
+      crack: poly(geo.crack, false),
+      crumbs: makeCrumbs(geo.crack, look.seed),
+      fibres: fibres.detach(),
+    };
+  }, [g, look.seed]);
+
   // Poses: lying on the floor of the box → held in front of you.
   const rand = mulberry32(subSeed(look.seed, 'mailbox'));
   const inside = { x: door.x + door.w * 0.5, y: door.y + door.h * 0.7, scale: (door.w * 0.86) / ew, tilt: 1.05, rot: 0.12 + wobble(rand, 0.05) };
@@ -118,6 +175,11 @@ export function ReceivingCeremony({ width, height, look, address, postmark, lett
   const slit = useSharedValue(init.values[3]);
   const pull = useSharedValue(init.values[4]);
   const progress = [doorV, take, flip, slit, pull];
+  const sealFixed = fixedT !== undefined && openMode === 'seal';
+  const breakV = useSharedValue(sealFixed ? init.values[3] : 0);
+  const crumbT = useSharedValue(0);
+  /** 0: not chosen yet, 1: paper knife, 2: break the seal. */
+  const mode = useSharedValue(sealFixed && init.values[3] > 0 ? 2 : 0);
   const stage = useSharedValue<ReceiveStage>(init.stage);
   const gStage = useSharedValue<ReceiveStage>(0);
   const start = useSharedValue(0);
@@ -128,13 +190,21 @@ export function ReceivingCeremony({ width, height, look, address, postmark, lett
     if (fixedT === undefined) return;
     const v = splitReceiveT(fixedT);
     v.values.forEach((x, i) => progress[i].set(x));
+    if (openMode === 'seal') {
+      // Same timeline, opened by the seal: the knife never moves, crumbs follow the break.
+      slit.set(0);
+      breakV.set(v.values[3]);
+      crumbT.set(clamp01((v.values[3] - SNAP) / 0.35));
+      mode.set(v.values[3] > 0 ? 2 : 0);
+    }
     stage.set(v.stage);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fixedT]);
 
   const finish = (i: number, velocity = 0) => {
     'worklet';
-    progress[i].set(withSpring(1, { velocity, damping: 20, stiffness: 150, overshootClamping: true }));
+    const target = i === 3 && mode.get() === 2 ? breakV : progress[i];
+    target.set(withSpring(1, { velocity, damping: 20, stiffness: 150, overshootClamping: true }));
   };
   const back = (i: number, velocity = 0) => {
     'worklet';
@@ -149,6 +219,8 @@ export function ReceivingCeremony({ width, height, look, address, postmark, lett
   }, [advanceKey]);
 
   const envelopeLeft = held.x - ew / 2;
+  const sealOnScreen = { x: envelopeLeft + g.seal.x, y: held.y - eh / 2 + g.seal.y };
+  const flapTravel = eh * 0.9;
   const pan = usePanGesture({
     enabled: fixedT === undefined,
     minDistance: 0,
@@ -157,13 +229,26 @@ export function ReceivingCeremony({ width, height, look, address, postmark, lett
       gStage.set(s);
       settled.set(false);
       if (s < 5) start.set(progress[s].get());
-      if (s === 3 && slit.get() === 0) slitDir.set(e.x < width / 2 ? 1 : -1);
+      if (s === 3 && mode.get() === 0) {
+        // Touching the seal means breaking it; anywhere else picks up the paper knife.
+        const onSeal = Math.hypot(e.x - sealOnScreen.x, e.y - sealOnScreen.y) < g.seal.maxR + 12;
+        mode.set(onSeal ? 2 : 1);
+        if (!onSeal) slitDir.set(e.x < width / 2 ? 1 : -1);
+      }
+      if (s === 3 && mode.get() === 2) start.set(breakV.get());
     },
     onUpdate: (e) => {
       const s = gStage.get();
       if (s === 0) doorV.set(clamp01(start.get() + e.translationX / (door.w * 1.1)));
       if (s === 1) take.set(clamp01(start.get() - e.translationY / (height * 0.45)));
-      if (s === 3) {
+      if (s === 3 && mode.get() === 2) {
+        const up = Math.max(0, -e.translationY);
+        let v: number;
+        if (start.get() < SNAP) v = up < 14 ? (SNAP * up) / 14 : SNAP + ((1 - SNAP) * (up - 14)) / flapTravel;
+        else v = start.get() + ((1 - SNAP) * -e.translationY) / flapTravel;
+        // Once snapped it stays broken.
+        breakV.set(clamp01(breakV.get() >= SNAP ? Math.max(SNAP, v) : v));
+      } else if (s === 3) {
         // The knife front follows the finger along the fold, from the corner it started at.
         const x = slitDir.get() === 1 ? e.x - envelopeLeft : envelopeLeft + ew - e.x;
         slit.set(Math.max(start.get(), clamp01(x / ew)));
@@ -192,8 +277,18 @@ export function ReceivingCeremony({ width, height, look, address, postmark, lett
         if (take.get() > 0.5 || v > 0.8) finish(1, v);
         else back(1, v);
       }
+      if (s === 3 && mode.get() === 2) {
+        const b = breakV.get();
+        const v = (-e.velocityY / flapTravel) * (1 - SNAP);
+        // Strained but not snapped: the wax holds. Snapped: the flap opens or falls back.
+        if (b < SNAP) breakV.set(withSpring(0, { damping: 18, stiffness: 400, overshootClamping: true }));
+        else if (b > 0.55 || v > 0.8) breakV.set(withSpring(1, { velocity: v, damping: 20, stiffness: 150, overshootClamping: true }));
+        else breakV.set(withSpring(SNAP, { velocity: v, damping: 14, stiffness: 160, overshootClamping: true }));
+      }
       // A slit stays where you left it; near the end the knife runs out on its own.
-      if (s === 3 && slit.get() > 0.92) finish(3);
+      if (s === 3 && mode.get() === 1 && slit.get() > 0.92) finish(3);
+      // Nothing happened yet: let the next touch choose again.
+      if (s === 3 && slit.get() === 0 && breakV.get() === 0) mode.set(0);
       if (s === 4) {
         const v = -e.velocityY / (letter.height * 1.3);
         if (pull.get() > 0.82 || v > 0.9) finish(4, v);
@@ -205,18 +300,20 @@ export function ReceivingCeremony({ width, height, look, address, postmark, lett
       if (settled.get()) return;
       const s = gStage.get();
       if (s === 0 || s === 1 || s === 2) finish(s);
+      if (s === 3 && slit.get() === 0 && breakV.get() === 0) mode.set(0);
     },
   });
 
   // Stage advance + haptics.
   useAnimatedReaction(
-    () => progress.map((v) => v.get() >= 0.97),
+    () => [doorV, take, flip, slit, pull].map((v, i) => (i === 3 ? Math.max(v.get(), breakV.get()) : v.get()) >= 0.97),
     (now, prev) => {
       if (fixedT !== undefined) return;
       const s = stage.get();
       if (s < 5 && now[s] && !(prev && prev[s])) {
         stage.set((s + 1) as ReceiveStage);
         scheduleOnRN([feel.door, feel.crease, feel.tick, feel.tick, feel.crease][s]);
+        if (s === 3 && onOpened) scheduleOnRN(onOpened, mode.get() === 2 ? 'seal' : 'slit');
       }
     },
   );
@@ -235,6 +332,17 @@ export function ReceivingCeremony({ width, height, look, address, postmark, lett
     },
     (n, prev) => {
       if (prev !== null && n > prev) scheduleOnRN(feel.fibre);
+    },
+  );
+
+  // The snap: one hard haptic, and the crumbs fly.
+  useAnimatedReaction(
+    () => breakV.get() >= SNAP,
+    (snapped, prev) => {
+      if (fixedT !== undefined || !snapped || prev !== false) return;
+      scheduleOnRN(feel.crack);
+      crumbT.set(0);
+      crumbT.set(withTiming(1, { duration: CRUMB_SECONDS * 1000, easing: Easing.linear }));
     },
   );
 
@@ -283,7 +391,7 @@ export function ReceivingCeremony({ width, height, look, address, postmark, lett
     const x = slit.get() * ew;
     return slitDir.get() === 1 ? Skia.XYWHRect(0, -2, x, 8) : Skia.XYWHRect(ew - x, -2, x, 8);
   });
-  const knifeShown = useDerivedValue(() => (stage.get() === 3 && slit.get() < 1 ? 1 : 0));
+  const knifeShown = useDerivedValue(() => (stage.get() === 3 && slit.get() < 1 && mode.get() !== 2 ? 1 : 0));
   const knifeTransform = useDerivedValue(() => {
     const x = slitDir.get() === 1 ? slit.get() * ew : ew - slit.get() * ew;
     return [{ translateX: x }, { translateY: 1.5 }, { scaleX: slitDir.get() }];
@@ -302,6 +410,24 @@ export function ReceivingCeremony({ width, height, look, address, postmark, lett
   });
   // Pictures ignore group opacity: hide the letter with a clip until the envelope is open.
   const letterClip = useDerivedValue(() => (flip.get() >= 1 && slit.get() >= 1 ? BIG : EMPTY));
+
+  // ── seal break ──
+  const sealLayers = useDerivedValue(() => (mode.get() === 2 && flip.get() >= 1 ? BIG : EMPTY));
+  const strain = useDerivedValue(() => Math.min(1, breakV.get() / SNAP));
+  const snapped = useDerivedValue(() => (breakV.get() >= SNAP ? 1 : 0));
+  const strainCrack = useDerivedValue(() => (breakV.get() < SNAP ? strain.get() * 0.9 : 0));
+  const flapAngle = useDerivedValue(() => ease((breakV.get() - SNAP) / (1 - SNAP)) * FLAP_OPEN);
+  const flapTransform = useDerivedValue<Transforms3d>(() => [
+    // Under strain the flap rises a hair before it lets go.
+    { translateY: breakV.get() < SNAP ? -1.2 * strain.get() : 0 },
+    { perspective: 1100 },
+    { rotateX: -flapAngle.get() },
+  ]);
+  const flapBounds = Skia.XYWHRect(-4, -4, ew + 8, g.flapTip + g.seal.maxR * 1.3);
+  const flapInnerClip = useDerivedValue(() => (flapAngle.get() > Math.PI / 2 ? flapBounds : EMPTY));
+  const flapOuterClip = useDerivedValue(() => (flapAngle.get() > Math.PI / 2 ? EMPTY : flapBounds));
+  const flapShade = useDerivedValue(() => 0.28 * Math.sin(flapAngle.get()));
+  const fibresShown = useDerivedValue(() => snapped.get() * Math.min(1, flapAngle.get() * 3));
 
   if (!bank || !doorPics || !front) return <View style={{ width, height }} />;
 
@@ -386,6 +512,51 @@ export function ReceivingCeremony({ width, height, look, address, postmark, lett
               <Path path={edge} style="stroke" strokeWidth={0.8} color="rgba(255, 252, 240, 0.85)" transform={[{ translateY: 1 }]} />
               <Rect x={0} y={-1} width={ew} height={2.2} color="rgba(10, 6, 4, 0.55)" opacity={gap} />
             </Group>
+            {/* breaking the seal: the whole opened back, drawn over the intact one */}
+            <Group clip={sealLayers}>
+              <Group origin={{ x: ew / 2, y: 0 }} transform={flapTransform}>
+                <Group clip={flapInnerClip}>
+                  <Picture picture={parts.flapInner} />
+                  <Group clip={g.flap}>
+                    <Rect x={0} y={0} width={ew} height={g.flapTip} color="#140c04" opacity={flapShade} />
+                  </Group>
+                </Group>
+              </Group>
+              <Picture picture={parts.interior} />
+              <Group transform={letterTransform}>
+                <Picture picture={letter.picture} />
+              </Group>
+              <Picture picture={parts.pocket} />
+              {/* paper fibres torn where the flap was glued */}
+              {/* rough, uneven: the top layer of paper came away with the gum */}
+              <Path path={broken.fibres} style="stroke" strokeWidth={1.8} strokeCap="round" color="rgba(252, 249, 240, 0.75)" opacity={fibresShown}>
+                <DiscretePathEffect length={2.5} deviation={1.1} seed={look.seed % 97} />
+              </Path>
+              <Path path={broken.fibres} style="stroke" strokeWidth={0.5} color="rgba(90, 70, 50, 0.3)" opacity={fibresShown} transform={[{ translateY: 1.1 }]}>
+                <DiscretePathEffect length={2} deviation={0.9} seed={(look.seed % 97) + 1} />
+              </Path>
+              {/* the half of the seal that stays on the envelope */}
+              <Group clip={broken.flapPiece} invertClip>
+                <WaxSeal seal={g.seal} wax={look.wax} initials={look.initials} seed={look.seed} pour={1} imprint={1} cracked />
+              </Group>
+              <Path path={broken.crack} style="stroke" strokeWidth={0.9} color="rgba(255, 200, 190, 0.35)" opacity={snapped} transform={[{ translateY: 0.8 }]} />
+              {/* the flap, with its half of the seal */}
+              <Group origin={{ x: ew / 2, y: 0 }} transform={flapTransform}>
+                <Group clip={flapOuterClip}>
+                  <Picture picture={parts.flapOuter} />
+                  <Group clip={broken.flapPiece}>
+                    <WaxSeal seal={g.seal} wax={look.wax} initials={look.initials} seed={look.seed} pour={1} imprint={1} cracked />
+                  </Group>
+                  <Group clip={g.flap}>
+                    <Rect x={0} y={0} width={ew} height={g.flapTip} color="#140c04" opacity={flapShade} />
+                  </Group>
+                </Group>
+              </Group>
+              <Path path={broken.crack} style="stroke" strokeWidth={0.8} color="rgba(20, 4, 4, 0.85)" opacity={strainCrack} />
+              {broken.crumbs.map((c, i) => (
+                <WaxCrumb key={i} crumb={c} t={crumbT} color={WAX[look.wax].rgb} />
+              ))}
+            </Group>
             {/* paper knife */}
             <Group transform={knifeTransform} opacity={knifeShown}>
               <Path path={knife}>
@@ -399,5 +570,31 @@ export function ReceivingCeremony({ width, height, look, address, postmark, lett
         </Group>
       </Canvas>
     </GestureDetector>
+  );
+}
+
+/** A chip of wax in flight: closed-form, so a frozen QA frame shows exactly where it is. */
+function WaxCrumb({ crumb, t, color }: { crumb: Crumb; t: SharedValue<number>; color: Rgb }) {
+  const shape = useMemo(() => {
+    const b = Skia.PathBuilder.Make();
+    crumb.shape.forEach((r, i) => {
+      const a = (i / crumb.shape.length) * Math.PI * 2;
+      if (i === 0) b.moveTo(Math.cos(a) * r, Math.sin(a) * r);
+      else b.lineTo(Math.cos(a) * r, Math.sin(a) * r);
+    });
+    return b.close().detach();
+  }, [crumb]);
+  const transform = useDerivedValue(() => {
+    const p = crumbAt(crumb, t.get() * CRUMB_SECONDS);
+    return [{ translateX: p.x }, { translateY: p.y }, { rotate: p.angle }];
+  });
+  const shown = useDerivedValue(() => (t.get() > 0 ? 1 : 0));
+  const [r, g, b] = color.map((v) => Math.round(v * 255));
+  return (
+    <Group transform={transform} opacity={shown}>
+      <Path path={shape} color={`rgb(${r}, ${g}, ${b})`} />
+      <Path path={shape} style="stroke" strokeWidth={0.5} color="rgba(0, 0, 0, 0.35)" />
+      <Path path={shape} color="rgba(255, 220, 210, 0.25)" transform={[{ scale: 0.45 }, { translateX: -0.6 }, { translateY: -0.6 }]} />
+    </Group>
   );
 }

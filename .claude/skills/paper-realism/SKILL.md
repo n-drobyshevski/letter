@@ -55,6 +55,7 @@ The illusion breaks on the *first* digital-looking detail. Every rule below exis
 - Molten wax is glossier (higher, tighter specular); pressed wax goes satin. Thin edges glow slightly.
 - Too little wax → the imprint is cut off at the edge. That's correct; keep it.
 - Grain on the stamp face must be low-frequency (≥ ~4 px features). 1 px noise reads as a checkerboard.
+- Breaking (`sealBreak.ts`): brittle wax splits along the flap's edge (jagged random walk through the wax, exact paper edge elsewhere). Draw the same `WaxSeal` twice, clipped to the flap piece and to its inverse (`invertClip`), so the halves match perfectly before they separate. The body half gets a faint lit lip along the break. 3–5 faceted crumbs (1.3–4 pt) fly up and land. Under the flap, the gum line shows paper fibres torn away on 30–60 % of its length (rough `DiscretePathEffect` strokes, never a regular dash).
 - Iterate on looks in Node with CanvasKit (render the shader to PNG) before wiring it into the app.
 
 ## Imperfection budget (per letter, seeded)

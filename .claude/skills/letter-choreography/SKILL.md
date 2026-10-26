@@ -18,6 +18,8 @@ description: How to build the letter "ceremonies" (fold, insert, seal, stamp, po
 - **Never commit on `e.canceled`** (a call, a scroll taking over): spring back instead.
 - Every gesture has a tap/button alternative (`advanceKey`/`commitKey` props); it leads when `useMotionPrefs().needsButtons`.
 - **Perspective must be in the same `transform` list as the rotation.** Each `Group` flattens its matrix to 2D, so `perspective` on a parent group does nothing. Put the vanishing point on the hinge's mid-line (`origin`).
+- Choosing between two gestures in one stage (knife vs seal): decide on `onBegin` by where the finger lands, lock it with a `mode` shared value, and reset the choice if nothing happened.
+- Time-based physics after a gesture event (wax crumbs): closed-form motion of a `withTiming` 0→1 value, so a frozen QA frame shows exactly where each piece is.
 - Hold-to-do (pouring wax): start a `withTiming` in `onBegin`, `cancelAnimation` in `onFinalize`, and keep what was done.
 
 ## Physics cues
@@ -47,5 +49,6 @@ description: How to build the letter "ceremonies" (fold, insert, seal, stamp, po
 | Mailbox door (`ReceivingCeremony`) | tap (unlock + open) or drag right | `door` |
 | Take out / flip | drag up or tap / tap | `crease` / `tick` |
 | Slit with paper knife | drag along the top fold from either corner; auto-finishes past 0.92 | `fibre` at seeded stick-slip catches (18–30 pt) |
+| Break the seal (alternative to the knife) | touch the seal and pull up: 0–14 pt strain (hairline crack, flap rises 1 pt), snap at 14 pt, then the flap swings open with the finger; released before the snap it holds, after it the flap opens past 0.55 or falls back | `crack` once on the snap |
 | Pull letter out | drag up | `crease` |
 | Unfold | `FoldableLetter initialT={1}`, drag down | `crease` per panel |
