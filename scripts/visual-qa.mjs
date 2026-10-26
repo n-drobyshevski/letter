@@ -23,6 +23,12 @@ const SHOTS = [
   { name: 'jitter-grid', path: '/lab/jitter?seed=20261026&paper=grid' },
   { name: 'jitter-cotton-marck', path: '/lab/jitter?seed=99&paper=cotton&font=marckScript&ink=violet' },
   { name: 'typing', path: '/lab/typing?seed=7' },
+  // the whole journey, one frame per step (later steps start with a sample letter)
+  { name: 'journey-write', path: '/lab/journey' },
+  { name: 'journey-fold', path: '/lab/journey?step=fold' },
+  { name: 'journey-envelope-c5', path: '/lab/journey?step=envelope&fold=half' },
+  { name: 'journey-post-c6', path: '/lab/journey?step=post&fold=quarter' },
+  { name: 'journey-receive-c5', path: '/lab/journey?step=receive&fold=half' },
   ...[0, 0.25, 0.5, 0.75, 1].map((t) => ({ name: `fold-${t}`, path: `/lab/fold?seed=1407&t=${t}` })),
   // half fold (top half down) · quarter fold (then the right half over the left; 0.5 = the half fold)
   ...[0.3, 0.6, 1].map((t) => ({ name: `foldhalf-${t}`, path: `/lab/fold?seed=1407&fold=half&t=${t}` })),

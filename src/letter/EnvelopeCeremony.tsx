@@ -31,7 +31,8 @@ import { scheduleOnRN } from 'react-native-worklets';
 import { feel } from '../lib/haptics';
 import { mulberry32, subSeed, wobble } from '../lib/random';
 import type { LinerKind, PaperKind, WaxKind, WaxType } from '../theme/stationery';
-import { envelopeGeometry, recordEnvelope, recordFoldedLetter, type EnvelopeFormat } from './envelope';
+import { ENVELOPE_MM, envelopeGeometry, formatForFold, recordEnvelope, recordFoldedLetter, type EnvelopeFormat } from './envelope';
+import type { FoldKind } from './fold';
 import { WaxSeal } from './WaxSeal';
 
 /**
@@ -61,8 +62,11 @@ type Props = {
   letterFront: SkPicture;
   letterBack: SkPicture;
   sheet: { width: number; height: number };
+  /** Width of a DL envelope on screen; C5 and C6 keep their real size next to it. */
   width: number;
   look: EnvelopeLook;
+  /** How the letter going in was folded (picks the envelope format unless the look sets one). */
+  fold?: FoldKind;
   onStage?: (stage: Stage) => void;
   /** Freeze the whole ceremony at t ∈ [0, 1] (visual QA). */
   fixedT?: number;
@@ -95,10 +99,17 @@ function splitT(t: number) {
   };
 }
 
-export function EnvelopeCeremony({ letterFront, letterBack, sheet, width, look, onStage, fixedT, resetKey }: Props) {
-  const g = useMemo(() => envelopeGeometry(width, look.seed), [width, look.seed]);
+export function EnvelopeCeremony({ letterFront, letterBack, sheet, width, look, fold = 'tri', onStage, fixedT, resetKey }: Props) {
+  const format = look.format ?? formatForFold(fold);
+  const g = useMemo(
+    () => envelopeGeometry(format === 'DL' ? width : Math.round((width * ENVELOPE_MM[format].w) / ENVELOPE_MM.DL.w), look.seed, format),
+    [width, look.seed, format],
+  );
   const parts = useMemo(() => recordEnvelope(g, look.paper, look.liner, look.seed), [g, look.paper, look.liner, look.seed]);
-  const letter = useMemo(() => recordFoldedLetter(letterFront, letterBack, sheet, look.seed), [letterFront, letterBack, sheet, look.seed]);
+  const letter = useMemo(
+    () => recordFoldedLetter(letterFront, letterBack, sheet, look.seed, fold),
+    [letterFront, letterBack, sheet, look.seed, fold],
+  );
 
 
   // Letter placement: seeded crookedness, resting on the bottom of the pocket.
