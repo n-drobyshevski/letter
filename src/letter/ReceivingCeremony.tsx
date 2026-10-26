@@ -33,7 +33,7 @@ import { scheduleOnRN } from 'react-native-worklets';
 import { feel } from '../lib/haptics';
 import { WAX, type Country, type PaperKind, type Rgb } from '../theme/stationery';
 import { mulberry32, subSeed, wobble } from '../lib/random';
-import { envelopeGeometry, recordEnvelope, recordFoldedLetter } from './envelope';
+import { ENVELOPE_MM, envelopeGeometry, recordEnvelope, recordFoldedLetter, type EnvelopeFormat } from './envelope';
 import type { FoldKind } from './fold';
 import type { EnvelopeLook } from './EnvelopeCeremony';
 import { recordEnvelopeFront, type Address, type Postmark } from './envelopeFront';
@@ -100,7 +100,7 @@ type Props = {
   senderCountry?: Country;
   /** Letters in the box, this one included (0: empty). Others lie underneath it. */
   waiting?: number;
-  others?: { seed: number; paper: PaperKind; address: Address; postmark: Postmark; senderCountry?: Country }[];
+  others?: { seed: number; paper: PaperKind; address: Address; postmark: Postmark; senderCountry?: Country; format?: EnvelopeFormat }[];
   /** Coming back for the next letter: the door is already open. */
   startOpen?: boolean;
   fixedT?: number;
@@ -115,6 +115,12 @@ type Props = {
 };
 
 export type OpenedBy = 'slit' | 'seal';
+
+/** On-screen width of an envelope: a DL spans the reading width, other formats keep their real size beside it. */
+function envelopeWidth(f: EnvelopeFormat, width: number) {
+  const pxPerMm = Math.min(width - 40, 360) / ENVELOPE_MM.DL.w;
+  return Math.min(width - 24, Math.round(ENVELOPE_MM[f].w * pxPerMm));
+}
 
 /** The seal snaps after 14 pt of pull; until then (break < SNAP) the wax only strains. */
 const SNAP = 0.2;
@@ -151,9 +157,11 @@ export function ReceivingCeremony({
   const doorLabel = country === 'fr' ? name.toUpperCase() : String(flat);
   const doorPics = useMemo(() => faces && recordDoor(L, doorLabel, look.seed + 3, faces.print), [faces, L, doorLabel, look.seed]);
 
-  // The envelope, at the size it is read at.
-  const ew = Math.round(Math.min(width - 40, 360));
-  const g = useMemo(() => envelopeGeometry(ew, look.seed), [ew, look.seed]);
+  // The envelope, at the size it is read at: a DL spans the reading width, other formats keep their real size next to it.
+  const sizeOf = (f: EnvelopeFormat) => envelopeWidth(f, width);
+  const format = look.format ?? 'DL';
+  const ew = sizeOf(format);
+  const g = useMemo(() => envelopeGeometry(ew, look.seed, format), [ew, look.seed, format]);
   const eh = g.height;
   const parts = useMemo(() => recordEnvelope(g, look.paper, look.liner, look.seed), [g, look.paper, look.liner, look.seed]);
   const front = useMemo(
@@ -166,9 +174,13 @@ export function ReceivingCeremony({
       faces
         ? others
             .slice(0, 2)
-            .map((o) => recordEnvelopeFront(g, o.paper, o.seed, o.address, o.postmark, faces, { wear: true, country: o.senderCountry ?? 'ru' }))
+            .map((o) => {
+              const og = envelopeGeometry(envelopeWidth(o.format ?? 'DL', width), o.seed, o.format ?? 'DL');
+              const pic = recordEnvelopeFront(og, o.paper, o.seed, o.address, o.postmark, faces, { wear: true, country: o.senderCountry ?? 'ru' });
+              return { pic, w: og.width, h: og.height };
+            })
         : [],
-    [faces, g, others],
+    [faces, others, width],
   );
   const letter = useMemo(
     () => recordFoldedLetter(letterFront, letterBack, sheet, look.seed, fold),
@@ -206,7 +218,7 @@ export function ReceivingCeremony({
 
   // Poses: lying on the floor of the box → held in front of you.
   const rand = mulberry32(subSeed(look.seed, 'mailbox'));
-  const inside = { x: door.x + door.w * 0.5, y: door.y + door.h * 0.7, scale: (door.w * 0.86) / ew, tilt: 1.05, rot: 0.12 + wobble(rand, 0.05) };
+  const inside = { x: door.x + door.w * 0.5, y: door.y + door.h * 0.7, scale: (door.w * 0.86) / sizeOf('DL'), tilt: 1.05, rot: 0.12 + wobble(rand, 0.05) };
   const held = { x: width / 2, y: height * 0.6, scale: 1, tilt: 0, rot: wobble(rand, 0.02) };
 
   // Brittle sealing wax cracks (in the post, and when opened); flexible wax bends and peels off whole.
@@ -420,15 +432,15 @@ export function ReceivingCeremony({
       { translateY: -eh / 2 },
     ];
   });
-  const underneathPose = (i: number): Transforms3d => [
+  const underneathPose = (i: number, uw: number, uh: number): Transforms3d => [
     { translateX: inside.x + (i + 1) * 5 },
     { translateY: inside.y - (i + 1) * 3 },
     { perspective: 700 },
     { rotateX: inside.tilt },
     { rotate: inside.rot - (i + 1) * 0.06 },
     { scale: inside.scale },
-    { translateX: -ew / 2 },
-    { translateY: -eh / 2 },
+    { translateX: -uw / 2 },
+    { translateY: -uh / 2 },
   ];
   // Still inside the box: clipped by its opening and in its shadow. Out: on top of everything.
   const BIG = Skia.XYWHRect(-4000, -4000, 8000, 8000);
@@ -511,9 +523,9 @@ export function ReceivingCeremony({
           <Rect rect={doorRect}>
             <LinearGradient start={vec(0, door.y)} end={vec(0, door.y + door.h)} colors={['#1d1a17', '#3a342e']} />
           </Rect>
-          {underneath.map((pic, i) => (
-            <Group key={i} transform={underneathPose(underneath.length - 1 - i)}>
-              <Picture picture={pic} />
+          {underneath.map((u, i) => (
+            <Group key={i} transform={underneathPose(underneath.length - 1 - i, u.w, u.h)}>
+              <Picture picture={u.pic} />
             </Group>
           ))}
           {waiting > 0 && (

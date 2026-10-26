@@ -11,6 +11,8 @@ import { useLabParams } from '@/lib/params';
 import { supabase } from '@/lib/supabase';
 import { useMotionPrefs } from '@/lib/useMotionPrefs';
 import type { EnvelopeLook } from '@/letter/EnvelopeCeremony';
+import { formatForFold } from '@/letter/envelope';
+import { FOLD_KINDS, type FoldKind } from '@/letter/fold';
 import { PostingCeremony } from '@/letter/PostingCeremony';
 import { promiseLine, type LetterRow } from '@/letter/tracking/fromServer';
 import { routed, type Tier } from '@/letter/tracking/itinerary';
@@ -165,6 +167,8 @@ function LivePost({ couple, onOffline }: { couple: Couple; onOffline: () => void
     wax: 'bordeaux',
     initials: me.display_name.trim().charAt(0).toUpperCase() || (lang === 'fr' ? 'M' : 'Н'),
     seed,
+    // The envelope fits the fold: DL, C5 or C6.
+    format: formatForFold(draft?.fold ?? 'tri'),
   };
 
   // The postman comes at collect_at: from then on the letter is gone.
@@ -334,6 +338,7 @@ function PostLab() {
     wax: 'bordeaux',
     initials: country === 'fr' ? 'M' : 'Н',
     seed: q.seed ?? 1407,
+    format: formatForFold(FOLD_KINDS.includes(q.fold as FoldKind) ? (q.fold as FoldKind) : 'tri'),
   };
 
   const hint = {

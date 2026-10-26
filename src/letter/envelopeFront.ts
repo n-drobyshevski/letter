@@ -255,7 +255,7 @@ function drawWear(c: SkCanvas, w: number, h: number, seed: number) {
 }
 
 export function recordEnvelopeFront(
-  g: Pick<EnvelopeGeometry, 'width' | 'height'>,
+  g: Pick<EnvelopeGeometry, 'width' | 'height'> & Partial<Pick<EnvelopeGeometry, 'unit' | 'format'>>,
   paper: PaperKind,
   seed: number,
   address: Address,
@@ -264,6 +264,12 @@ export function recordEnvelopeFront(
   options: { wear?: boolean; country?: Country } = {},
 ): SkPicture {
   const { width: w, height: h } = g;
+  // Sizes of printed and written things come from the physical unit (a DL's height
+  // and width at this scale), so they keep their real size on C5 and C6; on a DL
+  // these are exactly h and w. Positions stay proportional to the envelope.
+  const sized = g.format !== undefined && g.format !== 'DL' && g.unit !== undefined;
+  const uh = sized ? g.unit! : h;
+  const uw = sized ? g.unit! * 2 : w;
   const recorder = Skia.PictureRecorder();
   const c = recorder.beginRecording(Skia.XYWHRect(-10, -10, w + 20, h + 20));
 
@@ -271,8 +277,8 @@ export function recordEnvelopeFront(
   base.setShader(effects().paper.makeShader(paperUniforms(PAPERS[paper], g, seed + 11, 0)));
   c.drawRect(Skia.XYWHRect(0, 0, w, h), base);
 
-  const label = Skia.Font(fonts.print, h * 0.055);
-  const hand = Skia.Font(fonts.hand, h * 0.085);
+  const label = Skia.Font(fonts.print, uh * 0.055);
+  const hand = Skia.Font(fonts.hand, uh * 0.085);
   const ink = Skia.Paint();
   ink.setShader(effects().ink.makeShader([...INKS.blueBlack.rgb, seed % 997]));
   ink.setBlendMode(BlendMode.Multiply);
@@ -283,7 +289,7 @@ export function recordEnvelopeFront(
     // От кого / Откуда, top-left.
     const lx = w * 0.05;
     const lw = w * 0.42;
-    const row = h * 0.12;
+    const row = uh * 0.12;
     let y = h * 0.14;
     let x = field(c, 'От кого', lx, y, lw, label);
     handLine(c, address.fromName, hand, x + 2, y - 1, lx + lw - x, seed + 1, ink);
@@ -304,32 +310,32 @@ export function recordEnvelopeFront(
     field(c, '', rx, y, rw, label);
 
     // Индекс места назначения: the six-box template, bottom-left.
-    const box = h * 0.075;
+    const box = uh * 0.075;
     const ix = w * 0.05;
     const iy = h * 0.8;
     const frame = printedPaint();
     frame.setStyle(PaintStyle.Stroke);
     frame.setStrokeWidth(0.6);
     for (let i = 0; i < 6; i++) c.drawRect(Skia.XYWHRect(ix + i * box * 0.8, iy, box * 0.62, box), frame);
-    c.drawText('Индекс места назначения', ix, iy - box * 0.3, printedPaint(), Skia.Font(fonts.print, h * 0.04));
+    c.drawText('Индекс места назначения', ix, iy - box * 0.3, printedPaint(), Skia.Font(fonts.print, uh * 0.04));
   } else {
     // French envelopes have no printed fields: the sender small at the top left,
     // the address as a block at the bottom right, city in capitals, country last.
-    const small = Skia.Font(fonts.hand, h * 0.065);
+    const small = Skia.Font(fonts.hand, uh * 0.065);
     handLine(c, address.fromName, small, w * 0.05, h * 0.13, w * 0.4, seed + 1, ink);
-    handLine(c, address.fromCity, small, w * 0.05, h * 0.21, w * 0.4, seed + 2, ink);
+    handLine(c, address.fromCity, small, w * 0.05, h * 0.13 + uh * 0.08, w * 0.4, seed + 2, ink);
     const bx = w * 0.5;
     const lines = [address.toName, address.toCity.toUpperCase(), (address.toCountry ?? '').toUpperCase()].filter(Boolean);
-    lines.forEach((line, i) => handLine(c, line, hand, bx, h * 0.62 + i * h * 0.12, w * 0.45, seed + 3 + i, ink));
+    lines.forEach((line, i) => handLine(c, line, hand, bx, h * 0.62 + i * uh * 0.12, w * 0.45, seed + 3 + i, ink));
   }
 
   // Stamp and postmark, top-right.
-  const sw = w * 0.13;
-  const sh = h * 0.34;
-  const sx = w - sw - w * 0.04;
-  const sy = h * 0.07;
+  const sw = uw * 0.13;
+  const sh = uh * 0.34;
+  const sx = w - sw - uw * 0.04;
+  const sy = uh * 0.07;
   drawStamp(c, sx, sy, sw, sh, seed, fonts, country);
-  const r = h * 0.13;
+  const r = uh * 0.13;
   const pcx = sx - r * 0.15;
   const pcy = sy + sh * 0.72;
   drawCancellation(c, sx - r * 4.2, sx - r * 1.05, pcy, r, seed);

@@ -12,6 +12,8 @@ import { useMotionPrefs } from '@/lib/useMotionPrefs';
 import type { EnvelopeLook } from '@/letter/EnvelopeCeremony';
 import { FoldableLetter } from '@/letter/FoldableLetter';
 import { LetterSheet, useLetterPicture, useWithStrokes, type LetterLook } from '@/letter/LetterSheet';
+import { formatForFold } from '@/letter/envelope';
+import { FOLD_KINDS, type FoldKind } from '@/letter/fold';
 import { countryOf, type MailLetter } from '@/letter/mailboxFromServer';
 import { ReceivingCeremony, type OpenedBy, type ReceiveStage } from '@/letter/ReceivingCeremony';
 import { SAMPLE_LETTER, SAMPLE_LETTER_FR, SHORT_NOTES } from '@/letter/samples';
@@ -232,10 +234,12 @@ function MailboxLab() {
   const fixed = q.t !== undefined;
   const [country, setCountry] = useState<Country>(q.country === 'fr' ? 'fr' : 'ru');
   const total = Math.max(0, Math.min(6, q.waiting ?? 1));
-  const letters = useMemo(
-    () => lettersFor(country, total, q.seed ?? 1407, fixed, q.wax === 'flexible' ? 'flexible' : 'brittle'),
-    [country, total, q.seed, fixed, q.wax],
-  );
+  // ?fold=half|quarter: the first letter is folded that way, in its envelope (C5, C6).
+  const fold = FOLD_KINDS.includes(q.fold as FoldKind) ? (q.fold as FoldKind) : undefined;
+  const letters = useMemo(() => {
+    const list = lettersFor(country, total, q.seed ?? 1407, fixed, q.wax === 'flexible' ? 'flexible' : 'brittle');
+    return fold && list[0] ? [{ ...list[0], fold, format: formatForFold(fold) }, ...list.slice(1)] : list;
+  }, [country, total, q.seed, fixed, q.wax, fold]);
   return (
     <MailboxView
       key={country}
@@ -306,6 +310,7 @@ function MailboxView({ letters, lang, country, name, fixedT, openMode = 'slit', 
     waxType: letter?.waxType,
     initials: letter?.initials ?? 'Н',
     seed: letter?.seed ?? 1,
+    format: letter?.format,
   };
   const fold = letter?.fold ?? 'tri';
   const { picture: inked } = useLetterPicture(letter?.text ?? '', letterLook, sheet.width, sheet.height, 1, 'all', fold);

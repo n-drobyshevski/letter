@@ -31,7 +31,7 @@ import { scheduleOnRN } from 'react-native-worklets';
 import { feel } from '../lib/haptics';
 import { mulberry32, subSeed, wobble } from '../lib/random';
 import type { LinerKind, PaperKind, WaxKind, WaxType } from '../theme/stationery';
-import { envelopeGeometry, recordEnvelope, recordFoldedLetter } from './envelope';
+import { envelopeGeometry, recordEnvelope, recordFoldedLetter, type EnvelopeFormat } from './envelope';
 import { WaxSeal } from './WaxSeal';
 
 /**
@@ -53,6 +53,8 @@ export type EnvelopeLook = {
   waxType?: WaxType;
   initials: string;
   seed: number;
+  /** DL by default; C5 and C6 for letters folded in half or in four. */
+  format?: EnvelopeFormat;
 };
 
 type Props = {

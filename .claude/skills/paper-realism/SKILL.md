@@ -85,3 +85,8 @@ The illusion breaks on the *first* digital-looking detail. Every rule below exis
 3. Do all shadows agree with `LIGHT_DIR`?
 4. Is grain visible but not noisy at 100 %?
 5. RU and FR samples both render without fallback glyphs?
+
+## Envelope formats
+- One per fold (ISO 269): tri-fold → DL 220×110, half (A5) → C5 229×162, quarter (A6, turned sideways) → C6 162×114. `envelopeGeometry(width, seed, format)`; `formatForFold`.
+- Printed and written things keep their real size across formats: size them from `g.unit` (a DL's height at this scale), place them as fractions of the envelope. A DL renders exactly as before.
+- At the RU 171 mm slot a DL or C5 turns to go in short edge first; a C6 goes in long edge first. In the mailbox, formats keep their size relative to each other.

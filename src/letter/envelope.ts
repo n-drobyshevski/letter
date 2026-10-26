@@ -27,11 +27,30 @@ import { LINER_SKSL, PAPER_SKSL } from './shaders';
  * the flap hinges on y = 0 and, closed, points down to `flapTip`.
  */
 
-export const ENVELOPE_RATIO = 0.5;
+
+/**
+ * ISO 269 envelope sizes (mm), one per fold: an A4 folded in three goes in a DL,
+ * folded in half (A5) in a C5, folded in four (A6, turned sideways) in a C6.
+ */
+export type EnvelopeFormat = 'DL' | 'C5' | 'C6';
+export const ENVELOPE_MM: Record<EnvelopeFormat, { w: number; h: number }> = {
+  DL: { w: 220, h: 110 },
+  C5: { w: 229, h: 162 },
+  C6: { w: 162, h: 114 },
+};
+export const ENVELOPE_FORMATS = Object.keys(ENVELOPE_MM) as EnvelopeFormat[];
+export const formatForFold = (fold: FoldKind): EnvelopeFormat => (fold === 'half' ? 'C5' : fold === 'quarter' ? 'C6' : 'DL');
 
 export type EnvelopeGeometry = {
   width: number;
   height: number;
+  format: EnvelopeFormat;
+  /**
+   * Physical size unit: the height of a DL envelope (110 mm) at this envelope's
+   * scale. Stamps, postmarks, writing and the wax seal are sized from it, so they
+   * stay the same real size on every format.
+   */
+  unit: number;
   flapTip: number;
   flap: SkPath;
   left: SkPath;
@@ -61,16 +80,20 @@ function roundedTriangle(a: [number, number], tip: [number, number], b: [number,
     .detach();
 }
 
-export function envelopeGeometry(width: number, seed: number): EnvelopeGeometry {
-  const height = Math.round(width * ENVELOPE_RATIO);
+export function envelopeGeometry(width: number, seed: number, format: EnvelopeFormat = 'DL'): EnvelopeGeometry {
+  const mm = ENVELOPE_MM[format];
+  const height = Math.round((width * mm.h) / mm.w);
+  const unit = format === 'DL' ? height : (width / mm.w) * 110;
   const rand = mulberry32(subSeed(seed, 'envelope'));
   // Hand-folded envelopes are never exactly symmetric.
   const tipX = width / 2 + wobble(rand, width * 0.006);
   const flapTip = height * 0.56;
-  const maxR = height * 0.17;
+  const maxR = unit * 0.17;
   return {
     width,
     height,
+    format,
+    unit,
     flapTip,
     flap: roundedTriangle([0, 0], [tipX, flapTip], [width, 0], height * 0.14),
     // Side flaps stay above the closing flap's edges, so a closed envelope shows no gap.
@@ -201,7 +224,8 @@ export function recordEnvelope(g: EnvelopeGeometry, paper: PaperKind, liner: Lin
  * edges of the hidden panels pressing through as faint lines.
  *   tri      the back of the top third over the middle third (DL)
  *   half     the back of the top half over the bottom half (A5)
- *   quarter  the back of the bottom-right quarter over the bottom-left (A6)
+ *   quarter  the back of the bottom-right quarter over the bottom-left (A6),
+ *            turned sideways: that is how an A6 goes into a C6
  */
 export function recordFoldedLetter(
   front: SkPicture,
@@ -255,7 +279,13 @@ export function recordFoldedLetter(
       line.setColor(Skia.Color('rgba(30, 18, 8, 0.16)'));
       c.drawLine(2 * x - W + 0.5, 0, 2 * x - W + 0.5, stackH, line);
     }
-    return { picture: recorder.finishRecordingAsPicture(), width: stackW, height: stackH };
+    const upright = recorder.finishRecordingAsPicture();
+    const turned = Skia.PictureRecorder();
+    const t = turned.beginRecording(Skia.XYWHRect(-10, -10, stackH + 20, stackW + 20));
+    t.translate(stackH, 0);
+    t.rotate(90, 0, 0);
+    t.drawPicture(upright);
+    return { picture: turned.finishRecordingAsPicture(), width: stackH, height: stackW };
   }
 
   // Show-through of the top panel's own writing, mirrored about its crease.

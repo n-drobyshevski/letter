@@ -1,3 +1,4 @@
+import type { EnvelopeFormat } from './envelope';
 import type { Address, Postmark } from './envelopeFront';
 import type { FoldKind } from './fold';
 import type { LetterLook } from './LetterSheet';
@@ -23,6 +24,7 @@ export type MailRow = {
     waxType?: string;
     initials?: string;
     seed?: number;
+    format?: string;
     postmark?: { city?: string; date?: string };
   } | null;
 };
@@ -46,6 +48,8 @@ export type MailLetter = {
   letterLook?: Omit<LetterLook, 'seed'>;
   /** How the sender folded it; the recipient unfolds it the same way. */
   fold?: FoldKind;
+  /** The envelope it came in, sized for the fold. */
+  format?: EnvelopeFormat;
   paper: PaperKind;
   wax: WaxKind;
   waxType: WaxType;
@@ -65,6 +69,8 @@ const WAXES: WaxKind[] = ['bordeaux', 'forest', 'navy', 'gold'];
 const INKS: InkKind[] = ['blueBlack', 'ironGall', 'violet'];
 const FONTS: FontKey[] = ['badScript', 'marckScript', 'caveat'];
 const FOLDS: FoldKind[] = ['tri', 'half', 'quarter'];
+const FORMATS: EnvelopeFormat[] = ['DL', 'C5', 'C6'];
+const FORMAT_OF: Record<FoldKind, EnvelopeFormat> = { tri: 'DL', half: 'C5', quarter: 'C6' };
 const pick = <T extends string>(v: string | undefined, allowed: T[], fallback: T): T =>
   allowed.includes(v as T) ? (v as T) : fallback;
 
@@ -104,6 +110,7 @@ export function mailboxFromServer(input: {
     const sender = them && r.sender_id === them.id ? them : { id: r.sender_id, display_name: '', city: '', tz: me.tz };
     const b = body.get(r.id) ?? null;
     const env = r.envelope ?? {};
+    const fold = pick(b?.fold, FOLDS, 'tri');
     return {
       id: r.id,
       seed: env.seed ?? r.seed,
@@ -115,7 +122,8 @@ export function mailboxFromServer(input: {
         ink: pick(b?.ink, INKS, 'blueBlack'),
         font: pick(b?.font, FONTS, 'badScript'),
       },
-      fold: pick(b?.fold, FOLDS, 'tri'),
+      fold,
+      format: pick(env.format, FORMATS, FORMAT_OF[fold]),
       paper: pick(env.paper, ENVELOPE_PAPERS, 'cream'),
       wax: pick(env.wax, WAXES, 'bordeaux'),
       waxType: env.waxType === 'flexible' ? 'flexible' : 'brittle',

@@ -14,7 +14,7 @@ import { scheduleOnRN } from 'react-native-worklets';
 
 import { feel } from '../lib/haptics';
 import type { Country, PostboxSkin } from '../theme/stationery';
-import { envelopeGeometry, recordEnvelope } from './envelope';
+import { ENVELOPE_MM, envelopeGeometry, recordEnvelope } from './envelope';
 import type { EnvelopeLook } from './EnvelopeCeremony';
 import { postboxLayout, recordPostbox } from './steelBox';
 import { useTypefaces } from './useTypefaces';
@@ -78,7 +78,8 @@ export function PostingCeremony({
   commitKey,
   retrieveKey,
 }: Props) {
-  const layout = useMemo(() => postboxLayout(width, height, country), [width, height, country]);
+  const format = look.format ?? 'DL';
+  const layout = useMemo(() => postboxLayout(width, height, country, ENVELOPE_MM[format].w), [width, height, country, format]);
   const s = layout.scale;
   const faces = useTypefaces();
   const box = useMemo(
@@ -87,7 +88,7 @@ export function PostingCeremony({
       recordPostbox(layout, skin, collectAt, { print: faces.print, printBold: faces.printBold, marker: faces.marker }, look.seed),
     [faces, layout, skin, collectAt, look.seed],
   );
-  const g = useMemo(() => envelopeGeometry(Math.round(220 * s), look.seed), [s, look.seed]);
+  const g = useMemo(() => envelopeGeometry(Math.round(ENVELOPE_MM[format].w * s), look.seed, format), [s, look.seed, format]);
   const parts = useMemo(() => recordEnvelope(g, look.paper, look.liner, look.seed), [g, look.paper, look.liner, look.seed]);
 
   const pw = g.width;

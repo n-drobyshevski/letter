@@ -55,6 +55,18 @@ describe('mailboxFromServer', () => {
     // Unfolded the way it was folded; anything unknown is a tri-fold.
     assert.equal(early.fold, 'quarter');
     assert.equal(late.fold, 'tri');
+    // The envelope matches the fold unless the posting recorded one.
+    assert.equal(early.format, 'C6');
+    assert.equal(late.format, 'DL');
+    const recorded = mailboxFromServer({
+      rows: [row('c5', '2026-11-19T13:00:00Z', { envelope: { format: 'C5' } })],
+      contents: [],
+      receipts: [],
+      me,
+      them,
+      now,
+    });
+    assert.equal(recorded.waiting[0].format, 'C5');
   });
 
   test('addressed from Lille to Minsk, in French, with the real postmark', () => {

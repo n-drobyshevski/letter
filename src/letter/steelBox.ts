@@ -87,14 +87,14 @@ export type PostboxLayout = {
   /** pt per mm: the slot and the envelope share this scale. */
   scale: number;
   slot: { x: number; y: number; w: number; h: number };
-  /** A DL envelope (220 mm) only fits the RU 171 mm slot short edge first. */
+  /** The envelope is longer than the slot: it goes in short edge first. */
   shortEdgeFirst: boolean;
 };
 
 /** Slot sizes in mm. RU: the 2015 wall box (artlebedev.ru). FR: street box, an estimate. */
 const SLOT_MM = { ru: { w: 171, h: 6 }, fr: { w: 250, h: 20 } };
 
-export function postboxLayout(width: number, height: number, country: Country = 'ru'): PostboxLayout {
+export function postboxLayout(width: number, height: number, country: Country = 'ru', envelopeMm = 220): PostboxLayout {
   // Close-up framing: the slot spans ~70 % of the screen width.
   const mm = SLOT_MM[country];
   const scale = Math.min(1.6, (width * 0.72) / mm.w);
@@ -105,7 +105,8 @@ export function postboxLayout(width: number, height: number, country: Country = 
     country,
     scale,
     slot: { x: (width - w) / 2, y: height * 0.3, w, h: Math.max(mm.h * scale, 8) },
-    shortEdgeFirst: 220 > mm.w,
+    // A DL (220 mm) or C5 (229 mm) only fits the RU 171 mm slot short edge first; a C6 (162 mm) goes in long edge first.
+    shortEdgeFirst: envelopeMm > mm.w,
   };
 }
 

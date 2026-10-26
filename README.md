@@ -11,7 +11,7 @@ A private app for two people that simulates sending and receiving real letters. 
 |---|---|---|
 | Home | `/` | Your mailbox (a red flag when something is waiting), the letter on your desk, letters on their way in both directions, the ones you have read. Signed out: the sign-in card. No backend: the lab index |
 | Write | `/write` | The desk (same screen as `/lab/typing`) |
-| Fold | `/fold` | Fold what you wrote; the gesture picks the fold: drag up from below = in three (DL), pull the top edge down = in half (A5), then swipe left = in four (A6). Saved with the letter; she unfolds it the same way |
+| Fold | `/fold` | Fold what you wrote; the gesture picks the fold: drag up from below = in three (DL), pull the top edge down = in half (A5), then swipe left = in four (A6). Saved with the letter, in an envelope that fits the fold (DL, C5, C6); she unfolds it the same way |
 | Post | `/post` | The postbox (same as `/lab/post`) |
 | Mailbox | `/mailbox` | Your mailbox (same as `/lab/mailbox`) |
 | Track | `/track/<id>` | A letter's journey |
