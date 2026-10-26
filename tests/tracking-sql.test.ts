@@ -38,7 +38,7 @@ async function as<T>(role: string, user: string | null, fn: () => Promise<T>) {
 before(async () => {
   db = new PGlite();
   await db.exec(STUB);
-  for (const f of ['20261026000001_letters.sql', '20261027000003_collection_visibility.sql', '20261027000004_tier_postal.sql', '20261027000005_tracking.sql', '20261028000006_tracking_estimate.sql']) {
+  for (const f of ['20261026000001_letters.sql', '20261027000003_collection_visibility.sql', '20261027000004_tier_postal.sql', '20261027000005_tracking.sql', '20261028000006_tracking_estimate.sql', '20261028000007_helpers_not_public.sql']) {
     await db.exec(migration(f));
   }
   await db.exec(`
