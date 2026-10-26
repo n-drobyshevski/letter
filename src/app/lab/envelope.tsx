@@ -8,7 +8,7 @@ import { EnvelopeCeremony, type EnvelopeLook, type Stage } from '@/letter/Envelo
 import { useLetterPicture, type LetterLook } from '@/letter/LetterSheet';
 import { SAMPLE_LETTER } from '@/letter/samples';
 import { SHEET_RATIO } from '@/letter/sheet';
-import { LINERS, WAX, type LinerKind, type PaperKind, type WaxKind } from '@/theme/stationery';
+import { LINERS, WAX, WAX_TYPES, type LinerKind, type PaperKind, type WaxKind, type WaxType } from '@/theme/stationery';
 
 const HINTS: Record<Stage, string> = {
   0: 'Потяните письмо вниз, в конверт',
@@ -24,6 +24,7 @@ const PAPER_OPTIONS = [
 ] as const;
 const LINER_OPTIONS = (Object.keys(LINERS) as LinerKind[]).map((k) => ({ key: k, label: LINERS[k].label }));
 const WAX_OPTIONS = (Object.keys(WAX) as WaxKind[]).map((k) => ({ key: k, label: WAX[k].label }));
+const WAX_TYPE_OPTIONS = (Object.keys(WAX_TYPES) as WaxType[]).map((k) => ({ key: k, label: WAX_TYPES[k].label }));
 
 export default function EnvelopeLab() {
   const q = useLabParams();
@@ -40,6 +41,7 @@ export default function EnvelopeLab() {
     paper: (q.paper as PaperKind) ?? 'cream',
     liner: 'postal',
     wax: 'bordeaux',
+    waxType: 'brittle',
     initials: 'Н',
     seed,
   });
@@ -52,6 +54,7 @@ export default function EnvelopeLab() {
       <Choice options={PAPER_OPTIONS} value={look.paper} onChange={(paper) => set({ paper })} />
       <Choice options={LINER_OPTIONS} value={look.liner} onChange={(liner) => set({ liner })} />
       <Choice options={WAX_OPTIONS} value={look.wax} onChange={(wax) => set({ wax })} />
+      <Choice options={WAX_TYPE_OPTIONS} value={look.waxType ?? 'brittle'} onChange={(waxType) => set({ waxType })} />
       {front && back && (
         <EnvelopeCeremony
           letterFront={front}

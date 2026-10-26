@@ -30,7 +30,7 @@ import { scheduleOnRN } from 'react-native-worklets';
 
 import { feel } from '../lib/haptics';
 import { mulberry32, subSeed, wobble } from '../lib/random';
-import type { LinerKind, PaperKind, WaxKind } from '../theme/stationery';
+import type { LinerKind, PaperKind, WaxKind, WaxType } from '../theme/stationery';
 import { envelopeGeometry, recordEnvelope, recordFoldedLetter } from './envelope';
 import { WaxSeal } from './WaxSeal';
 
@@ -49,6 +49,8 @@ export type EnvelopeLook = {
   paper: PaperKind;
   liner: LinerKind;
   wax: WaxKind;
+  /** Brittle by default. */
+  waxType?: WaxType;
   initials: string;
   seed: number;
 };

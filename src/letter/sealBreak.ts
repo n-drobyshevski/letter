@@ -125,3 +125,29 @@ export function fibreTears(g: Geo, seed: number): number[][] {
   }
   return out;
 }
+
+/**
+ * Flexible (modern) sealing wax doesn't crack: it bends, then lets go of the paper
+ * whole and stays on the flap. Where it held the body it leaves a faint film and
+ * lifts a few paper fibres. Segments [x0, y0, x1, y1] inside the seal's footprint,
+ * below the flap edge (on the body), short and in random directions.
+ */
+export function residueFibres(g: Geo, seed: number, count = 9): number[][] {
+  const rand = mulberry32(subSeed(seed, 'residue'));
+  const { x: cx, y: cy, maxR } = g.seal;
+  const out: number[][] = [];
+  let guard = 0;
+  while (out.length < count && guard++ < 400) {
+    const a = rand() * Math.PI * 2;
+    const r = Math.sqrt(rand()) * maxR * 0.85;
+    const x = cx + Math.cos(a) * r;
+    const y = cy + Math.sin(a) * r;
+    // Only where the seal sat on the body, i.e. below the flap's V edge.
+    const edgeY = g.flapTip * (1 - Math.abs(x - g.seal.x) / g.seal.x);
+    if (y <= edgeY + 1) continue;
+    const dir = rand() * Math.PI * 2;
+    const len = range(rand, 2, 5);
+    out.push([x, y, x + Math.cos(dir) * len, y + Math.sin(dir) * len]);
+  }
+  return out;
+}

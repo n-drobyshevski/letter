@@ -1,5 +1,5 @@
 import { Canvas, Group, LinearGradient, Picture, Rect, Skia, vec, type Transforms3d } from '@shopify/react-native-skia';
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { View } from 'react-native';
 import { GestureDetector, usePanGesture } from 'react-native-gesture-handler';
 import {
@@ -13,7 +13,7 @@ import {
 import { scheduleOnRN } from 'react-native-worklets';
 
 import { feel } from '../lib/haptics';
-import type { PostboxSkin } from '../theme/stationery';
+import type { Country, PostboxSkin } from '../theme/stationery';
 import { envelopeGeometry, recordEnvelope } from './envelope';
 import type { EnvelopeLook } from './EnvelopeCeremony';
 import { postboxLayout, recordPostbox } from './steelBox';
@@ -22,8 +22,9 @@ import { WaxSeal } from './WaxSeal';
 
 /**
  * Posting: one progress value p ∈ [0, 1].
- *   0.00–0.15  orient: the envelope turns to portrait (short edge first, as a DL
- *              envelope must into a 171 mm slot) and tilts out of the wall
+ *   0.00–0.15  orient: the envelope tilts out of the wall; at a RU box it also turns
+ *              to portrait (a DL envelope only fits the 171 mm slot short edge first),
+ *              at a FR box it goes in long edge first
  *   0.15–0.85  insert: it slides through the slot; the part inside is clipped and
  *              darkens near the lip; the wax seal catches on the lip for a moment
  *   0.85–1.00  drop: it falls in, the inner flap swings shut
@@ -51,6 +52,8 @@ type Props = {
   height: number;
   look: EnvelopeLook;
   skin: PostboxSkin;
+  /** The sender's post office: RU wall box (short edge first) or FR street box (long edge first). */
+  country?: Country;
   /** Shown handwritten on the collection sticker, e.g. "14:37". */
   collectAt: string;
   fixedT?: number;
@@ -62,12 +65,26 @@ type Props = {
   retrieveKey?: number;
 };
 
-export function PostingCeremony({ width, height, look, skin, collectAt, fixedT, onPosted, onRetrieved, commitKey, retrieveKey }: Props) {
-  const layout = useMemo(() => postboxLayout(width, height), [width, height]);
+export function PostingCeremony({
+  width,
+  height,
+  look,
+  skin,
+  country = 'ru',
+  collectAt,
+  fixedT,
+  onPosted,
+  onRetrieved,
+  commitKey,
+  retrieveKey,
+}: Props) {
+  const layout = useMemo(() => postboxLayout(width, height, country), [width, height, country]);
   const s = layout.scale;
   const faces = useTypefaces();
   const box = useMemo(
-    () => faces && recordPostbox(layout, skin, collectAt, { print: faces.print, printBold: faces.printBold, marker: faces.marker }, look.seed),
+    () =>
+      faces &&
+      recordPostbox(layout, skin, collectAt, { print: faces.print, printBold: faces.printBold, marker: faces.marker }, look.seed),
     [faces, layout, skin, collectAt, look.seed],
   );
   const g = useMemo(() => envelopeGeometry(Math.round(220 * s), look.seed), [s, look.seed]);
@@ -76,11 +93,16 @@ export function PostingCeremony({ width, height, look, skin, collectAt, fixedT, 
   const pw = g.width;
   const ph = g.height;
   const { slot } = layout;
-  const rest = { x: width / 2 - pw / 2, y: height * 0.74 };
+  // Short edge first (RU): the envelope turns a quarter and its left edge leads.
+  // Long edge first (FR): no turn, the top edge (flap side) leads.
+  const turn = layout.shortEdgeFirst;
+  const across = turn ? ph : pw; // envelope width across the slot
+  const length = turn ? pw : ph; // how far it travels into the slot
+  const rest = turn ? { x: width / 2 - pw / 2, y: height * 0.74 } : { x: width / 2, y: height * 0.74 - ph / 2 };
   const hinge = { x: width / 2, y: slot.y + slot.h / 2 };
   // The seal's leading edge reaches the lip at this much insertion (portrait: picture x → depth).
-  const snagAt = g.seal.x - g.seal.maxR;
-  const fingerTravel = (140 + pw + SNAG_RAW - SNAG_GAIN) / 0.85;
+  const snagAt = (turn ? g.seal.x : g.seal.y) - g.seal.maxR;
+  const fingerTravel = (140 + length + SNAG_RAW - SNAG_GAIN) / 0.85;
 
   const p = useSharedValue(fixedT ?? 0);
   const start = useSharedValue(0);
@@ -105,12 +127,14 @@ export function PostingCeremony({ width, height, look, skin, collectAt, fixedT, 
     p.set(withSpring(0, { velocity, damping: 16, stiffness: 320, overshootClamping: true }));
   };
 
+  // Only presses made while mounted count.
+  const keysAtMount = useRef({ commitKey, retrieveKey });
   useEffect(() => {
-    if (commitKey) commit(0.8);
+    if (commitKey && commitKey !== keysAtMount.current.commitKey) commit(0.8);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [commitKey]);
   useEffect(() => {
-    if (!retrieveKey) return;
+    if (!retrieveKey || retrieveKey === keysAtMount.current.retrieveKey) return;
     done.set(false);
     p.set(
       withTiming(0, { duration: 600, easing: Easing.out(Easing.cubic) }, (finished) => {
@@ -150,7 +174,7 @@ export function PostingCeremony({ width, height, look, skin, collectAt, fixedT, 
   const insertK = useDerivedValue(() => clamp01((p.get() - 0.15) / 0.7));
   const depth = useDerivedValue(() => {
     // Envelope travel into the slot, with the seal catching on the lip.
-    const raw = insertK.get() * (pw + SNAG_RAW - SNAG_GAIN);
+    const raw = insertK.get() * (length + SNAG_RAW - SNAG_GAIN);
     if (raw < snagAt) return raw;
     if (raw < snagAt + SNAG_RAW) return snagAt + ((raw - snagAt) * SNAG_GAIN) / SNAG_RAW;
     return raw - SNAG_RAW + SNAG_GAIN;
@@ -166,13 +190,15 @@ export function PostingCeremony({ width, height, look, skin, collectAt, fixedT, 
       { translateY: -depth.get() },
     ];
   });
-  const envelopeTransform = useDerivedValue(() => [{ rotate: (Math.PI / 2) * orient.get() }, { translateY: -ph / 2 }]);
+  const envelopeTransform = useDerivedValue(() =>
+    turn ? [{ rotate: (Math.PI / 2) * orient.get() }, { translateY: -ph / 2 }] : [{ translateX: -pw / 2 }],
+  );
   // Before contact nothing is clipped; after, everything beyond the slot plane is inside the box.
   const visible = useDerivedValue(() =>
-    p.get() < 0.15 ? Skia.XYWHRect(-4000, -4000, 8000, 8000) : Skia.XYWHRect(-ph, depth.get(), ph * 2, pw * 2),
+    p.get() < 0.15 ? Skia.XYWHRect(-4000, -4000, 8000, 8000) : Skia.XYWHRect(-across, depth.get(), across * 2, length * 2),
   );
   const nearSlot = useDerivedValue(() => (p.get() > 0.15 ? 1 : 0));
-  const darkRect = useDerivedValue(() => Skia.XYWHRect(-ph / 2 - 2, depth.get(), ph + 4, 34 * (s / 1.6)));
+  const darkRect = useDerivedValue(() => Skia.XYWHRect(-across / 2 - 2, depth.get(), across + 4, 34 * (s / 1.6)));
   const darkStart = useDerivedValue(() => vec(0, depth.get()));
   const darkEnd = useDerivedValue(() => vec(0, depth.get() + 34 * (s / 1.6)));
 
@@ -206,7 +232,7 @@ export function PostingCeremony({ width, height, look, skin, collectAt, fixedT, 
         <Picture picture={box} />
         {/* the inner flap, seen through the slot */}
         <Rect x={slot.x + slot.h / 2} y={slot.y + 1} width={slot.w - slot.h} height={slot.h - 2} color="#4a4c55" opacity={flapShade} />
-        <Rect x={width / 2 - ph / 2} y={slot.y + slot.h} width={ph} height={40 * (s / 1.6)} opacity={faceShadow}>
+        <Rect x={width / 2 - across / 2} y={slot.y + slot.h} width={across} height={40 * (s / 1.6)} opacity={faceShadow}>
           <LinearGradient start={vec(0, slot.y + slot.h)} end={vec(0, slot.y + slot.h + 40 * (s / 1.6))} colors={['rgba(10,10,20,0.55)', 'rgba(10,10,20,0)']} />
         </Rect>
 

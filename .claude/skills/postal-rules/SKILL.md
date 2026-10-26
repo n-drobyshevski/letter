@@ -21,8 +21,11 @@ description: Delivery-time algorithm, database invariants, RLS rules and push co
 - Grace window: `collect_at = min(posted + 1 h, deliver_at)`; the sender may retrieve until then.
 - v1 additions: "open when…" (delivered sealed, opened on the recipient's cue), +1 year capsule, slow boat.
 
+## Several letters
+Oldest unopened first. After reading one, return to the open mailbox (skip the door). The box shows how many wait (RU: all peek holes pale; FR: up to three corners, then a chalked «+N») and the hint says so («В ящике писем: 3» / «3 lettres t’attendent»).
+
 ## Postmark
-Server-stamped at posting: sender's city + local date (`envelope.postmark`). The client renders it procedurally from these values only.
+Server-stamped at posting: sender's city + local date (`envelope.postmark`). The client renders it procedurally from these values only, in the sender's country style (RU calendar stamp «… ПОЧТА», FR «… FRANCE»).
 
 ## Push
 - `dispatch_deliveries()` every minute → Edge Function `deliver` → Expo Push. On failure the function clears `pushed_at` so the next tick retries.

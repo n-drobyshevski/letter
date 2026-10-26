@@ -80,6 +80,16 @@ export const WAX = {
 } as const;
 export type WaxKind = keyof typeof WAX;
 
+/**
+ * Traditional sealing wax is brittle: it can crack in the post and snaps when opened.
+ * Modern flexible wax (glue-gun sticks) survives the post, bends, and peels off whole.
+ */
+export const WAX_TYPES = {
+  brittle: { label: 'Сургуч' },
+  flexible: { label: 'Гибкий воск' },
+} as const;
+export type WaxType = keyof typeof WAX_TYPES;
+
 export type InkKind = 'blueBlack' | 'ironGall' | 'violet';
 
 export const INKS: Record<InkKind, { label: string; color: string; rgb: Rgb }> = {
@@ -125,6 +135,24 @@ export const POSTBOX = {
   wall: [0.6, 0.58, 0.55] as Rgb,
 };
 export type PostboxSkin = 'blue' | 'yellow';
+
+/** Whose post office: the sender's for the postbox and the envelope, the recipient's for the mailbox. */
+export type Country = 'ru' | 'fr';
+
+/** French street box: La Poste yellow (#FFCB05). No logo: original signage only. */
+export const POSTBOX_FR = {
+  face: [1, 0.796, 0.02] as Rgb,
+  side: '#d4a300',
+  band: '#1d3f8f',
+};
+
+/** French collective mailbox ("batterie"), anthracite RAL 7016. */
+export const MAILBOX_FR = {
+  face: [0.22, 0.243, 0.259] as Rgb,
+  frame: [0.18, 0.2, 0.215] as Rgb,
+  primer: [0.5, 0.5, 0.5] as Rgb,
+  nameplate: '#f2efe6',
+};
 
 /** Подъезд mailbox bank (RAL 7035 light grey) and its interior. */
 export const MAILBOX = {

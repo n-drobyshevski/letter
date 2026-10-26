@@ -35,6 +35,8 @@ export const feel = {
     (android
       ? Haptics.performAndroidHapticsAsync(Haptics.AndroidHaptics.Reject)
       : Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy)),
+  /** Flexible wax letting go of the paper: a soft, dull release. */
+  peel: () => enabled && Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium),
   /** A mailbox door swinging open. */
   door: () => enabled && Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium),
 };

@@ -16,6 +16,7 @@ description: How to build the letter "ceremonies" (fold, insert, seal, stamp, po
 - On web, a tap without movement never activates a pan: `onActivate`/`onDeactivate` don't fire, only `onBegin`/`onFinalize`. Handle taps in `onFinalize`.
 - With `minDistance: 0` a tap *does* activate on native (handle it in `onDeactivate` by tiny translation), and on web it does not (handle it in `onFinalize` unless `onDeactivate` already ran). Handle both.
 - **Never commit on `e.canceled`** (a call, a scroll taking over): spring back instead.
+- Action props (`advanceKey`, `commitKey`, `retrieveKey`) only count when they change *while mounted*; a remount (next letter) must not replay the last press.
 - Every gesture has a tap/button alternative (`advanceKey`/`commitKey` props); it leads when `useMotionPrefs().needsButtons`.
 - **Perspective must be in the same `transform` list as the rotation.** Each `Group` flattens its matrix to 2D, so `perspective` on a parent group does nothing. Put the vanishing point on the hinge's mid-line (`origin`).
 - Choosing between two gestures in one stage (knife vs seal): decide on `onBegin` by where the finger lands, lock it with a `mode` shared value, and reset the choice if nothing happened.
@@ -44,11 +45,12 @@ description: How to build the letter "ceremonies" (fold, insert, seal, stamp, po
 | Close flap | tap | soft thud |
 | Wax seal | hold to pour (puddle size = hold time), release to press | `tick` while pouring, `press` on impact |
 | Stamp / postmark | tap | `press` |
-| Post (`PostingCeremony`) | drag/flick up: orient to portrait (short edge first) → through the slot; commit ≥ 0.55 or flick ≤ −900 pt/s | `tick` at contact and when the seal catches the lip, `posted` on the drop, `clack` as the inner flap swings back |
+| Post (`PostingCeremony`) | drag/flick up: tilt out of the wall (RU box: also turn to portrait, short edge first; FR box: long edge first) → through the slot; commit ≥ 0.55 or flick ≤ −900 pt/s | `tick` at contact and when the seal catches the lip, `posted` on the drop, `clack` as the inner flap swings back |
 | Take back (grace window) | button | reverse, 600 ms ease-out |
 | Mailbox door (`ReceivingCeremony`) | tap (unlock + open) or drag right | `door` |
 | Take out / flip | drag up or tap / tap | `crease` / `tick` |
 | Slit with paper knife | drag along the top fold from either corner; auto-finishes past 0.92 | `fibre` at seeded stick-slip catches (18–30 pt) |
-| Break the seal (alternative to the knife) | touch the seal and pull up: 0–14 pt strain (hairline crack, flap rises 1 pt), snap at 14 pt, then the flap swings open with the finger; released before the snap it holds, after it the flap opens past 0.55 or falls back | `crack` once on the snap |
+| Break the seal (alternative to the knife; flexible wax peels off whole with `peel`) | touch the seal and pull up: 0–14 pt strain (hairline crack, flap rises 1 pt), snap at 14 pt, then the flap swings open with the finger; released before the snap it holds, after it the flap opens past 0.55 or falls back | `crack` once on the snap |
 | Pull letter out | drag up | `crease` |
+| Next letter | button after reading | back to the open box (door stage skipped), oldest unopened first; the rest lie underneath |
 | Unfold | `FoldableLetter initialT={1}`, drag down | `crease` per panel |

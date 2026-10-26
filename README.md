@@ -12,9 +12,9 @@ A private app for two people that simulates sending and receiving real letters. 
 | Почерк | `/lab/jitter` | Typed RU/FR text rendered as handwriting: seeded per-word jitter, ink load and re-dips, feathering, notebook-grid and cotton paper shaders |
 | Письмо | `/lab/typing` | Writing straight onto the sheet with the native keyboard (RU/FR, autocorrect, dictation), crossfading into inked handwriting; a finger/stylus pen for signatures and doodles |
 | Сложить | `/lab/fold` | Gesture-driven tri-fold: hinged panels in perspective, seeded off-third creases, face swap with ink show-through, moving shadows, crease haptics |
-| Конверт | `/lab/envelope` | Slide the folded letter into the envelope, close the flap in perspective, hold to pour sealing wax, release to press a brass seal that leaves your monogram in relief |
-| Отправить | `/lab/post` | Post the sealed envelope into a Почта wall box: it turns to go in short edge first, catches on the seal, darkens into the slot; take it back until the handwritten collection time |
-| Получить | `/lab/mailbox` | Your подъезд mailbox (the envelope shows through the peek holes): open the door, take the envelope out, read the address side (stamp, postmark, wear), flip it, then either slit the fold with a paper knife or break the wax seal (it strains, snaps along the flap edge, chips fly), pull the letter out, unfold; re-reading skips the ceremony |
+| Конверт | `/lab/envelope` | Slide the folded letter into the envelope, close the flap in perspective, hold to pour sealing wax (brittle sealing wax or modern flexible wax), release to press a brass seal that leaves your monogram in relief |
+| Отправить | `/lab/post` | Post the sealed envelope into a Почта wall box (turns to go in short edge first) or a French street box (long edge first); it catches on the seal, darkens into the slot; take it back until the collection time |
+| Получить | `/lab/mailbox` | Your подъезд mailbox in Moscow (envelopes show through the peek holes) or your boîte aux lettres in Paris (corners poke out of the slot); several letters wait in order; open the door, take the envelope out, read the address side (stamp, postmark, wear), flip it, then either slit the fold with a paper knife or break the wax seal (it strains, snaps along the flap edge, chips fly), pull the letter out, unfold; re-reading skips the ceremony |
 
 Backend (`supabase/`):
 - schema, RLS and the server-side delivery algorithm

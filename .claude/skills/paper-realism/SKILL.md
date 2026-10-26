@@ -44,11 +44,22 @@ The illusion breaks on the *first* digital-looking detail. Every rule below exis
 - Postmark: double ring, city over the top, «ПОЧТА» under, date between two bars; rotated ±8°; `STAMP_INK_SKSL` coverage — patchy, one side lighter but never gone. **Normal blending**, not multiply (multiply vanishes over the stamp's dark colours). Machine cancellation waves run off to the left.
 - Transit wear (received letters): grime vignette, a few smudges, a dog-eared corner, a hairline crack in the wax (`WaxSeal cracked`).
 
+## Two countries
+- **The sender's country** decides the postbox and the envelope front; **the recipient's** decides the mailbox. A letter from Paris arrives in a Moscow подъезд box with a French envelope, and the reverse.
+- FR envelope front: no printed fields; sender small top-left, address block bottom-right with the city in CAPITALS and the country last; stamp «RF» + «MONDE» (international stamps carry no value); postmark CITY over the top, FRANCE under, date `dd-mm yy`.
+- Never a real postal logo or brand mark (Почта России, La Poste): original emblems, generic words («ПОЧТА», «LETTRES»).
+
 ## Steel boxes (`steelBox.ts`, `POWDER_SKSL`)
 - Powder coat: orange-peel micro-normals under the desk light, slow dent waviness, lighter at the top, chips to grey primer only near edges, grime patches.
 - Postbox: RU 2015 wall box, blue (#2766C5; express = real yellow), visor with soft shadow over a 171 × 6 mm slot at 1.6 pt/mm, «ПОЧТА» + an original emblem (never the Почта России logo), hand-filled collection sticker kept on screen.
-- Mailbox: подъезд bank, RAL 7035, numbered doors, cylinder lock, slot, six peek holes; our door is live, neighbours are baked.
+- FR street box: La Poste yellow #FFCB05, a blue band reading LETTRES, wide slot (250 × 20 mm, estimate), an enamel plate printed «HEURE LIMITE DE DÉPÔT 14 h 37» (printed, not handwritten, unlike the RU sticker).
+- Mailbox RU: подъезд bank, RAL 7035, numbered doors, cylinder lock, slot, six peek holes; our door is live, neighbours are baked. Mail shows as pale holes (4 for one letter, all 6 for more).
+- Mailbox FR: batterie, anthracite RAL 7016, 260 × 260 mm doors, 235 × 26 mm slot with an inner flap, aluminium-framed nameplate with the name in capitals. Mail shows as envelope corners drooping out of the slot (up to 3, offset), then a chalked «+N».
 - An object going into a slot darkens as it enters (a gradient in its own space): a clip alone looks like a mask.
+
+## Wax types
+- **Brittle** (traditional sealing wax): may crack in the post (hairline crack on delivery) and snaps when opened.
+- **Flexible** (modern glue-gun wax): survives the post intact; under the pull it stretches and bends along the flap edge, then lets go of the paper whole and leaves with the flap, leaving a faint film (≤ 8 % wax colour) and a few lifted fibres on the body. No crumbs.
 
 ## Wax seal (`WAX_SKSL`)
 - Height-field shading with the desk light: noisy seeded outline, rounded puddle edge, flat stamp face with the monogram raised, a rim of wax pushed out around the stamp. Normals from finite differences.

@@ -15,7 +15,7 @@ import {
 } from '@shopify/react-native-skia';
 
 import { mulberry32, range, subSeed, wobble } from '../lib/random';
-import { INKS, PAPERS, POSTAL, type PaperKind } from '../theme/stationery';
+import { INKS, PAPERS, POSTAL, type Country, type PaperKind } from '../theme/stationery';
 import type { EnvelopeGeometry } from './envelope';
 import { layoutHandwriting } from './handwriting';
 import { measureWithFont, paperUniforms } from './renderLetter';
@@ -28,7 +28,7 @@ import { INK_SKSL, PAPER_SKSL, STAMP_INK_SKSL } from './shaders';
  * date, machine cancellation waves, and the wear of a trip through the post.
  */
 
-export type Address = { fromName: string; fromCity: string; toName: string; toCity: string };
+export type Address = { fromName: string; fromCity: string; toName: string; toCity: string; toCountry?: string };
 export type Postmark = { city: string; date: string /* YYYY-MM-DD */ };
 
 export type FrontFonts = { hand: SkTypeface; print: SkTypeface; printBold: SkTypeface };
@@ -106,7 +106,7 @@ function arcText(c: SkCanvas, text: string, font: SkFont, cx: number, cy: number
   });
 }
 
-function drawStamp(c: SkCanvas, x: number, y: number, w: number, h: number, seed: number, fonts: FrontFonts) {
+function drawStamp(c: SkCanvas, x: number, y: number, w: number, h: number, seed: number, fonts: FrontFonts, country: Country) {
   const rand = mulberry32(subSeed(seed, 'stamp'));
   const palette = POSTAL.stampPalettes[Math.floor(rand() * POSTAL.stampPalettes.length)];
   const tilt = wobble(rand, 2.2);
@@ -163,16 +163,17 @@ function drawStamp(c: SkCanvas, x: number, y: number, w: number, h: number, seed
   const label = Skia.Paint();
   label.setColor(Skia.Color('rgba(20, 20, 30, 0.85)'));
   const small = Skia.Font(fonts.printBold, h * 0.09);
-  c.drawText('РОССИЯ', ix + 1, iy + h * 0.09, label, small);
-  const value = Skia.Font(fonts.printBold, h * 0.13);
-  const val = '45,00';
+  // RU stamps carry «РОССИЯ» and a value; French international stamps say RF and MONDE, no value.
+  c.drawText(country === 'fr' ? 'RF' : 'РОССИЯ', ix + 1, iy + h * 0.09, label, small);
+  const value = Skia.Font(fonts.printBold, h * (country === 'fr' ? 0.1 : 0.13));
+  const val = country === 'fr' ? 'MONDE' : '45,00';
   c.drawText(val, ix + iw - textWidth(value, val) - 1, iy + ih - 2, label, value);
   const year = Skia.Font(fonts.print, h * 0.07);
   c.drawText('2026', ix + 1, iy + ih - 2, label, year);
   c.restore();
 }
 
-function drawPostmark(c: SkCanvas, cx: number, cy: number, r: number, pm: Postmark, seed: number, fonts: FrontFonts) {
+function drawPostmark(c: SkCanvas, cx: number, cy: number, r: number, pm: Postmark, seed: number, fonts: FrontFonts, country: Country) {
   const rand = mulberry32(subSeed(seed, 'postmark'));
   const rot = wobble(rand, 8);
   const tiltAngle = rand() * Math.PI * 2;
@@ -195,10 +196,10 @@ function drawPostmark(c: SkCanvas, cx: number, cy: number, r: number, pm: Postma
 
   const rimFont = Skia.Font(fonts.printBold, r * 0.24);
   arcText(c, pm.city.toUpperCase(), rimFont, cx, cy, r * 0.76, true, ink);
-  arcText(c, 'ПОЧТА', rimFont, cx, cy, r * 0.76, false, ink);
+  arcText(c, country === 'fr' ? 'FRANCE' : 'ПОЧТА', rimFont, cx, cy, r * 0.76, false, ink);
 
   const [yy, mm, dd] = pm.date.split('-');
-  const date = `${dd}.${mm}.${yy.slice(2)}`;
+  const date = country === 'fr' ? `${dd}-${mm} ${yy.slice(2)}` : `${dd}.${mm}.${yy.slice(2)}`;
   const dateFont = Skia.Font(fonts.printBold, r * 0.3);
   const bar = ring.copy();
   bar.setStrokeWidth(r * 0.03);
@@ -260,7 +261,7 @@ export function recordEnvelopeFront(
   address: Address,
   postmark: Postmark,
   fonts: FrontFonts,
-  options: { wear?: boolean } = {},
+  options: { wear?: boolean; country?: Country } = {},
 ): SkPicture {
   const { width: w, height: h } = g;
   const recorder = Skia.PictureRecorder();
@@ -277,50 +278,62 @@ export function recordEnvelopeFront(
   ink.setBlendMode(BlendMode.Multiply);
   ink.setAntiAlias(true);
 
-  // От кого / Откуда, top-left.
-  const lx = w * 0.05;
-  const lw = w * 0.42;
-  const row = h * 0.12;
-  let y = h * 0.14;
-  let x = field(c, 'От кого', lx, y, lw, label);
-  handLine(c, address.fromName, hand, x + 2, y - 1, lx + lw - x, seed + 1, ink);
-  y += row;
-  x = field(c, 'Откуда', lx, y, lw, label);
-  handLine(c, address.fromCity, hand, x + 2, y - 1, lx + lw - x, seed + 2, ink);
+  const country = options.country ?? 'ru';
+  if (country === 'ru') {
+    // От кого / Откуда, top-left.
+    const lx = w * 0.05;
+    const lw = w * 0.42;
+    const row = h * 0.12;
+    let y = h * 0.14;
+    let x = field(c, 'От кого', lx, y, lw, label);
+    handLine(c, address.fromName, hand, x + 2, y - 1, lx + lw - x, seed + 1, ink);
+    y += row;
+    x = field(c, 'Откуда', lx, y, lw, label);
+    handLine(c, address.fromCity, hand, x + 2, y - 1, lx + lw - x, seed + 2, ink);
 
-  // Кому / Куда, bottom-right.
-  const rx = w * 0.46;
-  const rw = w * 0.5;
-  y = h * 0.6;
-  x = field(c, 'Кому', rx, y, rw, label);
-  handLine(c, address.toName, hand, x + 2, y - 1, rx + rw - x, seed + 3, ink);
-  y += row;
-  x = field(c, 'Куда', rx, y, rw, label);
-  handLine(c, address.toCity, hand, x + 2, y - 1, rx + rw - x, seed + 4, ink);
-  y += row;
-  field(c, '', rx, y, rw, label);
+    // Кому / Куда, bottom-right.
+    const rx = w * 0.46;
+    const rw = w * 0.5;
+    y = h * 0.6;
+    x = field(c, 'Кому', rx, y, rw, label);
+    handLine(c, address.toName, hand, x + 2, y - 1, rx + rw - x, seed + 3, ink);
+    y += row;
+    x = field(c, 'Куда', rx, y, rw, label);
+    handLine(c, address.toCity, hand, x + 2, y - 1, rx + rw - x, seed + 4, ink);
+    y += row;
+    field(c, '', rx, y, rw, label);
 
-  // Индекс места назначения: the six-box template, bottom-left.
-  const box = h * 0.075;
-  const ix = w * 0.05;
-  const iy = h * 0.8;
-  const frame = printedPaint();
-  frame.setStyle(PaintStyle.Stroke);
-  frame.setStrokeWidth(0.6);
-  for (let i = 0; i < 6; i++) c.drawRect(Skia.XYWHRect(ix + i * box * 0.8, iy, box * 0.62, box), frame);
-  c.drawText('Индекс места назначения', ix, iy - box * 0.3, printedPaint(), Skia.Font(fonts.print, h * 0.04));
+    // Индекс места назначения: the six-box template, bottom-left.
+    const box = h * 0.075;
+    const ix = w * 0.05;
+    const iy = h * 0.8;
+    const frame = printedPaint();
+    frame.setStyle(PaintStyle.Stroke);
+    frame.setStrokeWidth(0.6);
+    for (let i = 0; i < 6; i++) c.drawRect(Skia.XYWHRect(ix + i * box * 0.8, iy, box * 0.62, box), frame);
+    c.drawText('Индекс места назначения', ix, iy - box * 0.3, printedPaint(), Skia.Font(fonts.print, h * 0.04));
+  } else {
+    // French envelopes have no printed fields: the sender small at the top left,
+    // the address as a block at the bottom right, city in capitals, country last.
+    const small = Skia.Font(fonts.hand, h * 0.065);
+    handLine(c, address.fromName, small, w * 0.05, h * 0.13, w * 0.4, seed + 1, ink);
+    handLine(c, address.fromCity, small, w * 0.05, h * 0.21, w * 0.4, seed + 2, ink);
+    const bx = w * 0.5;
+    const lines = [address.toName, address.toCity.toUpperCase(), (address.toCountry ?? '').toUpperCase()].filter(Boolean);
+    lines.forEach((line, i) => handLine(c, line, hand, bx, h * 0.62 + i * h * 0.12, w * 0.45, seed + 3 + i, ink));
+  }
 
   // Stamp and postmark, top-right.
   const sw = w * 0.13;
   const sh = h * 0.34;
   const sx = w - sw - w * 0.04;
   const sy = h * 0.07;
-  drawStamp(c, sx, sy, sw, sh, seed, fonts);
+  drawStamp(c, sx, sy, sw, sh, seed, fonts, country);
   const r = h * 0.13;
   const pcx = sx - r * 0.15;
   const pcy = sy + sh * 0.72;
   drawCancellation(c, sx - r * 4.2, sx - r * 1.05, pcy, r, seed);
-  drawPostmark(c, pcx, pcy, r, postmark, seed, fonts);
+  drawPostmark(c, pcx, pcy, r, postmark, seed, fonts, country);
 
   if (options.wear) drawWear(c, w, h, seed);
   return recorder.finishRecordingAsPicture();

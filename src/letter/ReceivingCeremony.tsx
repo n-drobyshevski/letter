@@ -1,5 +1,7 @@
 import {
+  BlurMask,
   Canvas,
+  Text as SkiaText,
   Circle,
   DiscretePathEffect,
   Group,
@@ -11,9 +13,10 @@ import {
   Skia,
   vec,
   type SkPicture,
+  type SkTypeface,
   type Transforms3d,
 } from '@shopify/react-native-skia';
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { View } from 'react-native';
 import { GestureDetector, usePanGesture } from 'react-native-gesture-handler';
 import {
@@ -28,13 +31,13 @@ import {
 import { scheduleOnRN } from 'react-native-worklets';
 
 import { feel } from '../lib/haptics';
-import { WAX, type Rgb } from '../theme/stationery';
+import { WAX, type Country, type PaperKind, type Rgb } from '../theme/stationery';
 import { mulberry32, subSeed, wobble } from '../lib/random';
 import { envelopeGeometry, recordEnvelope, recordFoldedLetter } from './envelope';
 import type { EnvelopeLook } from './EnvelopeCeremony';
 import { recordEnvelopeFront, type Address, type Postmark } from './envelopeFront';
 import { mailboxLayout, recordDoor, recordMailboxBank } from './steelBox';
-import { breakGeometry, crumbAt, crumbs as makeCrumbs, fibreTears, type Crumb } from './sealBreak';
+import { breakGeometry, crumbAt, crumbs as makeCrumbs, fibreTears, residueFibres, type Crumb } from './sealBreak';
 import { slitCatches, slitEdge } from './tear';
 import { useTypefaces } from './useTypefaces';
 import { WaxSeal } from './WaxSeal';
@@ -86,7 +89,19 @@ type Props = {
   letterFront: SkPicture;
   letterBack: SkPicture;
   sheet: { width: number; height: number };
+  /** RU: the flat number painted on the door. */
   flat: number;
+  /** FR: the name on the nameplate. */
+  name?: string;
+  /** The recipient's mailbox: RU подъезд bank or FR batterie. */
+  country?: Country;
+  /** The sender's envelope: RU printed fields or FR address block. */
+  senderCountry?: Country;
+  /** Letters in the box, this one included (0: empty). Others lie underneath it. */
+  waiting?: number;
+  others?: { seed: number; paper: PaperKind; address: Address; postmark: Postmark; senderCountry?: Country }[];
+  /** Coming back for the next letter: the door is already open. */
+  startOpen?: boolean;
   fixedT?: number;
   onStage?: (s: ReceiveStage) => void;
   /** Bump to advance the current stage without a gesture (accessibility). */
@@ -113,6 +128,12 @@ export function ReceivingCeremony({
   letterBack,
   sheet,
   flat,
+  name = '',
+  country = 'ru',
+  senderCountry = 'ru',
+  waiting = 1,
+  others = [],
+  startOpen = false,
   fixedT,
   onStage,
   advanceKey,
@@ -120,10 +141,11 @@ export function ReceivingCeremony({
   onOpened,
 }: Props) {
   const faces = useTypefaces();
-  const L = useMemo(() => mailboxLayout(width, height), [width, height]);
+  const L = useMemo(() => mailboxLayout(width, height, country), [width, height, country]);
   const { door } = L;
   const bank = useMemo(() => faces && recordMailboxBank(L, flat - 4, look.seed, faces.print), [faces, L, flat, look.seed]);
-  const doorPics = useMemo(() => faces && recordDoor(L, flat, look.seed + 3, faces.print), [faces, L, flat, look.seed]);
+  const doorLabel = country === 'fr' ? name.toUpperCase() : String(flat);
+  const doorPics = useMemo(() => faces && recordDoor(L, doorLabel, look.seed + 3, faces.print), [faces, L, doorLabel, look.seed]);
 
   // The envelope, at the size it is read at.
   const ew = Math.round(Math.min(width - 40, 360));
@@ -131,8 +153,18 @@ export function ReceivingCeremony({
   const eh = g.height;
   const parts = useMemo(() => recordEnvelope(g, look.paper, look.liner, look.seed), [g, look.paper, look.liner, look.seed]);
   const front = useMemo(
-    () => faces && recordEnvelopeFront(g, look.paper, look.seed, address, postmark, faces, { wear: true }),
-    [faces, g, look.paper, look.seed, address, postmark],
+    () => faces && recordEnvelopeFront(g, look.paper, look.seed, address, postmark, faces, { wear: true, country: senderCountry }),
+    [faces, g, look.paper, look.seed, address, postmark, senderCountry],
+  );
+  // Letters still waiting underneath (at most two are visible).
+  const underneath = useMemo(
+    () =>
+      faces
+        ? others
+            .slice(0, 2)
+            .map((o) => recordEnvelopeFront(g, o.paper, o.seed, o.address, o.postmark, faces, { wear: true, country: o.senderCountry ?? 'ru' }))
+        : [],
+    [faces, g, others],
   );
   const letter = useMemo(() => recordFoldedLetter(letterFront, letterBack, sheet, look.seed), [letterFront, letterBack, sheet, look.seed]);
   const edge = useMemo(() => {
@@ -154,7 +186,10 @@ export function ReceivingCeremony({
     };
     const fibres = Skia.PathBuilder.Make();
     for (const [x0, y0, x1, y1] of fibreTears(g, look.seed)) fibres.moveTo(x0, y0).lineTo(x1, y1);
+    const residue = Skia.PathBuilder.Make();
+    for (const [x0, y0, x1, y1] of residueFibres(g, look.seed)) residue.moveTo(x0, y0).lineTo(x1, y1);
     return {
+      residue: residue.detach(),
       flapPiece: poly(geo.flapPiece, true),
       crack: poly(geo.crack, false),
       crumbs: makeCrumbs(geo.crack, look.seed),
@@ -167,8 +202,11 @@ export function ReceivingCeremony({
   const inside = { x: door.x + door.w * 0.5, y: door.y + door.h * 0.7, scale: (door.w * 0.86) / ew, tilt: 1.05, rot: 0.12 + wobble(rand, 0.05) };
   const held = { x: width / 2, y: height * 0.6, scale: 1, tilt: 0, rot: wobble(rand, 0.02) };
 
+  // Brittle sealing wax cracks (in the post, and when opened); flexible wax bends and peels off whole.
+  const flexible = look.waxType === 'flexible';
+
   // ── state ──
-  const init = splitReceiveT(fixedT ?? 0);
+  const init = fixedT !== undefined ? splitReceiveT(fixedT) : startOpen ? { values: [1, 0, 0, 0, 0], stage: 1 as ReceiveStage } : splitReceiveT(0);
   const doorV = useSharedValue(init.values[0]);
   const take = useSharedValue(init.values[1]);
   const flip = useSharedValue(init.values[2]);
@@ -211,8 +249,10 @@ export function ReceivingCeremony({
     progress[i].set(withSpring(0, { velocity, damping: 20, stiffness: 170, overshootClamping: true }));
   };
 
+  // Only presses made while mounted count (a remount for the next letter keeps the old key).
+  const advanceAtMount = useRef(advanceKey);
   useEffect(() => {
-    if (!advanceKey) return;
+    if (!advanceKey || advanceKey === advanceAtMount.current) return;
     const s = stage.get();
     if (s < 5) finish(s);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -340,7 +380,8 @@ export function ReceivingCeremony({
     () => breakV.get() >= SNAP,
     (snapped, prev) => {
       if (fixedT !== undefined || !snapped || prev !== false) return;
-      scheduleOnRN(feel.crack);
+      scheduleOnRN(flexible ? feel.peel : feel.crack);
+      if (flexible) return;
       crumbT.set(0);
       crumbT.set(withTiming(1, { duration: CRUMB_SECONDS * 1000, easing: Easing.linear }));
     },
@@ -372,6 +413,16 @@ export function ReceivingCeremony({
       { translateY: -eh / 2 },
     ];
   });
+  const underneathPose = (i: number): Transforms3d => [
+    { translateX: inside.x + (i + 1) * 5 },
+    { translateY: inside.y - (i + 1) * 3 },
+    { perspective: 700 },
+    { rotateX: inside.tilt },
+    { rotate: inside.rot - (i + 1) * 0.06 },
+    { scale: inside.scale },
+    { translateX: -ew / 2 },
+    { translateY: -eh / 2 },
+  ];
   // Still inside the box: clipped by its opening and in its shadow. Out: on top of everything.
   const BIG = Skia.XYWHRect(-4000, -4000, 8000, 8000);
   const inBoxClip = useDerivedValue(() => (take.get() < 0.4 ? doorRect : EMPTY));
@@ -428,6 +479,9 @@ export function ReceivingCeremony({
   const flapOuterClip = useDerivedValue(() => (flapAngle.get() > Math.PI / 2 ? EMPTY : flapBounds));
   const flapShade = useDerivedValue(() => 0.28 * Math.sin(flapAngle.get()));
   const fibresShown = useDerivedValue(() => snapped.get() * Math.min(1, flapAngle.get() * 3));
+  // Flexible wax under strain: stretched where it is still stuck to the body, a bend along the flap edge.
+  const stretch = useDerivedValue(() => [{ scaleY: breakV.get() < SNAP ? 1 + 0.07 * strain.get() : 1 }]);
+  const bend = useDerivedValue(() => (breakV.get() < SNAP ? strain.get() * 0.55 : 0));
 
   if (!bank || !doorPics || !front) return <View style={{ width, height }} />;
 
@@ -449,11 +503,18 @@ export function ReceivingCeremony({
           <Rect rect={doorRect}>
             <LinearGradient start={vec(0, door.y)} end={vec(0, door.y + door.h)} colors={['#1d1a17', '#3a342e']} />
           </Rect>
-          <Group clip={inBoxClip}>
-            <Group transform={poseTransform}>
-              <Picture picture={front} />
+          {underneath.map((pic, i) => (
+            <Group key={i} transform={underneathPose(underneath.length - 1 - i)}>
+              <Picture picture={pic} />
             </Group>
-          </Group>
+          ))}
+          {waiting > 0 && (
+            <Group clip={inBoxClip}>
+              <Group transform={poseTransform}>
+                <Picture picture={front} />
+              </Group>
+            </Group>
+          )}
           <Rect rect={doorRect} color="#000" opacity={darkness} />
         </Group>
 
@@ -463,12 +524,21 @@ export function ReceivingCeremony({
           <Group origin={{ x: door.x, y: door.y + door.h / 2 }} transform={doorTransform}>
             <Group clip={outsideFace}>
               <Picture picture={doorPics.outside} />
-              {/* the envelope shows pale through the peek holes */}
-              {L.holes.slice(1, 5).map((h, i) => (
-                <Circle key={i} cx={h.x} cy={h.y} r={h.r * 0.8}>
-                  <RadialGradient c={vec(h.x - h.r * 0.3, h.y - h.r * 0.3)} r={h.r * 1.3} colors={['#d9d1bf', '#8f8775']} />
-                </Circle>
-              ))}
+              {/* RU: envelopes show pale through the peek holes — more of them, the fuller the box */}
+              {waiting > 0 &&
+                L.holes.slice(waiting > 1 ? 0 : 1, waiting > 1 ? 6 : 5).map((h, i) => (
+                  <Circle key={i} cx={h.x} cy={h.y} r={h.r * 0.8}>
+                    <RadialGradient c={vec(h.x - h.r * 0.3, h.y - h.r * 0.3)} r={h.r * 1.3} colors={['#d9d1bf', '#8f8775']} />
+                  </Circle>
+                ))}
+              {/* FR: a corner of each letter pokes out of the slot (up to three), then a chalked count */}
+              {country === 'fr' &&
+                Array.from({ length: Math.min(waiting, 3) }, (_, i) => (
+                  <SlotCorner key={i} slot={L.slot} index={i} seed={look.seed} />
+                ))}
+              {country === 'fr' && waiting > 3 && faces && (
+                <ChalkCount x={L.slot.x + L.slot.w - 18} y={L.slot.y + L.slot.h + 30} n={waiting - 3} typeface={faces.marker} />
+              )}
               <Rect rect={doorRect} color="#000" opacity={doorShade} />
             </Group>
             <Group clip={insideFace}>
@@ -497,7 +567,7 @@ export function ReceivingCeremony({
                 <Group transform={[{ translateX: ew }, { scaleX: -1 }]}>
                   <Picture picture={parts.pocket} />
                   <Picture picture={parts.flapOuter} />
-                  <WaxSeal seal={g.seal} wax={look.wax} initials={look.initials} seed={look.seed} pour={1} imprint={1} cracked />
+                  <WaxSeal seal={g.seal} wax={look.wax} initials={look.initials} seed={look.seed} pour={1} imprint={1} cracked={!flexible} />
                   <Rect rect={envRect} opacity={0.6}>
                     <RadialGradient c={vec(ew / 2, eh / 2)} r={ew * 0.62} colors={['rgba(60,40,20,0)', 'rgba(60,40,20,0.08)']} />
                   </Rect>
@@ -535,27 +605,55 @@ export function ReceivingCeremony({
               <Path path={broken.fibres} style="stroke" strokeWidth={0.5} color="rgba(90, 70, 50, 0.3)" opacity={fibresShown} transform={[{ translateY: 1.1 }]}>
                 <DiscretePathEffect length={2} deviation={0.9} seed={(look.seed % 97) + 1} />
               </Path>
-              {/* the half of the seal that stays on the envelope */}
-              <Group clip={broken.flapPiece} invertClip>
-                <WaxSeal seal={g.seal} wax={look.wax} initials={look.initials} seed={look.seed} pour={1} imprint={1} cracked />
-              </Group>
-              <Path path={broken.crack} style="stroke" strokeWidth={0.9} color="rgba(255, 200, 190, 0.35)" opacity={snapped} transform={[{ translateY: 0.8 }]} />
+              {flexible ? (
+                /* where flexible wax held the body: a faint film and a few lifted fibres */
+                <Group clip={broken.flapPiece} invertClip opacity={snapped}>
+                  <Circle cx={g.seal.x} cy={g.seal.y} r={g.seal.maxR * 0.93} color={waxColor(look.wax, 0.08)} />
+                  <Circle cx={g.seal.x} cy={g.seal.y} r={g.seal.maxR * 0.93} style="stroke" strokeWidth={0.8} color={waxColor(look.wax, 0.12)} />
+                  <Path path={broken.residue} style="stroke" strokeWidth={1.4} strokeCap="round" color="rgba(252, 249, 240, 0.8)">
+                    <DiscretePathEffect length={1.5} deviation={0.6} seed={look.seed % 89} />
+                  </Path>
+                </Group>
+              ) : (
+                <>
+                  {/* the half of the seal that stays on the envelope */}
+                  <Group clip={broken.flapPiece} invertClip>
+                    <WaxSeal seal={g.seal} wax={look.wax} initials={look.initials} seed={look.seed} pour={1} imprint={1} cracked />
+                  </Group>
+                  <Path path={broken.crack} style="stroke" strokeWidth={0.9} color="rgba(255, 200, 190, 0.35)" opacity={snapped} transform={[{ translateY: 0.8 }]} />
+                </>
+              )}
               {/* the flap, with its half of the seal */}
               <Group origin={{ x: ew / 2, y: 0 }} transform={flapTransform}>
                 <Group clip={flapOuterClip}>
                   <Picture picture={parts.flapOuter} />
-                  <Group clip={broken.flapPiece}>
-                    <WaxSeal seal={g.seal} wax={look.wax} initials={look.initials} seed={look.seed} pour={1} imprint={1} cracked />
-                  </Group>
+                  {flexible ? (
+                    /* flexible wax goes with the flap, whole */
+                    <Group origin={{ x: g.seal.x, y: g.seal.y - g.seal.maxR }} transform={stretch}>
+                      <WaxSeal seal={g.seal} wax={look.wax} initials={look.initials} seed={look.seed} pour={1} imprint={1} />
+                    </Group>
+                  ) : (
+                    <Group clip={broken.flapPiece}>
+                      <WaxSeal seal={g.seal} wax={look.wax} initials={look.initials} seed={look.seed} pour={1} imprint={1} cracked />
+                    </Group>
+                  )}
                   <Group clip={g.flap}>
                     <Rect x={0} y={0} width={ew} height={g.flapTip} color="#140c04" opacity={flapShade} />
                   </Group>
                 </Group>
               </Group>
-              <Path path={broken.crack} style="stroke" strokeWidth={0.8} color="rgba(20, 4, 4, 0.85)" opacity={strainCrack} />
-              {broken.crumbs.map((c, i) => (
-                <WaxCrumb key={i} crumb={c} t={crumbT} color={WAX[look.wax].rgb} />
-              ))}
+              {flexible ? (
+                <Path path={broken.crack} style="stroke" strokeWidth={3} color="rgba(255, 225, 215, 0.35)" opacity={bend}>
+                  <BlurMask blur={1.5} style="normal" />
+                </Path>
+              ) : (
+                <>
+                  <Path path={broken.crack} style="stroke" strokeWidth={0.8} color="rgba(20, 4, 4, 0.85)" opacity={strainCrack} />
+                  {broken.crumbs.map((c, i) => (
+                    <WaxCrumb key={i} crumb={c} t={crumbT} color={WAX[look.wax].rgb} />
+                  ))}
+                </>
+              )}
             </Group>
             {/* paper knife */}
             <Group transform={knifeTransform} opacity={knifeShown}>
@@ -596,5 +694,48 @@ function WaxCrumb({ crumb, t, color }: { crumb: Crumb; t: SharedValue<number>; c
       <Path path={shape} style="stroke" strokeWidth={0.5} color="rgba(0, 0, 0, 0.35)" />
       <Path path={shape} color="rgba(255, 220, 210, 0.25)" transform={[{ scale: 0.45 }, { translateX: -0.6 }, { translateY: -0.6 }]} />
     </Group>
+  );
+}
+
+function waxColor(kind: keyof typeof WAX, alpha: number) {
+  const [r, g, b] = WAX[kind].rgb.map((v) => Math.round(v * 255));
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+/** The edge of a letter that didn't go all the way in, drooping out of the FR slot. */
+function SlotCorner({ slot, index, seed }: { slot: { x: number; y: number; w: number; h: number }; index: number; seed: number }) {
+  const path = useMemo(() => {
+    const rand = mulberry32(subSeed(seed, `corner-${index}`));
+    const cw = slot.w * (0.32 + rand() * 0.1);
+    const x0 = slot.x + slot.w * (0.18 + 0.2 * index) + wobble(rand, 4);
+    const y0 = slot.y + slot.h * 0.55;
+    const drop = 7 + rand() * 4 + index * 3;
+    const tilt = (index - 1) * 2 * (Math.PI / 180) * cw;
+    return Skia.PathBuilder.Make()
+      .moveTo(x0, y0)
+      .lineTo(x0 + cw, y0 + tilt * 0.2)
+      .lineTo(x0 + cw * 0.97, y0 + drop + tilt)
+      .lineTo(x0 + cw * 0.04, y0 + drop)
+      .close()
+      .detach();
+  }, [slot, index, seed]);
+  return (
+    <>
+      <Path path={path} color="rgba(0, 0, 0, 0.35)" transform={[{ translateX: 1 }, { translateY: 2.5 }]}>
+        <BlurMask blur={2} style="normal" />
+      </Path>
+      <Path path={path} color={index % 2 ? '#e4dccb' : '#efe8d8'} />
+      <Path path={path} style="stroke" strokeWidth={0.6} color="rgba(60, 45, 30, 0.35)" />
+    </>
+  );
+}
+
+/** "+2" chalked by the postman when the box is too full to show every letter. */
+function ChalkCount({ x, y, n, typeface }: { x: number; y: number; n: number; typeface: SkTypeface }) {
+  const font = useMemo(() => Skia.Font(typeface, 22), [typeface]);
+  return (
+    <SkiaText x={x} y={y} text={`+${n}`} font={font} color="rgba(236, 234, 226, 0.82)">
+      <DiscretePathEffect length={2} deviation={0.5} seed={n} />
+    </SkiaText>
   );
 }

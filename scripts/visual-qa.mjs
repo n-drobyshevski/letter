@@ -28,10 +28,21 @@ const SHOTS = [
   ...[0.15, 0.3, 0.4, 0.6, 0.7, 0.8, 0.86, 1].map((t) => ({ name: `envelope-${t}`, path: `/lab/envelope?seed=1407&t=${t}` })),
   // orient 0–.15 · insert .15–.85 (seal snag ~.45) · drop .85–1
   ...[0, 0.08, 0.15, 0.3, 0.5, 0.7, 0.86, 1].map((t) => ({ name: `post-${t}`, path: `/lab/post?seed=1407&t=${t}` })),
+  ...[0, 0.15, 0.5, 1].map((t) => ({ name: `post-fr-${t}`, path: `/lab/post?seed=1407&country=fr&t=${t}` })),
   // door 0–.1 · take .1–.25 · flip .25–.32 · slit .32–.5 · pull .5–.7 · unfold .7–1
   ...[0, 0.05, 0.1, 0.18, 0.25, 0.29, 0.41, 0.5, 0.6, 0.7, 0.85, 1].map((t) => ({ name: `mailbox-${t}`, path: `/lab/mailbox?seed=1407&t=${t}` })),
   // opened by breaking the seal: strain · just snapped (crumbs) · crumbs landing · flap half open · open · pulling
   ...[0.345, 0.365, 0.38, 0.42, 0.5, 0.6].map((t) => ({ name: `seal-${t}`, path: `/lab/mailbox?seed=1407&open=seal&t=${t}` })),
+  // FR mailbox (letters from Russia) · RU mailbox with three letters · an empty box
+  { name: 'mbfr-5-closed', path: '/lab/mailbox?seed=1407&country=fr&waiting=5&t=0' },
+  { name: 'mbfr-5-open', path: '/lab/mailbox?seed=1407&country=fr&waiting=5&t=0.1' },
+  { name: 'mbfr-front', path: '/lab/mailbox?seed=1407&country=fr&t=0.25' },
+  { name: 'mbru-3-closed', path: '/lab/mailbox?seed=1407&waiting=3&t=0' },
+  { name: 'mbru-3-out', path: '/lab/mailbox?seed=1407&waiting=3&t=0.18' },
+  { name: 'mbru-front', path: '/lab/mailbox?seed=1407&t=0.25' },
+  { name: 'mb-empty', path: '/lab/mailbox?seed=1407&waiting=0' },
+  // flexible wax: no transit crack · bending · peeled off whole, film left behind
+  ...[0.3, 0.345, 0.42, 0.5].map((t) => ({ name: `flex-${t}`, path: `/lab/mailbox?seed=1407&open=seal&wax=flexible&t=${t}` })),
 ];
 const VIEWPORTS = [
   { name: 'phone', width: 390, height: 844, deviceScaleFactor: 2 },

@@ -37,3 +37,13 @@ test('torn fibres cover 30–60 % of the glued edges', () => {
   const torn = segs.reduce((s, [x0, y0, x1, y1]) => s + Math.hypot(x1 - x0, y1 - y0), 0);
   assert.ok(torn / edge > 0.3 && torn / edge < 0.6, `covered ${(torn / edge).toFixed(2)}`);
 });
+
+test('flexible wax leaves fibres only where it sat on the body', async () => {
+  const { residueFibres } = await import('../src/letter/sealBreak');
+  const segs = residueFibres(g, 1407);
+  assert.equal(segs.length, 9);
+  for (const [x0, y0] of segs) {
+    assert.ok(Math.hypot(x0 - g.seal.x, y0 - g.seal.y) <= g.seal.maxR, 'inside the footprint');
+    assert.ok(y0 > g.flapTip * (1 - Math.abs(x0 - g.seal.x) / g.seal.x), 'below the flap edge');
+  }
+});
