@@ -7,14 +7,16 @@ alter table public.letter_receipts
   add column opened_by text not null default 'slit' check (opened_by in ('slit', 'seal', 'replay'));
 
 -- A letter still in the postbox (before collect_at) is the sender's business only.
-drop policy "envelopes" on public.letters;
-create policy "envelopes" on public.letters
-  for select to authenticated using (
+-- (Altered in place: this migration drops nothing.)
+alter policy "envelopes" on public.letters
+  using (
     sender_id = auth.uid()
     or (recipient_id = auth.uid() and retrieved_at is null and collect_at <= now())
   );
 
-create or replace function public.open_letter(p_letter_id uuid, p_opened_by text default 'slit')
+-- How it was opened: slit, seal or replay. No default on p_opened_by, so the
+-- one-argument open_letter below stays unambiguous (it keeps meaning 'slit').
+create function public.open_letter(p_letter_id uuid, p_opened_by text)
 returns void
 language plpgsql volatile security definer
 set search_path = ''
@@ -33,7 +35,14 @@ end
 $$;
 revoke all on function public.open_letter(uuid, text) from public, anon;
 grant execute on function public.open_letter(uuid, text) to authenticated;
-drop function public.open_letter(uuid);
+
+create or replace function public.open_letter(p_letter_id uuid)
+returns void
+language sql volatile security definer
+set search_path = ''
+as $$
+  select public.open_letter(p_letter_id, 'slit')
+$$;
 
 -- Stamp collection the same way delivery is stamped (pg_cron calls this every minute).
 create function public.collect_posted()
