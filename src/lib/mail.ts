@@ -1,7 +1,10 @@
 import type { Session } from '@supabase/supabase-js';
 import { FunctionsHttpError } from '@supabase/supabase-js';
 import { useEffect, useState } from 'react';
+import { AppState } from 'react-native';
 
+import { mailboxFromServer, type ContentRow, type MailLetter, type MailRow, type ReceiptRow } from '@/letter/mailboxFromServer';
+import type { OpenedBy } from '@/letter/ReceivingCeremony';
 import { itineraryFromServer, type EventRow, type LetterRow } from '@/letter/tracking/fromServer';
 import type { Itinerary, Tier } from '@/letter/tracking/itinerary';
 
@@ -201,4 +204,71 @@ export function useTracking(letterId: string | undefined): {
   }, [letterId]);
 
   return { tracking, error };
+}
+
+export type Mailbox = { waiting: MailLetter[]; opened: MailLetter[]; loaded: boolean };
+
+/**
+ * My mailbox: letters delivered to me, not yet opened (oldest first), and the
+ * shoebox of opened ones. Refreshes on Realtime changes to my letters, at the
+ * next delivery time, and when the app comes back to the foreground.
+ */
+export function useMailbox(couple: Couple | null): Mailbox {
+  const [box, setBox] = useState<Mailbox>({ waiting: [], opened: [], loaded: false });
+  useEffect(() => {
+    if (!supabase || !couple) return;
+    const db = supabase;
+    const me = couple.me.id;
+    let live = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const load = async () => {
+      const { data: rows } = await db
+        .from('letters')
+        .select('id, sender_id, recipient_id, deliver_at, retrieved_at, seed, envelope')
+        .eq('recipient_id', me)
+        .is('retrieved_at', null)
+        .order('deliver_at');
+      const delivered = ((rows as MailRow[]) ?? []).filter((r) => Date.parse(r.deliver_at) <= Date.now()).map((r) => r.id);
+      // Contents are readable once delivered (RLS); receipts are always mine to see.
+      const [contents, receipts] = delivered.length
+        ? await Promise.all([
+            db.from('letter_contents').select('letter_id, body').in('letter_id', delivered),
+            db.from('letter_receipts').select('letter_id, opened_at').in('letter_id', delivered),
+          ])
+        : [{ data: [] }, { data: [] }];
+      if (!live) return;
+      const next = mailboxFromServer({
+        rows: (rows as MailRow[]) ?? [],
+        contents: (contents.data as ContentRow[]) ?? [],
+        receipts: (receipts.data as ReceiptRow[]) ?? [],
+        me: couple.me,
+        them: couple.them,
+        now: Date.now(),
+      });
+      setBox({ waiting: next.waiting, opened: next.opened, loaded: true });
+      clearTimeout(timer);
+      // setTimeout caps at ~24.8 days; a longer wait just checks again then.
+      if (next.nextAt) timer = setTimeout(load, Math.min(next.nextAt - Date.now() + 1000, 2 ** 31 - 1));
+    };
+    load();
+    const channel = db
+      .channel(`mailbox:${me}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'letters', filter: `recipient_id=eq.${me}` }, () => load())
+      .subscribe();
+    const foreground = AppState.addEventListener('change', (s) => s === 'active' && load());
+    return () => {
+      live = false;
+      clearTimeout(timer);
+      foreground.remove();
+      db.removeChannel(channel);
+    };
+  }, [couple]);
+  return box;
+}
+
+/** The recipient opened it (idempotent): a private receipt, and how the seal was broken. */
+export async function openLetter(id: string, by: OpenedBy): Promise<void> {
+  if (!supabase) return;
+  const { error } = await supabase.rpc('open_letter', { p_letter_id: id, p_opened_by: by });
+  if (error) console.warn('open_letter', error.message);
 }
