@@ -107,3 +107,89 @@ half4 main(float2 xy) {
   return half4(half3(c) * a, a);
 }
 `;
+
+/**
+ * Envelope liner: the inside of the envelope, printed with a fine "security"
+ * diamond pattern (as on Russian and French post-office envelopes), in shade.
+ */
+export const LINER_SKSL = /* sksl */ `
+uniform float uSeed;
+uniform float3 uBase;
+uniform float3 uPattern;
+uniform float uScale;
+uniform float uShade;
+${NOISE}
+half4 main(float2 xy) {
+  float2 p = xy + uSeed;
+  float a = abs(fract((xy.x + xy.y) / uScale) - 0.5);
+  float b = abs(fract((xy.x - xy.y) / uScale) - 0.5);
+  float lines = 1.0 - smoothstep(0.035, 0.11, min(a, b));
+  float strike = 0.75 + 0.25 * vnoise(xy * 0.06 + uSeed);
+  float3 col = uBase * (0.975 + 0.05 * fbm(p * 0.006)) * (0.985 + 0.03 * vnoise(p * 0.9));
+  col = mix(col, uPattern, lines * 0.85 * strike);
+  return half4(half3(col * uShade), 1.0);
+}
+`;
+
+/**
+ * Sealing wax. A noisy puddle (same seeded outline everywhere it is sampled) with a
+ * rounded edge; once pressed, a flat stamp face with the monogram raised from it
+ * and a rim of wax pushed outwards. Lit by the desk light; glossy while molten.
+ * `monogram` is the stamp's engraving as alpha (1 = raised letter in the imprint).
+ */
+export const WAX_SKSL = /* sksl */ `
+uniform shader monogram;
+uniform float2 uCenter;
+uniform float uR;
+uniform float uStampR;
+uniform float uSeed;
+uniform float uImprint;
+uniform float uMolten;
+uniform float3 uColor;
+uniform float2 uLight;
+${NOISE}
+float edgeR(float a) {
+  return uR * (1.0 + 0.055 * sin(3.0 * a + uSeed) + 0.035 * sin(5.0 * a + uSeed * 1.7)
+                   + 0.02 * sin(9.0 * a + uSeed * 0.3) + 0.012 * sin(17.0 * a + uSeed * 2.1));
+}
+float heightAt(float2 p, float letter) {
+  float2 d = p - uCenter;
+  float r = length(d);
+  float er = edgeR(atan(d.y, d.x));
+  float t = clamp((er - r) / max(er * 0.38, 1.0), 0.0, 1.0);
+  float h = sqrt(1.0 - (1.0 - t) * (1.0 - t)) * 0.85;
+  float face = 1.0 - smoothstep(uStampR - 1.2, uStampR + 1.2, r);
+  float rimD = (r - uStampR * 1.07) / (uStampR * 0.07);
+  float rim = exp(-rimD * rimD) * 0.22 * step(0.02, h);
+  // The stamp face is never mirror-smooth: a faint grain is pressed in with it.
+  float pressed = 0.48 + 0.36 * letter + 0.015 * vnoise(p * 0.22 + uSeed);
+  return mix(h, mix(h + rim, pressed, face), uImprint);
+}
+half4 main(float2 xy) {
+  float2 d = xy - uCenter;
+  float r = length(d);
+  float er = edgeR(atan(d.y, d.x));
+  float alpha = 1.0 - smoothstep(er - 0.9, er + 0.6, r);
+  if (alpha <= 0.0) {
+    return half4(0.0);
+  }
+  float l0 = monogram.eval(xy).a;
+  float lx = monogram.eval(xy + float2(1.0, 0.0)).a;
+  float ly = monogram.eval(xy + float2(0.0, 1.0)).a;
+  float h0 = heightAt(xy, l0);
+  float hx = heightAt(xy + float2(1.0, 0.0), lx);
+  float hy = heightAt(xy + float2(0.0, 1.0), ly);
+  float3 n = normalize(float3(-(hx - h0) * 6.0, -(hy - h0) * 6.0, 1.0));
+  float3 L = normalize(float3(uLight, 1.2));
+  float diffuse = max(dot(n, L), 0.0);
+  float3 H = normalize(L + float3(0.0, 0.0, 1.0));
+  float gloss = mix(28.0, 70.0, uMolten);
+  float spec = pow(max(dot(n, H), 0.0), gloss) * mix(0.32, 0.6, uMolten);
+  float grain = 0.96 + 0.08 * fbm((xy + uSeed * 13.0) * 0.12);
+  float occlusion = 0.72 + 0.28 * clamp(h0 / 0.85, 0.0, 1.0);
+  // Thin wax at the very edge lets a little light through.
+  float thin = 1.0 - smoothstep(0.0, 0.25, h0);
+  float3 col = uColor * grain * (0.42 + 0.72 * diffuse) * occlusion + uColor * thin * 0.35 + spec;
+  return half4(half3(col) * alpha, alpha);
+}
+`;

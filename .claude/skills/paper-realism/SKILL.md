@@ -31,6 +31,20 @@ The illusion breaks on the *first* digital-looking detail. Every rule below exis
 - `perfect-freehand` via `strokeToPath`; pressure from speed for fingers (`pressureFromSpeed`), real pressure for styluses.
 - Wet ink is darker while drawing, dries to the ink colour; store strokes as `[x, y, p, t]` for replay.
 
+## Envelope (`src/letter/envelope.ts`)
+- DL proportions (2:1), "wallet" back: side flaps under the bottom flap, closing flap on top.
+- The closing flap must cover the whole pocket opening: side-flap tips sit *above* its edges, or the inside shows through as a sliver.
+- Each flap gets its own paper seed and a ±2–3 % tint (no two flaps are lit identically), a tiny drop shadow on its edges, and the far wall is in shade (darker towards the bottom).
+- Inside: liner with a fine "security" diamond pattern (`LINER_SKSL`); the flap's inside carries a gum strip along both edges.
+- Folded letter (`recordFoldedLetter`): back of the top third on top, mirrored show-through at ~4.5 % *blurred* (crisp ghost text reads as print), faint lines where hidden panel edges press through.
+
+## Wax seal (`WAX_SKSL`)
+- Height-field shading with the desk light: noisy seeded outline, rounded puddle edge, flat stamp face with the monogram raised, a rim of wax pushed out around the stamp. Normals from finite differences.
+- Molten wax is glossier (higher, tighter specular); pressed wax goes satin. Thin edges glow slightly.
+- Too little wax → the imprint is cut off at the edge. That's correct; keep it.
+- Grain on the stamp face must be low-frequency (≥ ~4 px features). 1 px noise reads as a checkerboard.
+- Iterate on looks in Node with CanvasKit (render the shader to PNG) before wiring it into the app.
+
 ## Imperfection budget (per letter, seeded)
 - Fold lines 1–3 mm off the thirds (`creaseOffsets`), slight skew; letter crooked in the envelope; postmark rotated ±8° with partial strike.
 - Edges: soft contact shadow (`dy 6, blur 10, ~35 %`) plus a tight 1 px shadow.

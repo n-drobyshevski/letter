@@ -24,6 +24,8 @@ const SHOTS = [
   { name: 'jitter-cotton-marck', path: '/lab/jitter?seed=99&paper=cotton&font=marckScript&ink=violet' },
   { name: 'typing', path: '/lab/typing?seed=7' },
   ...[0, 0.25, 0.5, 0.75, 1].map((t) => ({ name: `fold-${t}`, path: `/lab/fold?seed=1407&t=${t}` })),
+  // insert 0–.3 · close .3–.5 · pour .5–.7 · press .7–1
+  ...[0.15, 0.3, 0.4, 0.6, 0.7, 0.8, 0.86, 1].map((t) => ({ name: `envelope-${t}`, path: `/lab/envelope?seed=1407&t=${t}` })),
 ];
 const VIEWPORTS = [
   { name: 'phone', width: 390, height: 844, deviceScaleFactor: 2 },

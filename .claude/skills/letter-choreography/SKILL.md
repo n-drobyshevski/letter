@@ -12,6 +12,10 @@ description: How to build the letter "ceremonies" (fold, insert, seal, stamp, po
 - Sub-phases are ranges of `t` with an ease (`t/0.5`, `(t-0.5)/0.5`), so scrubbing backwards always works.
 - Expose a `fixedT` prop (and `?t=` lab param) so `npm run qa:visual` can freeze any frame.
 
+- Multi-stage ceremonies (`EnvelopeCeremony`): one progress value per stage plus a `stage` shared value. **Lock each gesture to the stage it began in** (`gestureStage`); otherwise a drag that completes stage N keeps driving stage N+1.
+- On web, a tap without movement never activates a pan: `onActivate`/`onDeactivate` don't fire, only `onBegin`/`onFinalize`. Handle taps in `onFinalize`.
+- Hold-to-do (pouring wax): start a `withTiming` in `onBegin`, `cancelAnimation` in `onFinalize`, and keep what was done.
+
 ## Physics cues
 - Nothing moves at constant velocity. Falls ease in; landings settle with a damped spring (damping ~18–22, stiffness ~140–160).
 - Hinged panels: rigid planes, `perspective ~1100`, max angle < 180° (`0.985π`) — paper never lies perfectly flat. Swap front/back face at 90° (clip, not opacity).
@@ -32,7 +36,7 @@ description: How to build the letter "ceremonies" (fold, insert, seal, stamp, po
 | Fold (tri-fold) | drag up | `crease` per panel |
 | Insert into envelope | drag down + page curl | rustle |
 | Close flap | tap | soft thud |
-| Wax seal | hold (depth = hold time) | `press` + thud |
+| Wax seal | hold to pour (puddle size = hold time), release to press | `tick` while pouring, `press` on impact |
 | Stamp / postmark | tap | `press` |
 | Postbox | flick | `posted` |
 | Slit envelope | drag along the flap | `tick` every ~24 px |

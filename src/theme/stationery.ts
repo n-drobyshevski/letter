@@ -5,7 +5,7 @@
 
 export type Rgb = readonly [number, number, number];
 
-export type PaperKind = 'grid' | 'cotton';
+export type PaperKind = 'grid' | 'cotton' | 'cream' | 'kraft';
 
 export type PaperSpec = {
   kind: PaperKind;
@@ -43,7 +43,42 @@ export const PAPERS: Record<PaperKind, PaperSpec> = {
     marginColor: [0, 0, 0],
     bleed: 0.6,
   },
+  // Envelope stock.
+  cream: {
+    kind: 'cream',
+    base: [0.94, 0.905, 0.83],
+    cell: 0,
+    marginX: 0,
+    gridColor: [0, 0, 0],
+    marginColor: [0, 0, 0],
+    bleed: 0.5,
+  },
+  kraft: {
+    kind: 'kraft',
+    base: [0.76, 0.6, 0.43],
+    cell: 0,
+    marginX: 0,
+    gridColor: [0, 0, 0],
+    marginColor: [0, 0, 0],
+    bleed: 0.7,
+  },
 };
+
+/** Inside of the envelope: base paper and the printed security pattern. */
+export const LINERS = {
+  postal: { label: 'Почтовый', base: [0.87, 0.88, 0.9] as Rgb, pattern: [0.5, 0.55, 0.7] as Rgb, scale: 6 },
+  bordeaux: { label: 'Бордо', base: [0.42, 0.12, 0.16] as Rgb, pattern: [0.62, 0.48, 0.3] as Rgb, scale: 9 },
+  forest: { label: 'Лес', base: [0.16, 0.27, 0.21] as Rgb, pattern: [0.72, 0.64, 0.45] as Rgb, scale: 9 },
+} as const;
+export type LinerKind = keyof typeof LINERS;
+
+export const WAX = {
+  bordeaux: { label: 'Бордо', rgb: [0.48, 0.07, 0.1] as Rgb },
+  forest: { label: 'Зелёный', rgb: [0.1, 0.27, 0.18] as Rgb },
+  navy: { label: 'Синий', rgb: [0.1, 0.15, 0.33] as Rgb },
+  gold: { label: 'Золото', rgb: [0.62, 0.47, 0.2] as Rgb },
+} as const;
+export type WaxKind = keyof typeof WAX;
 
 export type InkKind = 'blueBlack' | 'ironGall' | 'violet';
 
