@@ -5,11 +5,13 @@ import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
 
-// Every handwriting font we ship must cover Russian and French completely.
+// Every font we ship (handwriting and print) must cover Russian and French completely.
 const FONTS = {
   'Bad Script': '@expo-google-fonts/bad-script/400Regular/BadScript_400Regular.ttf',
   'Marck Script': '@expo-google-fonts/marck-script/400Regular/MarckScript_400Regular.ttf',
   Caveat: '@expo-google-fonts/caveat/400Regular/Caveat_400Regular.ttf',
+  'PT Sans Narrow': '@expo-google-fonts/pt-sans-narrow/400Regular/PTSansNarrow_400Regular.ttf',
+  'PT Sans Narrow Bold': '@expo-google-fonts/pt-sans-narrow/700Bold/PTSansNarrow_700Bold.ttf',
 };
 const RU = 'абвгдеёжзийклмнопрстуфхцчшщъыьэюяАБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ«»—№';
 const FR = 'àâæçéèêëîïôœùûüÿÀÂÆÇÉÈÊËÎÏÔŒÙÛÜŸ’';

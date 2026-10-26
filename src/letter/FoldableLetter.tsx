@@ -53,17 +53,21 @@ type Props = {
   seed: number;
   /** Freeze progress (visual QA). */
   fixedT?: number;
+  /** Start folded (1) to unfold a received letter. */
+  initialT?: number;
+  /** Called when a release settles fully open (0) or fully folded (1). */
+  onSettled?: (t: 0 | 1) => void;
 };
 
 const PAD = 28;
 
-export function FoldableLetter({ front, back, width, height, seed, fixedT }: Props) {
+export function FoldableLetter({ front, back, width, height, seed, fixedT, initialT = 0, onSettled }: Props) {
   const [o1, o2] = creaseOffsets(seed);
   const a = height / 3 + o1;
   const b = (height * 2) / 3 + o2;
   const travel = height * 0.75;
 
-  const t = useSharedValue(fixedT ?? 0);
+  const t = useSharedValue(fixedT ?? initialT);
   const start = useSharedValue(0);
   const reduceMotion = useReducedMotion();
 
@@ -82,10 +86,14 @@ export function FoldableLetter({ front, back, width, height, seed, fixedT }: Pro
     onDeactivate: (e) => {
       const v = -e.velocityY / travel;
       const target = v > 0.6 ? 1 : v < -0.6 ? 0 : t.get() > 0.5 ? 1 : 0;
+      const done = (finished?: boolean) => {
+        'worklet';
+        if (finished && onSettled) scheduleOnRN(onSettled, target as 0 | 1);
+      };
       t.set(
         reduceMotion
-          ? withTiming(target, { duration: 180, easing: Easing.out(Easing.quad) })
-          : withSpring(target, { velocity: v, damping: 20, stiffness: 150, mass: 0.9 }),
+          ? withTiming(target, { duration: 180, easing: Easing.out(Easing.quad) }, done)
+          : withSpring(target, { velocity: v, damping: 20, stiffness: 150, mass: 0.9 }, done),
       );
     },
   });

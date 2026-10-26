@@ -6,6 +6,7 @@ import { Platform } from 'react-native';
  * vibration, so choreography code reads like a script. No-ops on web.
  */
 const enabled = Platform.OS === 'ios' || Platform.OS === 'android';
+const android = Platform.OS === 'android';
 
 export const feel = {
   /** A crease snapping into place, a page settling. */
@@ -16,4 +17,18 @@ export const feel = {
   press: () => enabled && Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy),
   /** Letter dropped into the postbox. */
   posted: () => enabled && Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success),
+  /** Metal on metal: the slot flap snapping back, a lock turning. */
+  clack: () =>
+    enabled &&
+    (android
+      ? Haptics.performAndroidHapticsAsync(Haptics.AndroidHaptics.Clock_Tick)
+      : Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Rigid)),
+  /** Paper fibres giving way under the paper knife: very soft, fires often. */
+  fibre: () =>
+    enabled &&
+    (android
+      ? Haptics.performAndroidHapticsAsync(Haptics.AndroidHaptics.Segment_Frequent_Tick)
+      : Haptics.selectionAsync()),
+  /** A mailbox door swinging open. */
+  door: () => enabled && Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium),
 };

@@ -4,8 +4,8 @@
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 
 const COPY = {
-  ru: { title: 'Почта пришла', body: 'Флажок на почтовом ящике поднят.' },
-  fr: { title: 'Du courrier pour toi', body: 'Le drapeau de la boîte aux lettres est levé.' },
+  ru: { title: 'В ящике письмо', body: 'Загляни в почтовый ящик: там что-то белеет.' },
+  fr: { title: 'Tu as du courrier', body: 'Quelque chose dépasse de ta boîte aux lettres.' },
 } as const;
 
 type Letter = { id: string; recipient_id: string; recipient: { locale: 'ru' | 'fr' } | null };

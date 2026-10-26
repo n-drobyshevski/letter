@@ -4,15 +4,11 @@ import {
   Circle,
   DashPathEffect,
   Group,
-  ImageShader,
   Picture,
   RadialGradient,
   Rect,
-  Shader,
   Shadow,
   Skia,
-  drawAsImageFromPicture,
-  useFont,
   vec,
   type SkPicture,
   type Transforms3d,
@@ -34,9 +30,9 @@ import { scheduleOnRN } from 'react-native-worklets';
 
 import { feel } from '../lib/haptics';
 import { mulberry32, subSeed, wobble } from '../lib/random';
-import { HANDWRITING_FONTS, LIGHT_DIR, WAX, type LinerKind, type PaperKind, type WaxKind } from '../theme/stationery';
-import { envelopeGeometry, recordEnvelope, recordFoldedLetter, recordMonogram } from './envelope';
-import { WAX_SKSL } from './shaders';
+import type { LinerKind, PaperKind, WaxKind } from '../theme/stationery';
+import { envelopeGeometry, recordEnvelope, recordFoldedLetter } from './envelope';
+import { WaxSeal } from './WaxSeal';
 
 /**
  * Sealing ceremony, four stages, each driven by its own progress value:
@@ -73,9 +69,6 @@ type Props = {
 const PERSPECTIVE = 1100;
 const FLAP_OPEN = Math.PI * 0.985;
 const PAD = 24;
-let waxEffect: ReturnType<typeof Skia.RuntimeEffect.Make> = null;
-// Created lazily: on web, CanvasKit is only ready once the app has mounted.
-const waxShader = () => (waxEffect ??= Skia.RuntimeEffect.Make(WAX_SKSL));
 
 function clamp01(x: number) {
   'worklet';
@@ -103,12 +96,6 @@ export function EnvelopeCeremony({ letterFront, letterBack, sheet, width, look, 
   const parts = useMemo(() => recordEnvelope(g, look.paper, look.liner, look.seed), [g, look.paper, look.liner, look.seed]);
   const letter = useMemo(() => recordFoldedLetter(letterFront, letterBack, sheet, look.seed), [letterFront, letterBack, sheet, look.seed]);
 
-  const monoFont = useFont(HANDWRITING_FONTS.marckScript.file, g.seal.stampR * 2 * (look.initials.length > 1 ? 0.62 : 0.95));
-  const monogram = useMemo(() => {
-    if (!monoFont) return null;
-    const size = Math.ceil(g.seal.stampR * 2 * 2); // 2× for a crisp relief
-    return drawAsImageFromPicture(recordMonogram(look.initials, monoFont, size), { width: size, height: size });
-  }, [monoFont, g.seal.stampR, look.initials]);
 
   // Letter placement: seeded crookedness, resting on the bottom of the pocket.
   const rand = mulberry32(subSeed(look.seed, 'insert'));
@@ -258,18 +245,6 @@ export function EnvelopeCeremony({ letterFront, letterBack, sheet, width, look, 
   // ── wax ──
   const { seal } = g;
   const imprint = useDerivedValue(() => easeInOut((press.get() - 0.4) / 0.1));
-  const waxR = useDerivedValue(() => seal.maxR * Math.sqrt(pour.get()) * (1 + 0.07 * imprint.get()));
-  const waxUniforms = useDerivedValue(() => ({
-    uCenter: vec(seal.x, seal.y),
-    uR: waxR.get(),
-    uStampR: seal.stampR,
-    uSeed: (look.seed % 97) * 0.37,
-    uImprint: imprint.get(),
-    uMolten: 1 - 0.85 * imprint.get(),
-    uColor: WAX[look.wax].rgb as unknown as number[],
-    uLight: [LIGHT_DIR.x, LIGHT_DIR.y],
-  }));
-  const waxShadowR = useDerivedValue(() => waxR.get() * 0.97);
 
   // ── brass seal ──
   const height = useDerivedValue(() => {
@@ -338,27 +313,7 @@ export function EnvelopeCeremony({ letterFront, letterBack, sheet, width, look, 
           </Group>
 
           {/* sealing wax */}
-          {monogram && (
-            <>
-              <Circle cx={seal.x + 1.5} cy={seal.y + 2.5} r={waxShadowR} color="rgba(30, 8, 4, 0.4)">
-                <BlurMask blur={3} style="normal" />
-              </Circle>
-              <Rect x={seal.x - seal.maxR * 1.4} y={seal.y - seal.maxR * 1.4} width={seal.maxR * 2.8} height={seal.maxR * 2.8}>
-                <Shader source={waxShader()!} uniforms={waxUniforms}>
-                  <ImageShader
-                    image={monogram}
-                    x={seal.x - seal.stampR}
-                    y={seal.y - seal.stampR}
-                    width={seal.stampR * 2}
-                    height={seal.stampR * 2}
-                    fit="fill"
-                    tx="decal"
-                    ty="decal"
-                  />
-                </Shader>
-              </Rect>
-            </>
-          )}
+          <WaxSeal seal={seal} wax={look.wax} initials={look.initials} seed={look.seed} pour={pour} imprint={imprint} />
 
           {/* brass seal, seen from above */}
           <Group transform={stampShadowTransform} opacity={stampShadowOpacity}>

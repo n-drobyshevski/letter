@@ -8,7 +8,9 @@ import { PGlite } from '@electric-sql/pglite';
  * stand-in for Supabase's `auth` schema, then checks the delivery algorithm and RLS.
  */
 
-const MIGRATION = readFileSync(new URL('../supabase/migrations/20261026000001_letters.sql', import.meta.url), 'utf8');
+const migration = (f: string) => readFileSync(new URL(`../supabase/migrations/${f}`, import.meta.url), 'utf8');
+// 0002 needs Supabase-only extensions; it is covered by dispatch.test.ts.
+const MIGRATIONS = ['20261026000001_letters.sql', '20261027000003_collection_visibility.sql'].map(migration);
 
 const SUPABASE_STUB = `
 create role anon nologin;
@@ -42,7 +44,7 @@ const one = async <T = Record<string, unknown>>(sql: string, params: unknown[] =
 before(async () => {
   db = new PGlite();
   await db.exec(SUPABASE_STUB);
-  await db.exec(MIGRATION);
+  for (const m of MIGRATIONS) await db.exec(m);
   await db.exec(`
     grant select, update on all tables in schema public to authenticated;
     grant insert, delete on public.devices to authenticated;
@@ -156,7 +158,19 @@ describe('row-level security', () => {
     assert.ok(r.d.getTime() - r.p.getTime() >= 2 * 3.6e6, 'update had no effect (no update policy)');
   });
 
-  test('in transit: recipient sees the envelope, not the contents', async () => {
+  test('still in the postbox: the recipient knows nothing yet', async () => {
+    assert.equal((await as(B, () => db.query(`select id from public.letters`))).rows.length, 0);
+    assert.equal((await as(B, () => db.query(`select * from public.letter_contents`))).rows.length, 0);
+    const status = await as(A, () => one<{ status: string }>(`select status from public.letter_status`));
+    assert.equal(status.status, 'posted');
+  });
+
+  test('collected: the recipient sees the envelope in transit, not the contents', async () => {
+    await db.query(`update public.letters set posted_at = now() - interval '2 hours', collect_at = now() - interval '1 hour' where id = $1`, [letterId]);
+    const collected = await one<{ n: number }>(`select public.collect_posted() as n`);
+    assert.equal(collected.n, 1, 'collection is written, so Realtime fires');
+    assert.equal((await one<{ n: number }>(`select public.collect_posted() as n`)).n, 0, 'idempotent');
+
     const envelopes = await as(B, () => db.query(`select id from public.letters`));
     assert.equal(envelopes.rows.length, 1);
     const contents = await as(B, () => db.query(`select * from public.letter_contents`));
@@ -164,7 +178,7 @@ describe('row-level security', () => {
     const own = await as(A, () => db.query(`select * from public.letter_contents`));
     assert.equal(own.rows.length, 1, 'the sender can always reread what they wrote');
     const status = await as(B, () => one<{ status: string }>(`select status from public.letter_status`));
-    assert.equal(status.status, 'posted');
+    assert.equal(status.status, 'in_transit');
     await assert.rejects(as(B, () => db.query(`select public.open_letter($1)`, [letterId])), /not delivered/);
   });
 
@@ -172,8 +186,10 @@ describe('row-level security', () => {
     await db.query(`update public.letters set posted_at = now() - interval '3 hours', collect_at = now() - interval '2 hours', deliver_at = now() - interval '1 minute' where id = $1`, [letterId]);
     const contents = await as(B, () => db.query<{ body: { text: string } }>(`select body from public.letter_contents`));
     assert.equal(contents.rows[0].body.text, 'Je pense à toi');
-    await as(B, () => db.query(`select public.open_letter($1)`, [letterId]));
-    assert.equal((await as(B, () => db.query(`select * from public.letter_receipts`))).rows.length, 1);
+    await as(B, () => db.query(`select public.open_letter($1, 'slit')`, [letterId]));
+    await as(B, () => db.query(`select public.open_letter($1)`, [letterId])); // idempotent
+    const receipts = await as(B, () => db.query<{ opened_by: string }>(`select opened_by from public.letter_receipts`));
+    assert.deepEqual(receipts.rows.map((r) => r.opened_by), ['slit']);
     assert.equal((await as(A, () => db.query(`select * from public.letter_receipts`))).rows.length, 0);
     await db.exec(`update public.profiles set read_receipts = true`);
     assert.equal((await as(A, () => db.query(`select * from public.letter_receipts`))).rows.length, 1, 'both opted in');

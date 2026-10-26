@@ -13,12 +13,15 @@ A private app for two people that simulates sending and receiving real letters. 
 | Письмо | `/lab/typing` | Writing straight onto the sheet with the native keyboard (RU/FR, autocorrect, dictation), crossfading into inked handwriting; a finger/stylus pen for signatures and doodles |
 | Сложить | `/lab/fold` | Gesture-driven tri-fold: hinged panels in perspective, seeded off-third creases, face swap with ink show-through, moving shadows, crease haptics |
 | Конверт | `/lab/envelope` | Slide the folded letter into the envelope, close the flap in perspective, hold to pour sealing wax, release to press a brass seal that leaves your monogram in relief |
+| Отправить | `/lab/post` | Post the sealed envelope into a Почта wall box: it turns to go in short edge first, catches on the seal, darkens into the slot; take it back until the handwritten collection time |
+| Получить | `/lab/mailbox` | Your подъезд mailbox (the envelope shows through the peek holes): open the door, take the envelope out, read the address side (stamp, postmark, wear), flip it, slit the fold with a paper knife, pull the letter out, unfold; re-reading skips the ceremony |
 
 Backend (`supabase/`):
 - schema, RLS and the server-side delivery algorithm
 - delivery tiers: express, standard (distance-based) and scheduled
 - 10:00/16:00 post rounds in the recipient's time zone
 - a grace window to take a letter back
+- recipients see nothing until the letter is collected; collection and delivery are written so Realtime fires
 - private read receipts
 - per-minute dispatch to an Expo push Edge Function
 

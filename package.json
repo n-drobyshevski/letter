@@ -6,6 +6,7 @@
     "@expo-google-fonts/bad-script": "^0.4.1",
     "@expo-google-fonts/caveat": "^0.4.2",
     "@expo-google-fonts/marck-script": "^0.4.1",
+    "@expo-google-fonts/pt-sans-narrow": "^0.4.1",
     "@expo/ui": "~58.0.23",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@shopify/react-native-skia": "2.14.0",

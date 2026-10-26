@@ -13,7 +13,7 @@ Reanimated 4 + Gesture Handler 3 hooks · perfect-freehand · Supabase (RLS, cro
 ## Layout
 - `src/letter/`: rendering + choreography (`shaders.ts`, `handwriting.ts`, `renderLetter.ts`, `FoldableLetter.tsx`, `strokes.ts`)
 - `src/theme/stationery.ts`: papers, inks, fonts, the desk light
-- `src/app/lab/*`: isolated spikes; `?seed=&t=&paper=` params make frames reproducible
+- `src/app/lab/*`: isolated spikes (jitter, typing, fold, envelope, post, mailbox); `?seed=&t=&paper=` params make frames reproducible
 - `supabase/migrations`: schema, delivery algorithm, RLS, dispatch; `supabase/functions/deliver`: Expo push
 - `tests/`: node:test via tsx (layout, shader compile, font coverage, SQL in PGlite)
 
@@ -36,4 +36,6 @@ Before calling UI work done, run the visual QA and look at the screenshots.
 - `<Picture>` ignores group opacity; use clips or `layer={<Paint opacity/>}`. Canvas `style` must be flat on web.
 - SkPath is immutable: build with `Skia.PathBuilder.Make()` … `.detach()`.
 - React Compiler is on: use `.get()/.set()` for shared values outside worklet reads.
+- Typefaces for `Skia.Font(...)`: load with `useTypeface` (see `useTypefaces`). `font.getTypeface()` is a borrowed pointer on web and `Skia.Font` throws on it.
+- `perspective` only works in the same `transform` list as the rotation (each Group flattens to 2D).
 - UI copy is Russian/French; code and comments in English.

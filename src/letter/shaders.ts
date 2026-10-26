@@ -193,3 +193,59 @@ half4 main(float2 xy) {
   return half4(half3(col) * alpha, alpha);
 }
 `;
+
+/**
+ * Rubber-stamp ink (postmarks, cancellation waves): patchy coverage, a heavier
+ * and a lighter side (stamps are rarely pressed flat), never a solid fill.
+ */
+export const STAMP_INK_SKSL = /* sksl */ `
+uniform float3 uInk;
+uniform float uSeed;
+uniform float2 uCenter;
+uniform float2 uTilt;
+uniform float uRadius;
+${NOISE}
+half4 main(float2 xy) {
+  float patch = smoothstep(0.28, 0.62, fbm(xy * 0.09 + uSeed));
+  float speck = 0.7 + 0.3 * vnoise(xy * 1.3 + uSeed * 3.0);
+  // Pressed unevenly, but no side ever disappears.
+  float side = 0.5 + 0.5 * smoothstep(-1.3, 0.7, dot(uTilt, (xy - uCenter) / uRadius));
+  float a = clamp((0.35 + 0.65 * patch) * speck * side, 0.0, 1.0) * 0.85;
+  return half4(half3(uInk) * a, a);
+}
+`;
+
+/**
+ * Powder-coated sheet steel (postboxes, mailbox banks): orange-peel micro-relief
+ * lit by the desk light, a slow dent waviness, lighter at the top, paint chipped
+ * to grey primer near edges, grime collecting in patches.
+ */
+export const POWDER_SKSL = /* sksl */ `
+uniform float2 uOrigin;
+uniform float2 uSize;
+uniform float3 uBase;
+uniform float3 uPrimer;
+uniform float uSeed;
+uniform float2 uLight;
+uniform float uWear;
+${NOISE}
+half4 main(float2 xy) {
+  float2 p = xy - uOrigin;
+  float h = vnoise(p * 0.45 + uSeed);
+  float hx = vnoise((p + float2(0.6, 0.0)) * 0.45 + uSeed);
+  float hy = vnoise((p + float2(0.0, 0.6)) * 0.45 + uSeed);
+  float3 n = normalize(float3((h - hx) * 0.9, (h - hy) * 0.9, 1.0));
+  float3 L = normalize(float3(uLight, 1.4));
+  float diffuse = dot(n, L);
+  float spec = pow(max(dot(n, normalize(L + float3(0.0, 0.0, 1.0))), 0.0), 30.0) * 0.16;
+  float wave = fbm(p * 0.004 + uSeed);
+  float3 col = uBase * (0.8 + 0.27 * diffuse + 0.07 * (wave - 0.5));
+  col *= mix(1.07, 0.88, clamp(p.y / uSize.y, 0.0, 1.0));
+  float2 q = min(p, uSize - p);
+  float edge = min(q.x, q.y);
+  float chip = step(0.74, fbm(p * 0.09 + uSeed * 3.0)) * (1.0 - smoothstep(1.5, 8.0, edge)) * uWear;
+  col = mix(col, uPrimer, chip);
+  col *= 1.0 - 0.07 * smoothstep(0.55, 0.9, fbm(p * 0.02 + uSeed * 1.3));
+  return half4(half3(clamp(col + spec, 0.0, 1.0)), 1.0);
+}
+`;

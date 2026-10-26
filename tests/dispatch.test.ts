@@ -50,6 +50,7 @@ test('due letters get one push, retrieved and future ones none', async () => {
   await db.exec(STUBS);
   await db.exec(read('20261026000001_letters.sql'));
   await db.exec(withoutExtensions(read('20261026000002_delivery_push.sql')));
+  await db.exec(read('20261027000003_collection_visibility.sql'));
 
   const A = '00000000-0000-0000-0000-00000000000a';
   const B = '00000000-0000-0000-0000-00000000000b';
@@ -76,6 +77,9 @@ test('due letters get one push, retrieved and future ones none', async () => {
   assert.deepEqual(reqs.rows[0].body.letter_ids, ['00000000-0000-0000-0000-000000000001']);
 
   const jobs = await db.query<{ name: string; schedule: string }>('select * from cron.jobs');
-  assert.deepEqual(jobs.rows.map((j) => [j.name, j.schedule]), [['deliver-mail', '* * * * *']]);
+  assert.deepEqual(jobs.rows.map((j) => [j.name, j.schedule]), [
+    ['deliver-mail', '* * * * *'],
+    ['collect-mail', '* * * * *'],
+  ]);
   await db.close();
 });

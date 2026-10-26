@@ -38,6 +38,18 @@ The illusion breaks on the *first* digital-looking detail. Every rule below exis
 - Inside: liner with a fine "security" diamond pattern (`LINER_SKSL`); the flap's inside carries a gum strip along both edges.
 - Folded letter (`recordFoldedLetter`): back of the top third on top, mirrored show-through at ~4.5 % *blurred* (crisp ghost text reads as print), faint lines where hidden panel edges press through.
 
+## Envelope front (`envelopeFront.ts`)
+- Russian printed fields «От кого / Откуда / Кому / Куда» + the six-box index template, in a printed slate ink; filled in by hand (`layoutHandwriting`, one line each).
+- Stamp: perforations by clipping a row of circles out of the stamp paper, offset-print landscape, «РОССИЯ», value, year; tilted ±2°.
+- Postmark: double ring, city over the top, «ПОЧТА» under, date between two bars; rotated ±8°; `STAMP_INK_SKSL` coverage — patchy, one side lighter but never gone. **Normal blending**, not multiply (multiply vanishes over the stamp's dark colours). Machine cancellation waves run off to the left.
+- Transit wear (received letters): grime vignette, a few smudges, a dog-eared corner, a hairline crack in the wax (`WaxSeal cracked`).
+
+## Steel boxes (`steelBox.ts`, `POWDER_SKSL`)
+- Powder coat: orange-peel micro-normals under the desk light, slow dent waviness, lighter at the top, chips to grey primer only near edges, grime patches.
+- Postbox: RU 2015 wall box, blue (#2766C5; express = real yellow), visor with soft shadow over a 171 × 6 mm slot at 1.6 pt/mm, «ПОЧТА» + an original emblem (never the Почта России logo), hand-filled collection sticker kept on screen.
+- Mailbox: подъезд bank, RAL 7035, numbered doors, cylinder lock, slot, six peek holes; our door is live, neighbours are baked.
+- An object going into a slot darkens as it enters (a gradient in its own space): a clip alone looks like a mask.
+
 ## Wax seal (`WAX_SKSL`)
 - Height-field shading with the desk light: noisy seeded outline, rounded puddle edge, flat stamp face with the monogram raised, a rim of wax pushed out around the stamp. Normals from finite differences.
 - Molten wax is glossier (higher, tighter specular); pressed wax goes satin. Thin edges glow slightly.

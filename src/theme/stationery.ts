@@ -109,6 +109,44 @@ export const HANDWRITING_FONTS = {
 
 export type FontKey = keyof typeof HANDWRITING_FONTS;
 
+/** Printed matter: envelope fields, stamps, postmarks, postbox signage. PT Sans was made for Russian. */
+export const PRINT_FONTS = {
+  regular: require('@expo-google-fonts/pt-sans-narrow/400Regular/PTSansNarrow_400Regular.ttf'),
+  bold: require('@expo-google-fonts/pt-sans-narrow/700Bold/PTSansNarrow_700Bold.ttf'),
+};
+
+/** Street postboxes (RU 2015 wall box; yellow is the real express/first-class colour). */
+export const POSTBOX = {
+  blue: { face: [0.153, 0.4, 0.773] as Rgb, side: '#1a499f', shade: '#153774' },
+  yellow: { face: [1, 0.765, 0.082] as Rgb, side: '#d99a00', shade: '#a87400' },
+  primer: [0.54, 0.553, 0.565] as Rgb,
+  slotLip: '#f6974a',
+  slotInside: ['#0b0b0d', '#1c1c20'],
+  wall: [0.6, 0.58, 0.55] as Rgb,
+};
+export type PostboxSkin = 'blue' | 'yellow';
+
+/** Подъезд mailbox bank (RAL 7035 light grey) and its interior. */
+export const MAILBOX = {
+  face: [0.796, 0.816, 0.8] as Rgb,
+  frame: [0.62, 0.64, 0.63] as Rgb,
+  primer: [0.42, 0.43, 0.44] as Rgb,
+  interior: '#2a2622',
+  wall: [0.72, 0.7, 0.62] as Rgb,
+};
+
+/** Post-office inks and printing. */
+export const POSTAL = {
+  printedFields: 'rgba(52, 62, 86, 0.75)',
+  postmarkInk: [0.17, 0.13, 0.26] as Rgb,
+  stampPaper: '#f3efe4',
+  stampPalettes: [
+    ['#2f5d8a', '#9cc3e0', '#e9c46a', '#3d6b45'],
+    ['#7a2e3b', '#e7b7a3', '#f2d16b', '#4b5d3a'],
+    ['#2c4a3f', '#a7c4a0', '#f0e2b6', '#6d4c3d'],
+  ] as const,
+};
+
 /** The single desk light: from the top-left, slightly in front. */
 export const LIGHT_DIR = { x: -0.45, y: -0.75 } as const;
 

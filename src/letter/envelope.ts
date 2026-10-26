@@ -75,7 +75,8 @@ export function envelopeGeometry(width: number, seed: number): EnvelopeGeometry 
     // Side flaps stay above the closing flap's edges, so a closed envelope shows no gap.
     left: roundedTriangle([0, 0], [width * 0.45, height * 0.42], [0, height], height * 0.1),
     right: roundedTriangle([width, 0], [width * 0.55, height * 0.42], [width, height], height * 0.1),
-    bottom: roundedTriangle([0, height], [width / 2 + wobble(rand, width * 0.004), height * 0.36], [width, height], height * 0.24),
+    // Steeper than the side flaps' lower edges, so the flaps overlap with no gap between them.
+    bottom: roundedTriangle([0, height], [width / 2 + wobble(rand, width * 0.004), height * 0.3], [width, height], height * 0.24),
     seal: { x: tipX, y: flapTip - maxR * 0.2, maxR, stampR: maxR * 0.72 },
   };
 }

@@ -14,6 +14,10 @@ description: How to build the letter "ceremonies" (fold, insert, seal, stamp, po
 
 - Multi-stage ceremonies (`EnvelopeCeremony`): one progress value per stage plus a `stage` shared value. **Lock each gesture to the stage it began in** (`gestureStage`); otherwise a drag that completes stage N keeps driving stage N+1.
 - On web, a tap without movement never activates a pan: `onActivate`/`onDeactivate` don't fire, only `onBegin`/`onFinalize`. Handle taps in `onFinalize`.
+- With `minDistance: 0` a tap *does* activate on native (handle it in `onDeactivate` by tiny translation), and on web it does not (handle it in `onFinalize` unless `onDeactivate` already ran). Handle both.
+- **Never commit on `e.canceled`** (a call, a scroll taking over): spring back instead.
+- Every gesture has a tap/button alternative (`advanceKey`/`commitKey` props); it leads when `useMotionPrefs().needsButtons`.
+- **Perspective must be in the same `transform` list as the rotation.** Each `Group` flattens its matrix to 2D, so `perspective` on a parent group does nothing. Put the vanishing point on the hinge's mid-line (`origin`).
 - Hold-to-do (pouring wax): start a `withTiming` in `onBegin`, `cancelAnimation` in `onFinalize`, and keep what was done.
 
 ## Physics cues
@@ -38,6 +42,10 @@ description: How to build the letter "ceremonies" (fold, insert, seal, stamp, po
 | Close flap | tap | soft thud |
 | Wax seal | hold to pour (puddle size = hold time), release to press | `tick` while pouring, `press` on impact |
 | Stamp / postmark | tap | `press` |
-| Postbox | flick | `posted` |
-| Slit envelope | drag along the flap | `tick` every ~24 px |
-| Unfold | drag down | `crease` |
+| Post (`PostingCeremony`) | drag/flick up: orient to portrait (short edge first) → through the slot; commit ≥ 0.55 or flick ≤ −900 pt/s | `tick` at contact and when the seal catches the lip, `posted` on the drop, `clack` as the inner flap swings back |
+| Take back (grace window) | button | reverse, 600 ms ease-out |
+| Mailbox door (`ReceivingCeremony`) | tap (unlock + open) or drag right | `door` |
+| Take out / flip | drag up or tap / tap | `crease` / `tick` |
+| Slit with paper knife | drag along the top fold from either corner; auto-finishes past 0.92 | `fibre` at seeded stick-slip catches (18–30 pt) |
+| Pull letter out | drag up | `crease` |
+| Unfold | `FoldableLetter initialT={1}`, drag down | `crease` per panel |
