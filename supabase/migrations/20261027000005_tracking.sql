@@ -153,29 +153,8 @@ begin
 end
 $$;
 
--- Taking a letter back also takes back its journey.
-create or replace function public.retrieve_letter(p_letter_id uuid)
-returns public.letters
-language plpgsql volatile security definer
-set search_path = ''
-as $$
-declare
-  letter public.letters;
-begin
-  update public.letters
-     set retrieved_at = now()
-   where id = p_letter_id
-     and sender_id = auth.uid()
-     and retrieved_at is null
-     and now() < collect_at
-  returning * into letter;
-  if not found then
-    raise exception 'too late: the letter has already been collected';
-  end if;
-  delete from public.tracking_events where letter_id = p_letter_id;
-  return letter;
-end
-$$;
+-- Taking a letter back hides its journey: "scans so far" requires retrieved_at is null,
+-- and tracking_estimate checks the same. Nothing is deleted (as for the letter itself).
 
 -- Each minute: stamp scans whose time has come, so Realtime tells the app.
 create function public.reveal_tracking()

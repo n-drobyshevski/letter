@@ -95,7 +95,7 @@ export async function postLetter(input: PostInput): Promise<LetterRow> {
   return data;
 }
 
-/** Takes a letter back out of the box during the grace window (deletes its journey too). */
+/** Takes a letter back out of the box during the grace window (its journey disappears with it). */
 export async function retrieveLetter(id: string): Promise<void> {
   if (!supabase) throw new Error('no backend configured');
   const { error } = await supabase.rpc('retrieve_letter', { p_letter_id: id });

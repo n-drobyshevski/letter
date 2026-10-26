@@ -159,15 +159,22 @@ describe('tracking', () => {
     assert.equal(await estimate(A), 1, 'delivered: at the end of the route');
   });
 
-  test('reveal stamps each scan once (Realtime), and retrieval removes the journey', async () => {
+  test('reveal stamps each scan once (Realtime), and retrieval hides the journey', async () => {
     const stamped = await db.query<{ n: number }>(`select public.reveal_tracking() n`);
     assert.ok(stamped.rows[0].n > 0);
     assert.equal((await db.query<{ n: number }>(`select public.reveal_tracking() n`)).rows[0].n, 0, 'idempotent');
 
     const { letter } = await post(5);
     await as('authenticated', A, () => db.query(`select public.retrieve_letter($1)`, [letter.id]));
-    const left = await db.query<{ n: number }>(`select count(*)::int n from public.tracking_events where letter_id = $1`, [letter.id]);
-    assert.equal(left.rows[0].n, 0);
+    // Days later, when its scans would have been due: neither of you sees the journey.
+    await age(letter.id, 8);
+    await db.query(`select public.collect_posted()`);
+    for (const user of [A, B]) {
+      const seen = await as('authenticated', user, () => db.query(`select 1 from public.tracking_events where letter_id = $1`, [letter.id]));
+      assert.equal(seen.rows.length, 0);
+      const est = await as('authenticated', user, () => db.query<{ e: number | null }>(`select public.tracking_estimate($1) e`, [letter.id]));
+      assert.equal(est.rows[0].e, null);
+    }
   });
 
   test('express and standard letters get a compressed itinerary that fits their promise', async () => {
