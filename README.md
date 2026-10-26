@@ -37,15 +37,18 @@ npx expo start              # press w for the laptop (web), or scan with a dev b
 
 The labs need no backend. Skia, Reanimated and haptics need a **development build** on phones (`npx expo run:ios` / `eas build --profile development`), not Expo Go.
 
-### Backend (when ready)
+### Deploy
+
+Backend: Supabase project `letter` (eu-central-1). Web: Vercel, built from this repo with `vercel.json`.
 
 1. Create a Supabase project and copy `.env.example` → `.env.local`.
-2. Apply the migrations: `supabase db push`, or use the Supabase MCP.
-3. Store the `project_url` and `service_role_key` secrets in Vault (see the header of `supabase/migrations/20261026000002_delivery_push.sql`).
-4. Deploy the functions: `supabase functions deploy deliver` and `supabase functions deploy post-letter`. The app posts through `post-letter`.
+2. Apply the migrations in filename order: `supabase db push`, or `apply_migration` via the Supabase MCP.
+3. Vault secrets (SQL): `project_url`, plus a random `deliver_secret` (see the header of `supabase/migrations/20261026000002_delivery_push.sql`). The deliver function checks the token itself, so no key is copied by hand.
+4. Deploy the functions: `supabase functions deploy post-letter` and `supabase functions deploy deliver --no-verify-jwt`. The app posts through `post-letter`.
 5. Create both accounts in the dashboard (Authentication → Users → Add user; sign-in never creates accounts), then run `supabase/seed.sql` with your e-mails, cities and time zones. Tracking is routed for a sender in `Europe/Paris` writing to `Europe/Minsk`.
 6. Sign-in is a 6-digit code by e-mail (no deep links): add `{{ .Token }}` to the Magic Link e-mail template (Authentication → Email Templates).
-7. Write at the desk (`/lab/typing`), then «Отнести на почту →». The posting screen sends exactly what you wrote.
+7. Vercel project from this repo: env `EXPO_PUBLIC_SUPABASE_URL` and `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY`. `vercel.json` builds the web export, serves it as a single-page app, and runs `api/keepalive` daily so a free Supabase project never pauses mid-journey.
+8. Write at the desk (`/lab/typing`), then «Отнести на почту →». The posting screen sends exactly what you wrote.
 
 ## Checks
 

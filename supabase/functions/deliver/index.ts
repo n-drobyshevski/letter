@@ -11,12 +11,12 @@ const COPY = {
 type Letter = { id: string; recipient_id: string; recipient: { locale: 'ru' | 'fr' } | null };
 
 Deno.serve(async (req) => {
-  const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-  if (req.headers.get('authorization') !== `Bearer ${serviceKey}`) {
-    return new Response('forbidden', { status: 403 });
-  }
+  // Deployed with verify_jwt off: only dispatch_deliveries knows this token (Vault 'deliver_secret').
+  const db = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
+  const token = req.headers.get('authorization')?.replace(/^Bearer /, '') ?? '';
+  const { data: ok } = await db.rpc('deliver_secret_ok', { p_token: token });
+  if (ok !== true) return new Response('forbidden', { status: 403 });
   const { letter_ids: ids } = (await req.json()) as { letter_ids: string[] };
-  const db = createClient(Deno.env.get('SUPABASE_URL')!, serviceKey);
 
   const { data: letters, error } = await db
     .from('letters')

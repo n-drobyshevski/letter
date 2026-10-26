@@ -1,9 +1,11 @@
 -- Delivery dispatch + private storage. Needs Supabase extensions (pg_cron, pg_net, vault),
 -- so it is kept apart from the schema migration that the PGlite tests run.
 --
--- Before applying, store two secrets (Dashboard → Project Settings → Vault, or SQL):
+-- Store two secrets (SQL; they are read at dispatch time, not when applying):
 --   select vault.create_secret('https://<project-ref>.supabase.co', 'project_url');
---   select vault.create_secret('<service_role key>', 'service_role_key');
+--   select vault.create_secret(encode(gen_random_bytes(32), 'hex'), 'deliver_secret');
+-- The deliver function checks the token with deliver_secret_ok() (service role), so no
+-- key is ever copied by hand and the service-role key never leaves Supabase.
 
 create extension if not exists pg_cron with schema pg_catalog;
 create extension if not exists pg_net with schema extensions;
@@ -39,7 +41,7 @@ begin
     url := (select decrypted_secret from vault.decrypted_secrets where name = 'project_url') || '/functions/v1/deliver',
     headers := jsonb_build_object(
       'content-type', 'application/json',
-      'authorization', 'Bearer ' || (select decrypted_secret from vault.decrypted_secrets where name = 'service_role_key')
+      'authorization', 'Bearer ' || (select decrypted_secret from vault.decrypted_secrets where name = 'deliver_secret')
     ),
     body := jsonb_build_object('letter_ids', to_jsonb(due))
   );
@@ -48,6 +50,17 @@ end
 $$;
 
 revoke all on function public.dispatch_deliveries from public, anon, authenticated;
+
+-- The deliver function's gate: is this the token dispatch_deliveries sends?
+create function public.deliver_secret_ok(p_token text)
+returns boolean
+language sql stable security definer
+set search_path = ''
+as $$
+  select exists (select 1 from vault.decrypted_secrets where name = 'deliver_secret' and decrypted_secret = p_token)
+$$;
+revoke all on function public.deliver_secret_ok from public, anon, authenticated;
+grant execute on function public.deliver_secret_ok to service_role;
 
 select cron.schedule('deliver-mail', '* * * * *', $$ select public.dispatch_deliveries() $$);
 

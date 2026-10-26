@@ -22,7 +22,7 @@ create function auth.uid() returns uuid language sql stable as $$
 
 create schema vault;
 create view vault.decrypted_secrets as
-  select * from (values ('project_url', 'https://ref.supabase.co'), ('service_role_key', 'srk')) s(name, decrypted_secret);
+  select * from (values ('project_url', 'https://ref.supabase.co'), ('deliver_secret', 'dlv')) s(name, decrypted_secret);
 
 create schema net;
 create table net.requests (id serial, url text, headers jsonb, body jsonb);
@@ -77,8 +77,17 @@ test('due letters get one push, retrieved and future ones none', async () => {
   const reqs = await db.query<{ url: string; headers: Record<string, string>; body: { letter_ids: string[] } }>('select * from net.requests');
   assert.equal(reqs.rows.length, 1);
   assert.equal(reqs.rows[0].url, 'https://ref.supabase.co/functions/v1/deliver');
-  assert.equal(reqs.rows[0].headers.authorization, 'Bearer srk');
+  assert.equal(reqs.rows[0].headers.authorization, 'Bearer dlv');
   assert.deepEqual(reqs.rows[0].body.letter_ids, ['00000000-0000-0000-0000-000000000001']);
+
+  // The deliver function's gate: only the token in Vault, only for the service role.
+  await db.exec('set role service_role');
+  const gate = await db.query<{ ok: boolean; bad: boolean }>(`select public.deliver_secret_ok('dlv') ok, public.deliver_secret_ok('srk') bad`);
+  await db.exec('reset role');
+  assert.deepEqual(gate.rows[0], { ok: true, bad: false });
+  await db.exec('set role authenticated');
+  await assert.rejects(db.query(`select public.deliver_secret_ok('dlv')`), /permission denied/);
+  await db.exec('reset role');
 
   const jobs = await db.query<{ name: string; schedule: string }>('select * from cron.jobs');
   assert.deepEqual(jobs.rows.map((j) => [j.name, j.schedule]), [
