@@ -29,8 +29,8 @@ describe('mailboxFromServer', () => {
     row('taken back', '2026-11-11T07:00:00Z', { retrieved_at: '2026-11-03T10:00:00Z' }),
   ];
   const contents = [
-    { letter_id: 'early', body: { text: 'Привет', font: 'caveat', ink: 'violet', paper: 'grid', strokes: [[[1, 2, 0.5, 0]]], sheet_width: 320 } },
-    { letter_id: 'late', body: { text: 'Coucou', font: 'comic sans', ink: 'red' } },
+    { letter_id: 'early', body: { text: 'Привет', font: 'caveat', ink: 'violet', paper: 'grid', strokes: [[[1, 2, 0.5, 0]]], sheet_width: 320, fold: 'quarter' } },
+    { letter_id: 'late', body: { text: 'Coucou', font: 'comic sans', ink: 'red', fold: 'origami crane' } },
     { letter_id: 'read', body: { text: 'Old' } },
   ];
   const receipts = [{ letter_id: 'read', opened_at: '2026-11-10T09:00:00Z' }];
@@ -52,6 +52,9 @@ describe('mailboxFromServer', () => {
     assert.equal(early.strokesWidth, 320);
     assert.deepEqual(late.letterLook, { paper: 'cotton', ink: 'blueBlack', font: 'badScript' });
     assert.equal(late.strokes, undefined);
+    // Unfolded the way it was folded; anything unknown is a tri-fold.
+    assert.equal(early.fold, 'quarter');
+    assert.equal(late.fold, 'tri');
   });
 
   test('addressed from Lille to Minsk, in French, with the real postmark', () => {

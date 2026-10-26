@@ -13,7 +13,7 @@ Reanimated 4 + Gesture Handler 3 hooks · perfect-freehand · Supabase (RLS, cro
 ## Layout
 - `src/letter/`: rendering + choreography (`shaders.ts`, `handwriting.ts`, `renderLetter.ts`, `FoldableLetter.tsx`, `strokes.ts`)
 - `src/theme/stationery.ts`: papers, inks, fonts, the desk light
-- `src/app/index.tsx`: home (mailbox, desk, letters on their way); `/write`, `/post`, `/mailbox` re-export their lab screens, which also run offline
+- `src/app/index.tsx`: home (mailbox, desk, letters on their way); `/write`, `/post`, `/mailbox` re-export their lab screens, which also run offline; `/fold` folds the draft (`src/letter/fold.ts`: tri/half/quarter, stored as `body.fold`)
 - `src/app/lab/*`: isolated spikes (jitter, typing, fold, envelope, post, mailbox), index at `/lab`; `?seed=&t=&paper=` params make frames reproducible
 - `src/letter/tracking/`: itinerary generator (self-contained, copied to `supabase/functions/_shared`), copy, projection, server rows → itinerary; `TrackingMap.tsx`, `TrackingTimeline.tsx`, `TrackingView.tsx`
 - `src/lib/`: `supabase.ts` (null without `.env.local`: labs run offline), `mail.ts` (session, couple, post/retrieve, tracking, mailbox, open_letter), `draft.ts` (desk → postbox); `src/letter/mailboxFromServer.ts`: RLS rows → mailbox letters (pure, tested); `src/app/track/[id].tsx`: a real letter's journey

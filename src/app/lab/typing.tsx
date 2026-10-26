@@ -136,8 +136,8 @@ export default function TypingLab() {
         </Pressable>
       )}
       {(touched || strokes.length > 0) && (
-        <Link dismissTo href="/post" style={styles.link}>
-          Отнести на почту →
+        <Link href="/fold" style={styles.link}>
+          Сложить письмо →
         </Link>
       )}
     </Desk>

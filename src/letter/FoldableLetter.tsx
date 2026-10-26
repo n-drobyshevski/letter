@@ -10,7 +10,7 @@ import {
   type Transforms3d,
   vec,
 } from '@shopify/react-native-skia';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { GestureDetector, usePanGesture } from 'react-native-gesture-handler';
 import {
   Easing,
@@ -21,18 +21,22 @@ import {
   useSharedValue,
   withSpring,
   withTiming,
+  type SharedValue,
 } from 'react-native-reanimated';
 import { scheduleOnRN } from 'react-native-worklets';
 
 import { feel } from '../lib/haptics';
-import { creaseOffsets } from './renderLetter';
+import { foldLines, type FoldKind } from './fold';
 
 /**
- * Tri-fold choreography, driven by a single progress value t ∈ [0, 1]:
- *   0.0 → 0.5  bottom third folds up over the middle
- *   0.5 → 1.0  top third folds down over both
- * The finger writes t directly; on release a velocity-aware spring settles it.
- * Panels are rigid planes hinged at the (seeded, slightly off-third) creases.
+ * Folding a letter, with the gesture choosing the fold:
+ *   drag up from below          → tri-fold: bottom third up (t 0 → 0.5), top third down (0.5 → 1)
+ *   pull the top edge down      → half fold: the top half comes down over the bottom (h 0 → 1)
+ *   then swipe left             → quarter fold: the right half over the left (q 0 → 1)
+ * Each fold is one progress value the finger writes directly; on release a
+ * velocity-aware spring settles it. Panels are rigid planes hinged at seeded,
+ * slightly-off creases. Unfolding is the same gestures backwards.
+ * With `kind` set (a received letter) only that fold's gestures apply.
  */
 
 const PERSPECTIVE = 1100;
@@ -51,46 +55,128 @@ type Props = {
   width: number;
   height: number;
   seed: number;
-  /** Freeze progress (visual QA). */
+  /** A fixed fold (a received letter, QA). Without it the first gesture chooses. */
+  kind?: FoldKind;
+  /** Freeze progress (visual QA). For the quarter fold, 0–0.5 is the half fold and 0.5–1 the second fold. */
   fixedT?: number;
   /** Start folded (1) to unfold a received letter. */
   initialT?: number;
-  /** Called when a release settles fully open (0) or fully folded (1). */
-  onSettled?: (t: 0 | 1) => void;
+  /** Called when a release settles fully open (0) or folded (1), with the fold it settled in. */
+  onSettled?: (t: 0 | 1, kind: FoldKind) => void;
+  /** The fold the gesture chose (or null once the sheet lies open again and no fold is fixed). */
+  onKind?: (kind: FoldKind | null) => void;
 };
 
 const PAD = 28;
+// Gesture modes (worklet-side): which fold the current hand is making.
+const NONE = 0;
+const TRI = 1;
+const HALF = 2;
+// Axis locked for one gesture in HALF mode.
+const AXIS_H = 1;
+const AXIS_Q = 2;
 
-export function FoldableLetter({ front, back, width, height, seed, fixedT, initialT = 0, onSettled }: Props) {
-  const [o1, o2] = creaseOffsets(seed);
-  const a = height / 3 + o1;
-  const b = (height * 2) / 3 + o2;
-  const travel = height * 0.75;
+const split = (kind: FoldKind | undefined, v: number) => ({
+  t: kind === 'tri' || kind === undefined ? v : 0,
+  h: kind === 'half' ? v : kind === 'quarter' ? Math.min(1, v * 2) : 0,
+  q: kind === 'quarter' ? Math.max(0, v * 2 - 1) : 0,
+});
 
-  const t = useSharedValue(fixedT ?? initialT);
+export function FoldableLetter({ front, back, width, height, seed, kind, fixedT, initialT = 0, onSettled, onKind }: Props) {
+  const init = split(kind, fixedT ?? initialT);
+  const t = useSharedValue(init.t);
+  const h = useSharedValue(init.h);
+  const q = useSharedValue(init.q);
+  const mode = useSharedValue(kind === undefined ? (init.t > 0 ? TRI : NONE) : kind === 'tri' ? TRI : HALF);
+  const axis = useSharedValue(0);
   const start = useSharedValue(0);
   const reduceMotion = useReducedMotion();
+  // Which set of panels is drawn. Switching happens only while the sheet is flat.
+  const [drawn, setDrawn] = useState<'tri' | 'half'>(kind === 'half' || kind === 'quarter' ? 'half' : 'tri');
 
   useEffect(() => {
-    if (fixedT !== undefined) t.set(fixedT);
-  }, [fixedT, t]);
+    if (fixedT === undefined) return;
+    const v = split(kind, fixedT);
+    t.set(v.t);
+    h.set(v.h);
+    q.set(v.q);
+  }, [fixedT, kind, t, h, q]);
+
+  const choose = (k: 'tri' | 'half') => {
+    setDrawn(k);
+    onKind?.(k);
+  };
+  const report = (target: 0 | 1, k: FoldKind) => {
+    onSettled?.(target, k);
+    if (kind === undefined) onKind?.(target === 0 && k !== 'quarter' ? null : k);
+  };
+
+  const travelT = height * 0.75;
+  const travelH = height * 0.8;
+  const travelQ = width * 0.8;
 
   const pan = usePanGesture({
     enabled: fixedT === undefined,
     onBegin: () => {
-      start.set(t.get());
+      axis.set(0);
     },
     onUpdate: (e) => {
-      t.set(Math.min(1, Math.max(0, start.get() - e.translationY / travel)));
+      // The first clear movement on a flat sheet decides the fold.
+      if (mode.get() === NONE) {
+        if (Math.hypot(e.translationX, e.translationY) < 10) return;
+        if (Math.abs(e.translationY) < Math.abs(e.translationX)) return;
+        if (e.translationY < 0) {
+          mode.set(TRI);
+          start.set(t.get());
+          scheduleOnRN(choose, 'tri');
+        } else {
+          mode.set(HALF);
+          start.set(h.get());
+          axis.set(AXIS_H);
+          scheduleOnRN(choose, 'half');
+        }
+      }
+      if (mode.get() === TRI) {
+        if (axis.get() === 0) {
+          axis.set(AXIS_H);
+          start.set(t.get());
+        }
+        t.set(Math.min(1, Math.max(0, start.get() - e.translationY / travelT)));
+        return;
+      }
+      if (mode.get() !== HALF) return;
+      if (axis.get() === 0) {
+        // Folded in half and nothing more: sideways folds again, vertical unfolds.
+        if (Math.hypot(e.translationX, e.translationY) < 10) return;
+        const sideways = Math.abs(e.translationX) > Math.abs(e.translationY);
+        if (q.get() > 0.001 || (h.get() > 0.999 && sideways && kind !== 'half')) {
+          axis.set(AXIS_Q);
+          start.set(q.get());
+        } else {
+          axis.set(AXIS_H);
+          start.set(h.get());
+        }
+      }
+      if (axis.get() === AXIS_H) h.set(Math.min(1, Math.max(0, start.get() + e.translationY / travelH)));
+      else q.set(Math.min(1, Math.max(0, start.get() - e.translationX / travelQ)));
     },
     onDeactivate: (e) => {
-      const v = -e.velocityY / travel;
-      const target = v > 0.6 ? 1 : v < -0.6 ? 0 : t.get() > 0.5 ? 1 : 0;
+      const m = mode.get();
+      if (m === NONE) return;
+      const isQ = m === HALF && axis.get() === AXIS_Q;
+      const value = m === TRI ? t : isQ ? q : h;
+      const v = m === TRI ? -e.velocityY / travelT : isQ ? -e.velocityX / travelQ : e.velocityY / travelH;
+      const target: 0 | 1 = v > 0.6 ? 1 : v < -0.6 ? 0 : value.get() > 0.5 ? 1 : 0;
+      const k: FoldKind = m === TRI ? 'tri' : isQ ? (target === 1 ? 'quarter' : 'half') : 'half';
+      // Back to a flat sheet: the next gesture may choose again.
+      const free = kind === undefined && target === 0 && !isQ;
+      if (free) mode.set(NONE);
+      const settledAt: 0 | 1 = isQ ? 1 : target;
       const done = (finished?: boolean) => {
         'worklet';
-        if (finished && onSettled) scheduleOnRN(onSettled, target as 0 | 1);
+        if (finished) scheduleOnRN(report, settledAt, k);
       };
-      t.set(
+      value.set(
         reduceMotion
           ? withTiming(target, { duration: 180, easing: Easing.out(Easing.quad) }, done)
           : withSpring(target, { velocity: v, damping: 20, stiffness: 150, mass: 0.9 }, done),
@@ -100,11 +186,30 @@ export function FoldableLetter({ front, back, width, height, seed, fixedT, initi
 
   // A crease "click" each time a panel lands.
   useAnimatedReaction(
-    () => (t.value > 0.49 ? 1 : 0) + (t.value > 0.985 ? 1 : 0),
+    () => (t.get() > 0.49 ? 1 : 0) + (t.get() > 0.985 ? 1 : 0) + (h.get() > 0.985 ? 1 : 0) + (q.get() > 0.985 ? 1 : 0),
     (now, prev) => {
       if (prev !== null && now > prev) scheduleOnRN(feel.crease);
     },
   );
+
+  return (
+    <GestureDetector gesture={pan}>
+      <Canvas style={{ width: width + PAD * 2, height: height + PAD * 2 }}>
+        {drawn === 'tri' ? (
+          <TriFold front={front} back={back} width={width} height={height} seed={seed} t={t} />
+        ) : (
+          <HalfFold front={front} back={back} width={width} height={height} seed={seed} h={h} q={q} />
+        )}
+      </Canvas>
+    </GestureDetector>
+  );
+}
+
+type Layers = { front: SkPicture; back: SkPicture; width: number; height: number; seed: number };
+
+/** Letter fold in thirds: bottom third up over the middle, then the top third down over both. */
+function TriFold({ front, back, width, height, seed, t }: Layers & { t: SharedValue<number> }) {
+  const [a, b] = foldLines('tri', width, height, seed).ys;
 
   const bottomAngle = useDerivedValue(() => ease(t.value / 0.5) * MAX_ANGLE);
   const topAngle = useDerivedValue(() => ease((t.value - 0.5) / 0.5) * MAX_ANGLE);
@@ -121,8 +226,9 @@ export function FoldableLetter({ front, back, width, height, seed, fixedT, initi
   // Which face of a hinged panel is visible. Done with clips, not opacity:
   // group opacity does not apply to drawPicture without a layer.
   const EMPTY = Skia.XYWHRect(0, 0, 0, 0);
-  const bottomRect = Skia.XYWHRect(0, b, width, height - b);
-  const topRect = Skia.XYWHRect(0, 0, width, a);
+  // Panels overlap the middle by a pixel: antialiased clip edges meeting exactly leave a seam.
+  const bottomRect = Skia.XYWHRect(0, b - 1, width, height - b + 1);
+  const topRect = Skia.XYWHRect(0, 0, width, a + 1);
   const bottomFrontClip = useDerivedValue(() => (bottomAngle.value < Math.PI / 2 ? bottomRect : EMPTY));
   const bottomBackClip = useDerivedValue(() => (bottomAngle.value < Math.PI / 2 ? EMPTY : bottomRect));
   const topFrontClip = useDerivedValue(() => (topAngle.value < Math.PI / 2 ? topRect : EMPTY));
@@ -159,56 +265,158 @@ export function FoldableLetter({ front, back, width, height, seed, fixedT, initi
   showThrough.setAlphaf(0.08);
 
   return (
-    <GestureDetector gesture={pan}>
-      <Canvas style={{ width: width + PAD * 2, height: height + PAD * 2 }}>
-        <Group transform={lift}>
-          {/* contact shadow: follows the part of the sheet still touching the desk */}
-          <Rect rect={contactRect} color="#000">
-            <Shadow dx={2} dy={6} blur={10} color="rgba(20, 12, 4, 0.35)" shadowOnly />
-          </Rect>
+    <Group transform={lift}>
+      {/* contact shadow: follows the part of the sheet still touching the desk */}
+      <Rect rect={contactRect} color="#000">
+        <Shadow dx={2} dy={6} blur={10} color="rgba(20, 12, 4, 0.35)" shadowOnly />
+      </Rect>
 
-          {/* middle third: never moves */}
-          <Group clip={middleClip}>
+      {/* middle third: never moves */}
+      <Group clip={middleClip}>
+        <Picture picture={front} />
+        <Rect x={0} y={a} width={width} height={b - a} opacity={middleShadow}>
+          <LinearGradient start={vec(0, b)} end={vec(0, a)} colors={['#140c04', 'rgba(20,12,4,0.25)']} />
+        </Rect>
+      </Group>
+
+      {/* bottom third, hinged at b */}
+      <Group origin={{ x: width / 2, y: b }} transform={bottomTransform}>
+        <Group clip={bottomFrontClip}>
+          <Picture picture={front} />
+          <Rect x={0} y={b} width={width} height={height - b} color="#140c04" opacity={bottomShade} />
+        </Group>
+        <Group clip={bottomBackClip}>
+          <Picture picture={back} />
+          <Group layer={showThrough}>
             <Picture picture={front} />
-            <Rect x={0} y={a} width={width} height={b - a} opacity={middleShadow}>
-              <LinearGradient start={vec(0, b)} end={vec(0, a)} colors={['#140c04', 'rgba(20,12,4,0.25)']} />
-            </Rect>
           </Group>
+          <Rect x={0} y={b} width={width} height={height - b} color="#fff8ec" opacity={backLight} />
+        </Group>
+      </Group>
 
-          {/* bottom third, hinged at b */}
-          <Group origin={{ x: width / 2, y: b }} transform={bottomTransform}>
-            <Group clip={bottomFrontClip}>
-              <Picture picture={front} />
-              <Rect x={0} y={b} width={width} height={height - b} color="#140c04" opacity={bottomShade} />
-            </Group>
-            <Group clip={bottomBackClip}>
-              <Picture picture={back} />
-              <Group layer={showThrough}>
-                <Picture picture={front} />
-              </Group>
-              <Rect x={0} y={b} width={width} height={height - b} color="#fff8ec" opacity={backLight} />
-            </Group>
-          </Group>
+      <Rect x={0} y={a} width={width} height={b - a} opacity={stackShadow}>
+        <LinearGradient start={vec(0, a)} end={vec(0, b)} colors={['#140c04', 'rgba(20,12,4,0.3)']} />
+      </Rect>
 
-          <Rect x={0} y={a} width={width} height={b - a} opacity={stackShadow}>
-            <LinearGradient start={vec(0, a)} end={vec(0, b)} colors={['#140c04', 'rgba(20,12,4,0.3)']} />
-          </Rect>
-
-          {/* top third, hinged at a */}
-          <Group origin={{ x: width / 2, y: a }} transform={topTransform}>
-            <Group clip={topFrontClip}>
-              <Picture picture={front} />
-              <Rect x={0} y={0} width={width} height={a} color="#140c04" opacity={topShade} />
-            </Group>
-            <Group clip={topBackClip}>
-              <Picture picture={back} />
-              <Group layer={showThrough}>
-                <Picture picture={front} />
-              </Group>
-            </Group>
+      {/* top third, hinged at a */}
+      <Group origin={{ x: width / 2, y: a }} transform={topTransform}>
+        <Group clip={topFrontClip}>
+          <Picture picture={front} />
+          <Rect x={0} y={0} width={width} height={a} color="#140c04" opacity={topShade} />
+        </Group>
+        <Group clip={topBackClip}>
+          <Picture picture={back} />
+          <Group layer={showThrough}>
+            <Picture picture={front} />
           </Group>
         </Group>
-      </Canvas>
-    </GestureDetector>
+      </Group>
+    </Group>
+  );
+}
+
+/**
+ * Half fold (top half down over the bottom, crease at m) and, from there, the
+ * quarter fold: the right half of that two-layer stack swings over the left
+ * about the vertical crease at x.
+ */
+function HalfFold({ front, back, width, height, seed, h, q }: Layers & { h: SharedValue<number>; q: SharedValue<number> }) {
+  const lines = foldLines('quarter', width, height, seed);
+  const m = lines.ys[0];
+  const x = lines.x!;
+
+  const topAngle = useDerivedValue(() => ease(h.value) * MAX_ANGLE);
+  const sideAngle = useDerivedValue(() => ease(q.value) * MAX_ANGLE);
+
+  const topTransform = useDerivedValue<Transforms3d>(() => [{ perspective: PERSPECTIVE }, { rotateX: topAngle.value }]);
+  const sideTransform = useDerivedValue<Transforms3d>(() => [{ perspective: PERSPECTIVE }, { rotateY: -sideAngle.value }]);
+
+  const EMPTY = Skia.XYWHRect(0, 0, 0, 0);
+  const topRect = Skia.XYWHRect(0, 0, width, m + 1);
+  const topFrontClip = useDerivedValue(() => (topAngle.value < Math.PI / 2 ? topRect : EMPTY));
+  const topBackClip = useDerivedValue(() => (topAngle.value < Math.PI / 2 ? EMPTY : topRect));
+
+  // The two halves overlap by a pixel: antialiased clip edges meeting exactly leave a seam.
+  const left = Skia.XYWHRect(-width, -height, x + width + 1, height * 3);
+  const right = Skia.XYWHRect(x, -height, width * 2, height * 3);
+  const rightBack = Skia.XYWHRect(x, m, width - x, height - m);
+  const sideFrontClip = useDerivedValue(() => (sideAngle.value < Math.PI / 2 ? right : EMPTY));
+  const sideBackClip = useDerivedValue(() => (sideAngle.value < Math.PI / 2 ? EMPTY : rightBack));
+
+  const topShade = useDerivedValue(() => 0.22 * Math.sin(topAngle.value));
+  const sideShade = useDerivedValue(() => 0.18 * Math.sin(sideAngle.value));
+  const bottomShadow = useDerivedValue(() => interpolate(topAngle.value, [0, Math.PI * 0.6, MAX_ANGLE], [0, 0.2, 0.09]));
+  const leftShadow = useDerivedValue(() => interpolate(sideAngle.value, [0, Math.PI * 0.6, MAX_ANGLE], [0, 0.2, 0.09]));
+  // The back of the bottom half faces the lamp once it lands on the left.
+  const backLight = useDerivedValue(() => 0.05 * Math.max(0, -Math.cos(sideAngle.value)));
+
+  // Recentre: the stack ends as the lower half, then as its left half.
+  const lift = useDerivedValue(() => [
+    { translateX: PAD + ((width - x) / 2) * ease(q.value) },
+    { translateY: PAD - (m / 2) * ease(h.value) },
+  ]);
+
+  const contactRect = useDerivedValue(() => {
+    const top = m - m * Math.max(0, Math.cos(topAngle.value));
+    const right = x + (width - x) * Math.max(0, Math.cos(sideAngle.value));
+    return Skia.XYWHRect(0, top, right, height - top);
+  });
+
+  const showThrough = Skia.Paint();
+  showThrough.setAlphaf(0.08);
+
+  // The half-folded stack: the bottom half, and the top half hinged at m on top of it.
+  const stack = (
+    <>
+      <Group clip={Skia.XYWHRect(0, m, width, height - m)}>
+        <Picture picture={front} />
+        <Rect x={0} y={m} width={width} height={height - m} opacity={bottomShadow}>
+          <LinearGradient start={vec(0, m)} end={vec(0, height)} colors={['#140c04', 'rgba(20,12,4,0.25)']} />
+        </Rect>
+      </Group>
+      <Group origin={{ x: width / 2, y: m }} transform={topTransform}>
+        <Group clip={topFrontClip}>
+          <Picture picture={front} />
+          <Rect x={0} y={0} width={width} height={m} color="#140c04" opacity={topShade} />
+        </Group>
+        <Group clip={topBackClip}>
+          <Picture picture={back} />
+          <Group layer={showThrough}>
+            <Picture picture={front} />
+          </Group>
+        </Group>
+      </Group>
+    </>
+  );
+
+  return (
+    <Group transform={lift}>
+      <Rect rect={contactRect} color="#000">
+        <Shadow dx={2} dy={6} blur={10} color="rgba(20, 12, 4, 0.35)" shadowOnly />
+      </Rect>
+
+      {/* left half of the stack: never moves */}
+      <Group clip={left}>
+        {stack}
+        <Rect x={0} y={m} width={x} height={height - m} opacity={leftShadow}>
+          <LinearGradient start={vec(x, 0)} end={vec(0, 0)} colors={['#140c04', 'rgba(20,12,4,0.25)']} />
+        </Rect>
+      </Group>
+
+      {/* right half of the stack, hinged at x: its top layer, then (turned over) the back of the bottom half */}
+      <Group origin={{ x, y: (m + height) / 2 }} transform={sideTransform}>
+        <Group clip={sideFrontClip}>
+          {stack}
+          <Rect x={x} y={m} width={width - x} height={height - m} color="#140c04" opacity={sideShade} />
+        </Group>
+        <Group clip={sideBackClip}>
+          <Picture picture={back} />
+          <Group layer={showThrough}>
+            <Picture picture={front} />
+          </Group>
+          <Rect x={x} y={m} width={width - x} height={height - m} color="#fff8ec" opacity={backLight} />
+        </Group>
+      </Group>
+    </Group>
   );
 }

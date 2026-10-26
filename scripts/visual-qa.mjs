@@ -24,6 +24,9 @@ const SHOTS = [
   { name: 'jitter-cotton-marck', path: '/lab/jitter?seed=99&paper=cotton&font=marckScript&ink=violet' },
   { name: 'typing', path: '/lab/typing?seed=7' },
   ...[0, 0.25, 0.5, 0.75, 1].map((t) => ({ name: `fold-${t}`, path: `/lab/fold?seed=1407&t=${t}` })),
+  // half fold (top half down) · quarter fold (then the right half over the left; 0.5 = the half fold)
+  ...[0.3, 0.6, 1].map((t) => ({ name: `foldhalf-${t}`, path: `/lab/fold?seed=1407&fold=half&t=${t}` })),
+  ...[0.65, 0.8, 1].map((t) => ({ name: `foldquarter-${t}`, path: `/lab/fold?seed=1407&fold=quarter&t=${t}` })),
   // insert 0–.3 · close .3–.5 · pour .5–.7 · press .7–1
   ...[0.15, 0.3, 0.4, 0.6, 0.7, 0.8, 0.86, 1].map((t) => ({ name: `envelope-${t}`, path: `/lab/envelope?seed=1407&t=${t}` })),
   // orient 0–.15 · insert .15–.85 (seal snag ~.45) · drop .85–1

@@ -35,6 +35,7 @@ export function paperUniforms(
   sheet: SheetGeometry,
   seed: number,
   crease: number,
+  fold: 'tri' | 'half' | 'quarter' = 'tri',
 ): number[] {
   const [c1, c2] = creaseOffsets(seed);
   const marginX = paper.kind === 'grid' ? sheet.width - paper.cell * 2.6 : 0;
@@ -49,6 +50,7 @@ export function paperUniforms(
     crease,
     LIGHT_DIR.x, LIGHT_DIR.y,
     c1, c2,
+    fold === 'tri' ? 0 : fold === 'half' ? 1 : 2,
   ];
 }
 
@@ -92,6 +94,8 @@ export type LetterRenderInput = {
   crease: number;
   /** Record only one layer, e.g. paper alone for the writing desk or a panel's back side. */
   layers?: 'all' | 'paper' | 'ink';
+  /** Where the creases are (see fold.ts). */
+  fold?: 'tri' | 'half' | 'quarter';
 };
 
 export function layoutLetter(input: LetterRenderInput): HandwritingLayout {
@@ -116,7 +120,7 @@ export function recordLetter(input: LetterRenderInput, layout = layoutLetter(inp
   const layers = input.layers ?? 'all';
   if (layers !== 'ink') {
     const paperPaint = Skia.Paint();
-    paperPaint.setShader(paper.makeShader(paperUniforms(input.paper, input.sheet, input.seed, input.crease)));
+    paperPaint.setShader(paper.makeShader(paperUniforms(input.paper, input.sheet, input.seed, input.crease, input.fold)));
     canvas.drawRect(Skia.XYWHRect(0, 0, width, height), paperPaint);
   }
   if (layers === 'paper') return recorder.finishRecordingAsPicture();

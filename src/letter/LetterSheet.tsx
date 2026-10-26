@@ -4,6 +4,7 @@ import { StyleSheet, type StyleProp, type ViewStyle } from 'react-native';
 
 import { HANDWRITING_FONTS, INKS, type FontKey, type InkKind, type PaperKind } from '../theme/stationery';
 import { layoutLetter, recordLetter } from './renderLetter';
+import type { FoldKind } from './fold';
 import { fontSizeFor, paperFor } from './sheet';
 import { strokeToPath, type Stroke } from './strokes';
 
@@ -22,6 +23,7 @@ export function useLetterPicture(
   height: number,
   crease = 0,
   layers: 'all' | 'paper' | 'ink' = 'all',
+  fold: FoldKind = 'tri',
 ) {
   const paper = paperFor(look.paper, width);
   const font = useFont(HANDWRITING_FONTS[look.font].file, fontSizeFor(paper, width));
@@ -36,12 +38,13 @@ export function useLetterPicture(
       sheet: { width, height },
       crease,
       layers,
+      fold,
     };
     const layout = layoutLetter(input);
     return { picture: recordLetter(input, layout), overflow: layout.overflowAt >= 0 };
     // paper is derived from look.paper + width
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [font, text, look.paper, look.ink, look.seed, width, height, crease, layers]);
+  }, [font, text, look.paper, look.ink, look.seed, width, height, crease, layers, fold]);
 }
 
 /**
@@ -87,6 +90,7 @@ export function LetterSheet({
   crease = 0,
   strokes,
   strokesWidth,
+  fold = 'tri',
   style,
 }: {
   text: string;
@@ -97,9 +101,11 @@ export function LetterSheet({
   /** Pen strokes written at the desk on a sheet `strokesWidth` wide. */
   strokes?: Stroke[];
   strokesWidth?: number;
+  /** Where its creases are. */
+  fold?: FoldKind;
   style?: StyleProp<ViewStyle>;
 }) {
-  const { picture: sheet } = useLetterPicture(text, look, width, height, crease);
+  const { picture: sheet } = useLetterPicture(text, look, width, height, crease, 'all', fold);
   const picture = useWithStrokes(sheet, strokes, strokesWidth, look, width, height);
   return (
     // Skia's web Canvas hands `style` to a DOM element, so it must be a flat object.

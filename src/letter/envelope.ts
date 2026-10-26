@@ -17,7 +17,8 @@ import {
 
 import { mulberry32, subSeed, wobble } from '../lib/random';
 import { LINERS, PAPERS, type LinerKind, type PaperKind } from '../theme/stationery';
-import { creaseOffsets, paperUniforms } from './renderLetter';
+import { foldLines, type FoldKind } from './fold';
+import { paperUniforms } from './renderLetter';
 import { LINER_SKSL, PAPER_SKSL } from './shaders';
 
 /**
@@ -195,43 +196,71 @@ export function recordEnvelope(g: EnvelopeGeometry, paper: PaperKind, liner: Lin
 }
 
 /**
- * The tri-folded letter as seen from outside: the back of the top third on top,
- * a little of the other side's ink showing through (mirrored by the fold),
- * the edges of the hidden panels pressing through as faint lines.
+ * The folded letter as seen from outside: the back of the last panel folded on
+ * top, a little of its own writing showing through (mirrored by the fold), the
+ * edges of the hidden panels pressing through as faint lines.
+ *   tri      the back of the top third over the middle third (DL)
+ *   half     the back of the top half over the bottom half (A5)
+ *   quarter  the back of the bottom-right quarter over the bottom-left (A6)
  */
 export function recordFoldedLetter(
   front: SkPicture,
   back: SkPicture,
   sheet: { width: number; height: number },
   seed: number,
+  kind: FoldKind = 'tri',
 ): { picture: SkPicture; width: number; height: number } {
-  const { width: w, height: H } = sheet;
-  const [o1, o2] = creaseOffsets(seed);
-  const a = H / 3 + o1;
-  const b = (H * 2) / 3 + o2;
+  const { width: W, height: H } = sheet;
+  const lines = foldLines(kind, W, H, seed);
+  // The stack's rectangle on the sheet, and the panel lying on top of it.
+  const [a, b] = kind === 'tri' ? lines.ys : [lines.ys[0], H];
+  const x = lines.x ?? W;
+  const stackW = x;
   const stackH = b - a;
   const recorder = Skia.PictureRecorder();
-  const c = recorder.beginRecording(Skia.XYWHRect(-10, -10, w + 20, stackH + 20));
+  const c = recorder.beginRecording(Skia.XYWHRect(-10, -10, stackW + 20, stackH + 20));
 
   // Soft shadow of the whole stack.
   const shadow = Skia.Paint();
   shadow.setColor(Skia.Color('rgba(30, 18, 8, 0.3)'));
   shadow.setMaskFilter(Skia.MaskFilter.MakeBlur(BlurStyle.Normal, 2.5, true));
-  c.drawRect(Skia.XYWHRect(1, 2, w, stackH), shadow);
+  c.drawRect(Skia.XYWHRect(1, 2, stackW, stackH), shadow);
 
   c.save();
-  c.clipRect(Skia.XYWHRect(0, 0, w, stackH), ClipOp.Intersect, true);
+  c.clipRect(Skia.XYWHRect(0, 0, stackW, stackH), ClipOp.Intersect, true);
   c.translate(0, -a);
   c.drawPicture(back);
   c.restore();
 
-  // Show-through of the top panel's own writing, mirrored about its crease.
-  c.save();
-  c.clipRect(Skia.XYWHRect(0, 0, w, Math.min(a, stackH)), ClipOp.Intersect, true);
   // Through paper, writing is faint and diffuse, never crisp.
   const ghost = Skia.Paint();
   ghost.setAlphaf(0.045);
   ghost.setImageFilter(Skia.ImageFilter.MakeBlur(0.9, 0.9, TileMode.Decal, null));
+  const line = Skia.Paint();
+  line.setStyle(PaintStyle.Stroke);
+  line.setStrokeWidth(1);
+
+  if (kind === 'quarter') {
+    // The right quarter's own writing, mirrored about the vertical crease.
+    c.save();
+    c.clipRect(Skia.XYWHRect(Math.max(0, 2 * x - W), 0, stackW, stackH), ClipOp.Intersect, true);
+    c.saveLayer(ghost);
+    c.translate(2 * x, -a);
+    c.scale(-1, 1);
+    c.drawPicture(front);
+    c.restore();
+    c.restore();
+    // Its outer edge, if it falls short of the fold's far side.
+    if (2 * x - W > 1) {
+      line.setColor(Skia.Color('rgba(30, 18, 8, 0.16)'));
+      c.drawLine(2 * x - W + 0.5, 0, 2 * x - W + 0.5, stackH, line);
+    }
+    return { picture: recorder.finishRecordingAsPicture(), width: stackW, height: stackH };
+  }
+
+  // Show-through of the top panel's own writing, mirrored about its crease.
+  c.save();
+  c.clipRect(Skia.XYWHRect(0, 0, W, Math.min(a, stackH)), ClipOp.Intersect, true);
   c.saveLayer(ghost);
   c.translate(0, a);
   c.scale(1, -1);
@@ -239,20 +268,17 @@ export function recordFoldedLetter(
   c.restore();
   c.restore();
 
-  const line = Skia.Paint();
-  line.setStyle(PaintStyle.Stroke);
-  line.setStrokeWidth(1);
   // Edge of the top panel (if shorter than the stack) and of the bottom panel beneath it.
   if (a < stackH - 1) {
     line.setColor(Skia.Color('rgba(30, 18, 8, 0.16)'));
-    c.drawLine(0, a + 0.5, w, a + 0.5, line);
+    c.drawLine(0, a + 0.5, W, a + 0.5, line);
   }
   const hidden = 2 * b - H - a;
-  if (hidden > 1 && hidden < stackH - 1) {
+  if (kind === 'tri' && hidden > 1 && hidden < stackH - 1) {
     line.setColor(Skia.Color('rgba(30, 18, 8, 0.06)'));
-    c.drawLine(0, hidden, w, hidden, line);
+    c.drawLine(0, hidden, W, hidden, line);
   }
-  return { picture: recorder.finishRecordingAsPicture(), width: w, height: stackH };
+  return { picture: recorder.finishRecordingAsPicture(), width: stackW, height: stackH };
 }
 
 /** Initials + a ring, as alpha: what the brass stamp leaves raised in the wax. */

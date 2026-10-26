@@ -50,6 +50,7 @@ uniform float3 uMarginColor;
 uniform float uCrease;
 uniform float2 uLight;
 uniform float2 uCreaseOffset;
+uniform float uFold; // 0 tri-fold, 1 half, 2 quarter (half + a vertical crease)
 ${NOISE}
 half4 main(float2 xy) {
   float2 p = xy + float2(uSeed * 0.731, uSeed * 0.317);
@@ -75,15 +76,28 @@ half4 main(float2 xy) {
     col = mix(col, uMarginColor * col, m * 0.85 * strike);
   }
 
-  // Tri-fold creases: a valley line plus a lit and a shaded side.
-  for (int k = 1; k <= 2; k++) {
-    float off = (k == 1) ? uCreaseOffset.x : uCreaseOffset.y;
-    float y = uSize.y * float(k) / 3.0 + off;
-    float d = xy.y - y;
-    float valley = exp(-d * d / 3.0);
+  // Creases: a valley line plus a lit and a shaded side.
+  if (uFold < 0.5) {
+    // Tri-fold: near the thirds.
+    for (int k = 1; k <= 2; k++) {
+      float off = (k == 1) ? uCreaseOffset.x : uCreaseOffset.y;
+      float y = uSize.y * float(k) / 3.0 + off;
+      float d = xy.y - y;
+      float valley = exp(-d * d / 3.0);
+      float slope = d * exp(-d * d / 90.0) / 9.5;
+      float facing = (k == 1) ? -1.0 : 1.0;
+      col *= 1.0 + uCrease * (0.09 * slope * facing * -uLight.y - 0.07 * valley);
+    }
+  } else {
+    // Half fold: across the middle; the quarter fold adds one down the middle.
+    float d = xy.y - (uSize.y * 0.5 + uCreaseOffset.x);
     float slope = d * exp(-d * d / 90.0) / 9.5;
-    float facing = (k == 1) ? -1.0 : 1.0;
-    col *= 1.0 + uCrease * (0.09 * slope * facing * -uLight.y - 0.07 * valley);
+    col *= 1.0 + uCrease * (0.09 * slope * uLight.y - 0.07 * exp(-d * d / 3.0));
+    if (uFold > 1.5) {
+      float dx = xy.x - (uSize.x * 0.5 + uCreaseOffset.y);
+      float sx = dx * exp(-dx * dx / 90.0) / 9.5;
+      col *= 1.0 + uCrease * (0.09 * sx * uLight.x - 0.06 * exp(-dx * dx / 3.0));
+    }
   }
 
   float2 uv = xy / uSize;

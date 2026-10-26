@@ -1,4 +1,5 @@
 import type { Address, Postmark } from './envelopeFront';
+import type { FoldKind } from './fold';
 import type { LetterLook } from './LetterSheet';
 import type { Stroke } from './strokes';
 import type { Country, FontKey, InkKind, PaperKind, WaxKind, WaxType } from '../theme/stationery';
@@ -28,7 +29,7 @@ export type MailRow = {
 
 export type ContentRow = {
   letter_id: string;
-  body: { text?: string; strokes?: Stroke[]; sheet_width?: number; font?: string; ink?: string; paper?: string } | null;
+  body: { text?: string; strokes?: Stroke[]; sheet_width?: number; font?: string; ink?: string; paper?: string; fold?: string } | null;
 };
 
 export type ReceiptRow = { letter_id: string; opened_at: string };
@@ -43,6 +44,8 @@ export type MailLetter = {
   strokes?: Stroke[];
   strokesWidth?: number;
   letterLook?: Omit<LetterLook, 'seed'>;
+  /** How the sender folded it; the recipient unfolds it the same way. */
+  fold?: FoldKind;
   paper: PaperKind;
   wax: WaxKind;
   waxType: WaxType;
@@ -61,6 +64,7 @@ const ENVELOPE_PAPERS: PaperKind[] = ['cream', 'kraft'];
 const WAXES: WaxKind[] = ['bordeaux', 'forest', 'navy', 'gold'];
 const INKS: InkKind[] = ['blueBlack', 'ironGall', 'violet'];
 const FONTS: FontKey[] = ['badScript', 'marckScript', 'caveat'];
+const FOLDS: FoldKind[] = ['tri', 'half', 'quarter'];
 const pick = <T extends string>(v: string | undefined, allowed: T[], fallback: T): T =>
   allowed.includes(v as T) ? (v as T) : fallback;
 
@@ -111,6 +115,7 @@ export function mailboxFromServer(input: {
         ink: pick(b?.ink, INKS, 'blueBlack'),
         font: pick(b?.font, FONTS, 'badScript'),
       },
+      fold: pick(b?.fold, FOLDS, 'tri'),
       paper: pick(env.paper, ENVELOPE_PAPERS, 'cream'),
       wax: pick(env.wax, WAXES, 'bordeaux'),
       waxType: env.waxType === 'flexible' ? 'flexible' : 'brittle',

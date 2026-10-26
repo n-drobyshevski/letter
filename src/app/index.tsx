@@ -26,6 +26,7 @@ const COPY = {
     onDesk: 'Письмо на столе',
     keepWriting: 'Дописать',
     takeToPost: 'Отнести на почту',
+    foldIt: 'Сложить',
     onTheWay: 'В пути',
     read: (n: number) => `Прочитанные: ${n}`,
     signOut: 'выйти',
@@ -42,6 +43,7 @@ const COPY = {
     onDesk: 'Une lettre sur ton bureau',
     keepWriting: 'Continuer',
     takeToPost: 'Poster',
+    foldIt: 'Plier',
     onTheWay: 'En route',
     read: (n: number) => `Déjà lues : ${n}`,
     signOut: 'se déconnecter',
@@ -121,8 +123,8 @@ function HomeDesk({ couple }: { couple: Couple }) {
               {copy.keepWriting}
             </Link>
             {them && (
-              <Link href="/post" style={[styles.action, styles.primary]}>
-                {copy.takeToPost} →
+              <Link href={draft!.fold ? '/post' : '/fold'} style={[styles.action, styles.primary]}>
+                {draft!.fold ? copy.takeToPost : copy.foldIt} →
               </Link>
             )}
           </View>

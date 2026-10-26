@@ -34,6 +34,7 @@ import { feel } from '../lib/haptics';
 import { WAX, type Country, type PaperKind, type Rgb } from '../theme/stationery';
 import { mulberry32, subSeed, wobble } from '../lib/random';
 import { envelopeGeometry, recordEnvelope, recordFoldedLetter } from './envelope';
+import type { FoldKind } from './fold';
 import type { EnvelopeLook } from './EnvelopeCeremony';
 import { recordEnvelopeFront, type Address, type Postmark } from './envelopeFront';
 import { mailboxLayout, recordDoor, recordMailboxBank } from './steelBox';
@@ -109,6 +110,8 @@ type Props = {
   /** For fixedT frames: which way the envelope is opened. */
   openMode?: OpenedBy;
   onOpened?: (by: OpenedBy) => void;
+  /** How the letter inside was folded. */
+  fold?: FoldKind;
 };
 
 export type OpenedBy = 'slit' | 'seal';
@@ -139,6 +142,7 @@ export function ReceivingCeremony({
   advanceKey,
   openMode = 'slit',
   onOpened,
+  fold = 'tri',
 }: Props) {
   const faces = useTypefaces();
   const L = useMemo(() => mailboxLayout(width, height, country), [width, height, country]);
@@ -166,7 +170,10 @@ export function ReceivingCeremony({
         : [],
     [faces, g, others],
   );
-  const letter = useMemo(() => recordFoldedLetter(letterFront, letterBack, sheet, look.seed), [letterFront, letterBack, sheet, look.seed]);
+  const letter = useMemo(
+    () => recordFoldedLetter(letterFront, letterBack, sheet, look.seed, fold),
+    [letterFront, letterBack, sheet, look.seed, fold],
+  );
   const edge = useMemo(() => {
     const pts = slitEdge(ew, look.seed);
     const b = Skia.PathBuilder.Make().moveTo(pts[0], pts[1]);
@@ -450,8 +457,9 @@ export function ReceivingCeremony({
   const gap = useDerivedValue(() => (slit.get() >= 1 ? 1 : 0));
 
   // ── pull ──
-  const lw = ew * 0.93;
-  const letterScale = lw / letter.width;
+  // Fit inside the envelope: a tri-fold fills its width; a half or quarter fold is narrower.
+  const letterScale = Math.min((ew * 0.93) / letter.width, (eh * 0.95) / letter.height);
+  const lw = letter.width * letterScale;
   const letterTilt = wobble(rand, 0.012);
   const letterTransform = useDerivedValue(() => {
     const k = pull.get();

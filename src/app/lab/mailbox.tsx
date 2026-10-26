@@ -33,7 +33,7 @@ const COPY = {
       4: 'Достань письмо из конверта',
       5: 'Разверни',
     } as Record<ReceiveStage, string>,
-    unfold: 'Разверни: потяни вниз',
+    unfold: { tri: 'Разверни: потяни вниз', half: 'Разверни: подними верхнюю половину', quarter: 'Разверни: вправо, потом вверх' },
     from: (name: string, city: string, seal: boolean) => `От ${name}, ${city}${seal ? ' · печать сломана' : ''}`,
     next: (n: number) => `Следующее письмо · ещё ${n}`,
     empty: 'Пока пусто',
@@ -55,7 +55,7 @@ const COPY = {
       4: 'Sors la lettre de l’enveloppe',
       5: 'Déplie-la',
     } as Record<ReceiveStage, string>,
-    unfold: 'Déplie-la : tire vers le bas',
+    unfold: { tri: 'Déplie-la : tire vers le bas', half: 'Déplie-la : relève la moitié du haut', quarter: 'Déplie-la : vers la droite, puis vers le haut' },
     from: (name: string, city: string, seal: boolean) => `De ${name}, ${city}${seal ? ' · cachet brisé' : ''}`,
     next: (n: number) => `Lettre suivante · encore ${n}`,
     empty: 'Rien pour l’instant',
@@ -220,6 +220,7 @@ function Reread({ letter, lang, onBack }: { letter: MailLetter; lang: Country; o
         crease={0.35}
         strokes={letter.strokes}
         strokesWidth={letter.strokesWidth}
+        fold={letter.fold}
       />
       <Button label={copy.back} quiet onPress={onBack} />
     </Desk>
@@ -306,9 +307,10 @@ function MailboxView({ letters, lang, country, name, fixedT, openMode = 'slit', 
     initials: letter?.initials ?? 'Н',
     seed: letter?.seed ?? 1,
   };
-  const { picture: inked } = useLetterPicture(letter?.text ?? '', letterLook, sheet.width, sheet.height, 1);
+  const fold = letter?.fold ?? 'tri';
+  const { picture: inked } = useLetterPicture(letter?.text ?? '', letterLook, sheet.width, sheet.height, 1, 'all', fold);
   const front = useWithStrokes(inked, letter?.strokes, letter?.strokesWidth, letterLook, sheet.width, sheet.height);
-  const { picture: back } = useLetterPicture('', letterLook, sheet.width, sheet.height, 1, 'paper');
+  const { picture: back } = useLetterPicture('', letterLook, sheet.width, sheet.height, 1, 'paper', fold);
 
   const onStage = (s: ReceiveStage) => {
     setStage(s);
@@ -324,7 +326,7 @@ function MailboxView({ letters, lang, country, name, fixedT, openMode = 'slit', 
           ? `${copy.hints[0]} · ${copy.count(letters.length - index)}`
           : copy.hints[stage]
         : phase === 'unfold'
-          ? copy.unfold
+          ? copy.unfold[fold]
           : copy.from(letter.fromLabel.name, letter.fromLabel.city, openedBy === 'seal');
 
   return (
@@ -353,6 +355,7 @@ function MailboxView({ letters, lang, country, name, fixedT, openMode = 'slit', 
             onStage={onStage}
             advanceKey={advanceKey}
             openMode={openMode}
+            fold={fold}
             onOpened={(by) => {
               setOpenedBy(by);
               if (letter) onOpened?.(letter, by);
@@ -367,6 +370,7 @@ function MailboxView({ letters, lang, country, name, fixedT, openMode = 'slit', 
           width={sheet.width}
           height={sheet.height}
           seed={letter.seed}
+          kind={fold}
           initialT={1}
           fixedT={fixedUnfold}
           onSettled={(t) => {
@@ -384,6 +388,7 @@ function MailboxView({ letters, lang, country, name, fixedT, openMode = 'slit', 
           crease={0.35}
           strokes={letter.strokes}
           strokesWidth={letter.strokesWidth}
+          fold={fold}
         />
       )}
       <View style={styles.actions}>

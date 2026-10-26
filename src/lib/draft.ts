@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from 'react';
 
+import type { FoldKind } from '@/letter/fold';
 import type { Stroke } from '@/letter/strokes';
 import type { LetterLook } from '@/letter/LetterSheet';
 
@@ -14,6 +15,8 @@ export type Draft = {
   strokes: Stroke[];
   sheetWidth: number;
   look: LetterLook;
+  /** How it was folded at /fold (tri-fold if never folded). */
+  fold?: FoldKind;
 };
 
 let draft: Draft | null = null;
@@ -46,5 +49,6 @@ export function draftBody(d: Draft) {
     font: d.look.font,
     ink: d.look.ink,
     paper: d.look.paper,
+    fold: d.fold ?? 'tri',
   };
 }

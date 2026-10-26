@@ -40,7 +40,8 @@ description: How to build the letter "ceremonies" (fold, insert, seal, stamp, po
 ## Ceremony map (MVP)
 | Moment | Gesture | Feedback |
 |---|---|---|
-| Fold (tri-fold) | drag up | `crease` per panel |
+| Fold: in three | drag up from below | `crease` per panel |
+| Fold: in half / in four | pull the top edge down; then swipe left | `crease` per fold |
 | Insert into envelope | drag down + page curl | rustle |
 | Close flap | tap | soft thud |
 | Wax seal | hold to pour (puddle size = hold time), release to press | `tick` while pouring, `press` on impact |
