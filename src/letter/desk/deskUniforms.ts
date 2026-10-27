@@ -88,7 +88,7 @@ export const DESK_PRESETS: Record<Country, DeskPreset> = {
     card: '#efe2cc',
     label: '#3a2c22',
   },
-  ru: {
+  by: {
     wood: {
       lit: rgb('#7b5a3f'),
       base: rgb('#5f4431'),

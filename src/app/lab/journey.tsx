@@ -54,7 +54,7 @@ const MODES = [
 ] as const;
 const COUNTRIES = [
   { key: 'fr', label: 'Из Лилля' },
-  { key: 'ru', label: 'Из Москвы' },
+  { key: 'by', label: 'Из Минска' },
 ] as const;
 const ENVELOPE_PAPERS = [
   { key: 'cream', label: 'Кремовый' },
@@ -420,7 +420,7 @@ function PostStep(props: {
       scroll={false}
     >
       {props.progress}
-      {!posted && <Choice options={COUNTRIES} value={props.from as 'fr' | 'ru'} onChange={props.onFrom} />}
+      {!posted && <Choice options={COUNTRIES} value={props.from} onChange={props.onFrom} />}
       <View style={styles.stage}>
         <PostingCeremony
           key={props.from}
@@ -472,13 +472,13 @@ function ReceiveStep(props: { progress: React.ReactNode; letter: Letter; look: E
     initials: look.initials,
     address: fromFrance
       ? { fromName: 'Н.', fromCity: 'Lille', toName: 'М.', toCity: 'Minsk', toCountry: 'Biélorussie' }
-      : { fromName: 'М.', fromCity: 'Москва', toName: 'N.', toCity: 'Lille', toCountry: 'Франция' },
-    postmark: { city: fromFrance ? 'Lille' : 'Москва', date: new Date().toISOString().slice(0, 10) },
+      : { fromName: 'М.', fromCity: 'Минск', toName: 'N.', toCity: 'Lille', toCountry: 'France' },
+    postmark: { city: fromFrance ? 'Lille' : 'Минск', date: new Date().toISOString().slice(0, 10) },
     senderCountry: from,
-    fromLabel: fromFrance ? { name: 'Н.', city: 'Lille' } : { name: 'М.', city: 'Москва' },
+    fromLabel: fromFrance ? { name: 'Н.', city: 'Lille' } : { name: 'М.', city: 'Минск' },
   };
   // Her mailbox is at the other end: a Minsk подъезд for a letter from France, a Lille batterie otherwise.
-  const herBox: Country = fromFrance ? 'ru' : 'fr';
+  const herBox: Country = fromFrance ? 'by' : 'fr';
   return (
     <MailboxView
       letters={[mail]}

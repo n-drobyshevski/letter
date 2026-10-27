@@ -1,9 +1,10 @@
-import { Canvas, Group, Picture, Rect, Shadow, Skia, type Transforms3d } from '@shopify/react-native-skia';
+import { Canvas, Group, Image, Picture, Rect, Skia, type Transforms3d } from '@shopify/react-native-skia';
 import { useEffect, useRef, useState } from 'react';
-import { View } from 'react-native';
-import { GestureDetector, usePanGesture } from 'react-native-gesture-handler';
-import {
+import { Platform, View } from 'react-native';
+import { GestureDetector, MouseButton, PointerType, useCompetingGestures, usePanGesture } from 'react-native-gesture-handler';
+import Animated, {
   cancelAnimation,
+  useAnimatedStyle,
   useAnimatedReaction,
   useDerivedValue,
   useReducedMotion,
@@ -15,9 +16,12 @@ import {
 import { scheduleOnRN } from 'react-native-worklets';
 
 import { feel } from '../lib/haptics';
+import { useDeskKeys } from '../lib/useDeskKeys';
+import { HOME, dragPlacement, halfExtent, sweep, twistPlacement, type Placement } from './deskMove';
 import type { FoldKind } from './fold';
 import { gripOf, type Grip } from './grip';
 import { paperEdgeColor, useSheetFaces, type LetterLook, type SheetFaces } from './LetterSheet';
+import { useShadow, type ShadowSpec } from './raster';
 import { sheetJitter, writtenFaces, type FaceRef, type SheetContent } from './stack';
 
 /**
@@ -30,12 +34,22 @@ import { sheetJitter, writtenFaces, type FaceRef, type SheetContent } from './st
  * The turn follows the hand as at the desk (grip.ts): its axis leans with the
  * drag's direction and where the sheet was taken, the sheet travels with the
  * hand, and a read sheet slides off (and a previous one comes back) the way it
- * was pushed.
+ * was pushed. On the laptop, with a mouse, Ctrl (⌘) + drag turns it and Space + drag
+ * pushes the letter about the desk (deskMove.ts), the right button turns it round to
+ * any angle; a plain drag does nothing.
  * Every sheet is baked up front (at most four), so nothing bakes mid-gesture.
  */
 
 const PERSPECTIVE = 1400;
 const PAD = 24;
+// The stack on the desk, and a sheet off it (baked once: raster.ts).
+const STACK_SHADOW: ShadowSpec[] = [
+  { dx: 2, dy: 6, blur: 10, color: 'rgba(20, 12, 4, 0.35)' },
+  { dx: 0, dy: 1, blur: 1.5, color: 'rgba(20, 12, 4, 0.4)' },
+];
+const LIFTED_SHADOW: ShadowSpec[] = [{ dx: 3, dy: 8, blur: 14, color: 'rgba(20, 12, 4, 0.35)' }];
+// The laptop (web): a mouse pushes the letter about, Ctrl (⌘) + drag turns it.
+const web = Platform.OS === 'web';
 
 type Props = {
   sheets: SheetContent[];
@@ -61,6 +75,8 @@ export function ReadingStack({ sheets, look, width, height, fold, strokesWidth, 
   const s2 = useSheetFaces(sheets[2], 2, look, width, height, crease, fold, strokesWidth);
   const s3 = useSheetFaces(sheets[3], 3, look, width, height, crease, fold, strokesWidth);
   const baked = [s0, s1, s2, s3].slice(0, sheets.length);
+  const stackShadow = useShadow({ width, height }, STACK_SHADOW);
+  const liftedShadow = useShadow({ width, height }, LIFTED_SHADOW);
 
   const faces = writtenFaces(sheets);
   const last = faces.length - 1;
@@ -116,21 +132,78 @@ export function ReadingStack({ sheets, look, width, height, fold, strokesWidth, 
 
   const travel = width * 0.9;
   const room = Math.round(height * 0.12);
+  // On the laptop the letter can be turned to any angle and pushed about: the layout keeps
+  // room for its diagonal, and it stays in that room (never over the hint and the buttons).
+  const half = Math.hypot(width, height) / 2;
+  const spare = web ? Math.ceil(half - height / 2) : 0;
+  const boundsAt = (rot: number) => {
+    'worklet';
+    return { x: width * 0.3, y: Math.max(0, half - halfExtent({ width, height }, rot).y) };
+  };
+  const within = (pl: Placement) => {
+    'worklet';
+    const b = boundsAt(pl.rot);
+    return { ...pl, x: Math.max(-b.x, Math.min(b.x, pl.x)), y: Math.max(-b.y, Math.min(b.y, pl.y)) };
+  };
+  const keys = useDeskKeys();
+  const moving = useSharedValue(false);
+  // A plain mouse drag: neither turn nor move.
+  const idle = useSharedValue(false);
+  const place = useSharedValue<Placement>(HOME);
+  const placeAtGrab = useSharedValue<Placement>(HOME);
+  const grabAt = useSharedValue({ x: 0, y: 0 });
+  // The letter's view, as laid out (canvas size).
+  const viewW = width + PAD * 2;
+  const viewH = height + (PAD + room) * 2;
+  /**
+   * Where a pointer is from the letter's centre, on screen. On the web Gesture Handler gives
+   * x and y from the corner of the view's bounding box, which a turned letter widens: its
+   * centre is the middle of that box. (On the phone the letter is never turned.)
+   */
+  const fromCentre = (e: { x: number; y: number }) => {
+    'worklet';
+    const r = web ? place.get().rot : 0;
+    const c = Math.abs(Math.cos(r));
+    const sn = Math.abs(Math.sin(r));
+    return { x: e.x - (viewW * c + viewH * sn) / 2, y: e.y - (viewW * sn + viewH * c) / 2 };
+  };
   const pan = usePanGesture({
-    enabled: fixedTurn === undefined && last > 0,
-    activeOffsetX: [-12, 12],
-    // A mostly vertical drag still scrolls the desk; one that starts sideways turns, at any angle after.
-    failOffsetY: [-30, 30],
+    // On the laptop a single sheet can still be pushed about.
+    enabled: fixedTurn === undefined && (web || last > 0),
+    // A mouse moves the letter any way; on the phone a mostly vertical drag still scrolls
+    // the desk, and one that starts sideways turns, at any angle after.
+    activeOffsetX: web ? [-8, 8] : [-12, 12],
+    activeOffsetY: web ? [-8, 8] : undefined,
+    failOffsetY: web ? undefined : [-30, 30],
     onBegin: (e) => {
-      grabY.set(Math.min(1, Math.max(0, (e.y - PAD - room) / height)));
+      const at = fromCentre(e);
+      // Down the sheet, in the letter's own frame (a turned letter: undo its turn).
+      const r = web ? place.get().rot : 0;
+      const down = -at.x * Math.sin(r) + at.y * Math.cos(r);
+      grabY.set(Math.min(1, Math.max(0, down / height + 0.5)));
+      grabAt.set(at);
     },
-    onActivate: () => {
+    onActivate: (e) => {
+      const mouse = e.pointerType === PointerType.MOUSE;
+      moving.set(mouse && keys.move.get());
+      idle.set(mouse && !keys.move.get() && !keys.turn.get());
+      if (idle.get()) return;
+      if (moving.get()) {
+        placeAtGrab.set(place.get());
+        return;
+      }
       // Catch the sheet where it is, even mid-spring.
       cancelAnimation(turn);
       grab.set(turn.get());
       origin.set(Math.round(turn.get()));
     },
     onUpdate: (e) => {
+      if (idle.get()) return;
+      if (moving.get()) {
+        const start = placeAtGrab.get();
+        place.set(within(dragPlacement(start, grabAt.get(), { x: e.translationX, y: e.translationY }, { width, height }, boundsAt(start.rot))));
+        return;
+      }
       const raw = grab.get() - e.translationX / travel;
       // One face per gesture; past the first or last face the paper resists.
       const lo = Math.max(0, origin.get() - 1);
@@ -140,6 +213,9 @@ export function ReadingStack({ sheets, look, width, height, fold, strokesWidth, 
       if (e.translationX !== 0) grip.set(gripOf(e.translationX < 0 ? 1 : -1, e.translationX, e.translationY, grabY.get()));
     },
     onDeactivate: (e) => {
+      // A pushed letter stays where it is let go.
+      if (idle.get()) return idle.set(false);
+      if (moving.get()) return moving.set(false);
       const s = origin.get();
       // Taken over (the desk scrolled): back to where it was.
       if (e.canceled) return settle(s);
@@ -148,6 +224,36 @@ export function ReadingStack({ sheets, look, width, height, fold, strokesWidth, 
       settle(Math.max(0, Math.min(last, Math.max(s - 1, Math.min(s + 1, pushed)))), v);
     },
   });
+
+  // The right button turns the letter round its centre, by the angle the hand sweeps round it
+  // (as on the laptop's desk), to any angle; it stays there.
+  const sweptFrom = useSharedValue({ x: 0, y: 0 });
+  const twistCentre = useSharedValue({ x: 0, y: 0 });
+  const twist = usePanGesture({
+    enabled: web && fixedTurn === undefined,
+    mouseButton: MouseButton.RIGHT,
+    activeOffsetX: [-3, 3],
+    activeOffsetY: [-3, 3],
+    onBegin: (e) => {
+      const at = fromCentre(e);
+      sweptFrom.set(at);
+      // In page coordinates, which a turn of the view doesn't change.
+      twistCentre.set({ x: e.absoluteX - at.x, y: e.absoluteY - at.y });
+    },
+    onUpdate: (e) => {
+      const c = twistCentre.get();
+      const at = { x: e.absoluteX - c.x, y: e.absoluteY - c.y };
+      const by = sweep(sweptFrom.get(), at);
+      if (by === 0) return;
+      sweptFrom.set(at);
+      place.set(within(twistPlacement(place.get(), by)));
+    },
+  });
+  const gesture = useCompetingGestures(pan, twist);
+
+  const placed = useAnimatedStyle(() => ({
+    transform: [{ translateX: place.value.x }, { translateY: place.value.y }, { rotate: `${place.value.rot}rad` }],
+  }));
 
   // Halfway between two faces: a tick as a sheet's edge passes upright, paper on paper as one slides away;
   // the face under the reader's eyes is the new one from there (not once the spring has quite settled).
@@ -162,34 +268,31 @@ export function ReadingStack({ sheets, look, width, height, fold, strokesWidth, 
     },
   );
 
-  if (baked.some((b) => !b)) return <View style={{ width: width + PAD * 2, height: height + PAD * 2 }} />;
+  if (baked.some((b) => !b)) return <View style={{ width: width + PAD * 2, height: height + (PAD + spare) * 2 }} />;
   const ready = baked as SheetFaces[];
   const edge = paperEdgeColor(look.paper);
 
   return (
     // Room above and below for a leaning turn, without moving the layout around it.
-    <View style={{ marginVertical: -room }}>
-      <GestureDetector gesture={pan} touchAction="pan-y">
+    <Animated.View style={[{ marginVertical: spare - room }, placed, web && ({ cursor: 'grab' } as object)]}>
+      <GestureDetector gesture={gesture} touchAction="pan-y" enableContextMenu={!web}>
         <Canvas style={{ width: width + PAD * 2, height: height + (PAD + room) * 2 }}>
           <Group transform={[{ translateX: PAD }, { translateY: PAD + room }]}>
-            <Rect x={0} y={0} width={width} height={height} color="#000">
-              <Shadow dx={2} dy={6} blur={10} color="rgba(20, 12, 4, 0.35)" shadowOnly />
-              <Shadow dx={0} dy={1} blur={1.5} color="rgba(20, 12, 4, 0.4)" shadowOnly />
-            </Rect>
+            {stackShadow && <Image image={stackShadow.image} {...stackShadow.rect} fit="fill" />}
             {/* Read sheets, tucked under the stack: only their edges show. */}
             {ready.map((faces, i) => (
-              <ReadSheet key={`under${i}`} layer="under" faces={faces} index={i} mark={marks[i]} turn={turn} grip={grip} seed={look.seed} edge={edge} width={width} height={height} />
+              <ReadSheet key={`under${i}`} layer="under" faces={faces} shadow={liftedShadow} index={i} mark={marks[i]} turn={turn} grip={grip} seed={look.seed} edge={edge} width={width} height={height} />
             ))}
             {/* The stack, the first unread sheet on top. */}
             {ready
               .map((faces, i) => (
-                <ReadSheet key={`top${i}`} layer="top" faces={faces} index={i} mark={marks[i]} turn={turn} grip={grip} seed={look.seed} edge={edge} width={width} height={height} />
+                <ReadSheet key={`top${i}`} layer="top" faces={faces} shadow={liftedShadow} index={i} mark={marks[i]} turn={turn} grip={grip} seed={look.seed} edge={edge} width={width} height={height} />
               ))
               .reverse()}
           </Group>
         </Canvas>
       </GestureDetector>
-    </View>
+    </Animated.View>
   );
 }
 
@@ -211,6 +314,7 @@ const ease = (x: number) => {
 function ReadSheet({
   layer,
   faces,
+  shadow,
   index,
   mark,
   turn,
@@ -222,6 +326,7 @@ function ReadSheet({
 }: {
   layer: 'top' | 'under';
   faces: SheetFaces;
+  shadow: ReturnType<typeof useShadow>;
   index: number;
   mark: { first: number; hasBack: boolean; done: number };
   turn: SharedValue<number>;
@@ -276,9 +381,7 @@ function ReadSheet({
     <Group clip={clip}>
       <Group origin={{ x: width / 2, y: height / 2 }} transform={transform}>
         {/* Off the stack it casts its own shadow on the desk. */}
-        <Rect x={0} y={0} width={width} height={height} color="#000" opacity={lifted}>
-          <Shadow dx={3} dy={8} blur={14} color="rgba(20, 12, 4, 0.35)" shadowOnly />
-        </Rect>
+        {layer === 'top' && shadow && <Image image={shadow.image} {...shadow.rect} fit="fill" opacity={lifted} />}
         <Rect x={0} y={0} width={width} height={height} color={edge} />
         <Rect x={0} y={0} width={width} height={height} color="rgba(30, 18, 8, 0.22)" style="stroke" strokeWidth={0.6} />
         <Group clip={frontClip}>

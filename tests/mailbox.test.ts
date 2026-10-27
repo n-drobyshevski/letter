@@ -99,7 +99,7 @@ describe('mailboxFromServer', () => {
     assert.deepEqual(l.address, { fromName: 'Н.', fromCity: 'Lille', toName: 'М.', toCity: 'Minsk', toCountry: 'Biélorussie' });
     assert.deepEqual(l.postmark, { city: 'Lille', date: '2026-11-03' });
     assert.equal(l.senderCountry, 'fr');
-    assert.equal(countryOf(me.tz), 'ru');
+    assert.equal(countryOf(me.tz), 'by');
   });
 
   test('the seal, the die and the liner come through; old letters keep today\'s seal', () => {

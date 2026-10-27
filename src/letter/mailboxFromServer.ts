@@ -135,16 +135,19 @@ export function parseSheets(b: ContentRow['body']): SheetContent[] {
 export const sheetsOf = (l: Pick<MailLetter, 'text' | 'strokes' | 'sheets'>): SheetContent[] =>
   l.sheets?.length ? l.sheets : [{ recto: { text: l.text, strokes: l.strokes ?? [] }, verso: emptyFace(), twoSided: false }];
 
-/** Which post office a person uses: French boxes in France, the Russian/Belarusian kind otherwise. */
-export const countryOf = (tz: string): Country => (tz === 'Europe/Paris' ? 'fr' : 'ru');
+/** Which post office a person uses: French boxes in France, the Belarusian kind otherwise (Minsk). */
+export const countryOf = (tz: string): Country => (tz === 'Europe/Paris' ? 'fr' : 'by');
 
-/** The destination country as the sender would write it, or nothing within one country. */
+/**
+ * The destination country as the sender would write it, or nothing within one country.
+ * Abroad from Minsk it goes in Latin letters, as the post asks for an international address.
+ */
 function countryLine(recipientTz: string, senderTz: string): string | undefined {
   if (recipientTz === senderTz) return undefined;
   const writer = countryOf(senderTz);
   const names: Record<string, Record<Country, string>> = {
-    'Europe/Minsk': { fr: 'Biélorussie', ru: 'Беларусь' },
-    'Europe/Paris': { fr: 'France', ru: 'Франция' },
+    'Europe/Minsk': { fr: 'Biélorussie', by: 'Беларусь' },
+    'Europe/Paris': { fr: 'France', by: 'France' },
   };
   return names[recipientTz]?.[writer];
 }

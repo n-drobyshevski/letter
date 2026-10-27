@@ -44,6 +44,8 @@ const SHOTS = [
   { name: 'desk-turn-0.5', path: '/lab/typing?seed=7&sheets=2&turn=0.42' },
   // taken by the top of the right edge and pulled up-left: the axis leans, the sheet travels with the hand
   ...[0.3, 0.7].map((turn) => ({ name: `desk-turn-tilt-${turn}`, path: `/lab/typing?seed=7&sheets=2&turn=${turn}&tilt=-0.4` })),
+  // Ctrl + drag straight down on the laptop's loose desk: top over bottom, spinning upright as it turns.
+  ...[0.15, 0.3, 0.5, 0.7, 0.85].map((turn) => ({ name: `desk-turn-vertical-${turn}`, path: `/lab/typing?seed=7&sheets=2&turn=${turn}&tilt=1.57` })),
   { name: 'desk-cotton-verso', path: '/lab/typing?seed=7&paper=cotton&sheets=3&face=5' },
   // the whole journey, one frame per step (later steps start with a sample letter)
   { name: 'journey-write', path: '/lab/journey?seed=1407', wait: 4000 },
@@ -105,7 +107,7 @@ const SHOTS = [
   // a four-sheet letter in her hands: address side · seal side (bulging) · the bulge gone once it is out
   ...[0.25, 0.32, 0.7].map((t) => ({ name: `mbbulge-${t}`, path: `/lab/mailbox?seed=1407&sheets=4&t=${t}` })),
   { name: 'journey-receive-2sheets', path: '/lab/journey?step=receive&sheets=2' },
-  // FR mailbox (letters from Russia) · RU mailbox with three letters · an empty box
+  // FR mailbox (letters from Minsk) · RU mailbox with three letters · an empty box
   { name: 'mbfr-5-closed', path: '/lab/mailbox?seed=1407&country=fr&waiting=5&t=0' },
   { name: 'mbfr-5-open', path: '/lab/mailbox?seed=1407&country=fr&waiting=5&t=0.1' },
   { name: 'mbfr-front', path: '/lab/mailbox?seed=1407&country=fr&t=0.25' },
@@ -121,7 +123,7 @@ const SHOTS = [
   ...[0.3, 0.345, 0.42, 0.5].map((t) => ({ name: `flex-${t}`, path: `/lab/mailbox?seed=1407&open=seal&wax=flexible&t=${t}` })),
   { name: 'flex-left-0.42', path: '/lab/mailbox?seed=1407&open=seal&wax=flexible&hold=left&t=0.42' },
   // the desk's realism board: every item at both scales, the drawers side by side (slow on a software GPU)
-  { name: 'deskboard-ru', path: '/lab/desk?country=ru', wait: 60000 },
+  { name: 'deskboard-by', path: '/lab/desk?country=by', wait: 60000 },
   { name: 'deskboard-fr', path: '/lab/desk?country=fr', wait: 60000 },
 ];
 const VIEWPORTS = [

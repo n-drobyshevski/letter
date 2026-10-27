@@ -81,7 +81,7 @@ test('the uniform builders feed exactly the uniforms the shaders declare', async
   const CK = await loadCanvasKit();
   const wood = CK.RuntimeEffect.Make(WOOD_SKSL)!;
   const leather = CK.RuntimeEffect.Make(LEATHER_SKSL)!;
-  for (const preset of ['fr', 'ru'] as const) {
+  for (const preset of ['fr', 'by'] as const) {
     assert.equal(woodUniforms(preset, { width: 10, height: 10 }, 1, 1, false, FLAT).length, wood.getUniformFloatCount());
     assert.equal(
       woodUniforms(DESK_PRESETS[preset].interior, { width: 10, height: 10 }, 1, 1, true, FLAT, 5).length,
@@ -99,7 +99,7 @@ test('the uniform builders feed exactly the uniforms the shaders declare', async
   }
 });
 
-for (const preset of ['fr', 'ru'] as const) {
+for (const preset of ['fr', 'by'] as const) {
   test(`${preset} wood: grain within 8 L* at the drawers' scale, never pure black or white`, async () => {
     // A 256² patch at far scale (0.68 pt/mm: 376 mm of desk), seams included.
     const px = await render(WOOD_SKSL, woodUniforms(preset, { width: 256, height: 256 }, 11, 0.68, false, FLAT), 256, 256);
@@ -155,7 +155,7 @@ const rowMeans = (px: Uint8Array, w: number, h: number) =>
     return sum / w;
   });
 
-for (const preset of ['fr', 'ru'] as const) {
+for (const preset of ['fr', 'by'] as const) {
   test(`${preset} wood: no seam across the top of a canvas (the header), and a seam is a shallow line`, async () => {
     // The desk top at a phone's near scale: 400 pt down from the content's top.
     // Seeds whose first seam used to fall in the top 130 pt (2, 5) or ran 16 L* deep (4).

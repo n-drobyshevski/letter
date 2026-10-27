@@ -50,22 +50,25 @@ The illusion breaks on the *first* digital-looking detail. Every rule below exis
 - Inside: liner with a fine "security" diamond pattern (`LINER_SKSL`); the flap's inside carries a gum strip along both edges.
 - Folded letter (`recordFoldedLetter`): the back of the last sheet on the top panel, flipped about its crease, with its own front showing through *blurred* (baked in, crisp ghost text reads as print); faint lines where hidden panel edges and the other sheets press through.
 
-## Envelope front (`envelopeFront.ts`)
-- Russian printed fields «От кого / Откуда / Кому / Куда» + the six-box index template, in a printed slate ink; filled in by hand (`layoutHandwriting`, one line each).
-- Stamp: perforations by clipping a row of circles out of the stamp paper, offset-print landscape, «РОССИЯ», value, year; tilted ±2°.
-- Postmark: double ring, city over the top, «ПОЧТА» under, date between two bars; rotated ±8°; `STAMP_INK_SKSL` coverage — patchy, one side lighter but never gone. **Normal blending**, not multiply (multiply vanishes over the stamp's dark colours). Machine cancellation waves run off to the left.
+## Envelope front (`envelopeFront.ts`, postage in `postage.ts`)
+- From Minsk: the Belpochta envelope's printed Belarusian fields «Ад каго / Адкуль / Каму / Куды» + the six-box «Індэкс месца прызначэння» template, in a printed slate ink; filled in by hand (`layoutHandwriting`, one line each). Abroad the country goes on the last line in Latin letters («FRANCE»), as an international address must.
+- From France: no printed fields; sender small top-left, address block bottom-right with the city in CAPITALS and the country last («BIÉLORUSSIE»).
+- Postage at its real size in mm (`uh / 110` px per mm), the sender's post office's, as it really is in 2026 (research: belpost tariff 2026, philately.by, Philaposte, marcophilie.org):
+  - **Minsk**: one self-adhesive definitive of the 2025 wildlife series, 18 × 26 mm, straight cut (no perforations), pale ground, «БЕЛАРУСЬ» + year + «BELARUS», the rate letter **«Р»** (priority letter abroad up to 20 g, 3,90 BYN), our own Norway spruce with its Belarusian and Latin names («Елка звычайная», *Picea abies*); the blue UPU label «PRIORITAIRE / Par avion»; the round calendar postmark **struck by hand** over the stamp's corner: one ring, «БЕЛАРУСЬ» over the top, «МИНСК-50» under (the office = the index's last digits, Russian spelling), date `dd mm yy` between two bars, the stamp's number under; violet-blue `STAMP_INK_SKSL`, any angle. No machine waves.
+  - **France**: one «Lettre internationale» stamp, violet, landscape 40 × 26 mm, perforated (gauge 13), «FRANCE», «International», «La Poste» up the side, our own engraved profile before a globe (leafy hair swept back), a DataMatrix; the sorting machine's **black inkjet** postmark: no town, «LA POSTE 59368A» (département + three digits + A) over «FRANCE dd-mm-yy», six wavy lines running across the stamp.
+- Postmark ink: **Normal blending**, not multiply (multiply vanishes over the stamp's dark colours).
+- Print a few px high: `printFont` (unhinted, linear metrics), or hinting eats the spaces.
 - Transit wear (received letters): grime vignette, a few smudges, a dog-eared corner, a hairline crack in the wax (`WaxSeal cracked`).
 
 ## Two countries
-- **The sender's country** decides the postbox and the envelope front; **the recipient's** decides the mailbox. A letter from Paris arrives in a Moscow подъезд box with a French envelope, and the reverse.
-- FR envelope front: no printed fields; sender small top-left, address block bottom-right with the city in CAPITALS and the country last; stamp «RF» + «MONDE» (international stamps carry no value); postmark CITY over the top, FRANCE under, date `dd-mm yy`.
-- Never a real postal logo or brand mark (Почта России, La Poste): original emblems, generic words («ПОЧТА», «LETTRES»).
+- **The sender's country** (`Country`: 'by' | 'fr', not the language) decides the postbox and the envelope front; **the recipient's** decides the mailbox. A letter from Lille arrives in a Minsk подъезд box with a French envelope, and the reverse.
+- The real words a post office prints are fine («LA POSTE» in its postmark, «БЕЛАРУСЬ» on a stamp); its **logos and emblems are never drawn** (no La Poste bird, no Белпошта mark): original emblems, generic words on boxes («ПОЧТА», «LETTRES»).
 
 ## Steel boxes (`steelBox.ts`, `POWDER_SKSL`)
 - Powder coat: orange-peel micro-normals under the desk light, slow dent waviness, lighter at the top, chips to grey primer only near edges, grime patches.
-- Postbox: RU 2015 wall box, blue (#2766C5; express = real yellow), visor with soft shadow over a 171 × 6 mm slot at 1.6 pt/mm, «ПОЧТА» + an original emblem (never the Почта России logo), hand-filled collection sticker kept on screen.
-- FR street box: La Poste yellow #FFCB05, a blue band reading LETTRES, wide slot (250 × 20 mm, estimate), an enamel plate printed «HEURE LIMITE DE DÉPÔT 14 h 37» (printed, not handwritten, unlike the RU sticker).
-- Mailbox RU: подъезд bank, RAL 7035, numbered doors, cylinder lock, slot, six peek holes; our door is live, neighbours are baked. Mail shows as pale holes (4 for one letter, all 6 for more).
+- Postbox (Minsk side): the blue wall box (#2766C5; yellow marks our express tier), visor with soft shadow over a 171 × 6 mm slot at 1.6 pt/mm, «ПОЧТА» + an original emblem (never a real post's logo), hand-filled collection sticker kept on screen.
+- FR street box: La Poste yellow #FFCB05, a blue band reading LETTRES, wide slot (250 × 20 mm, estimate), an enamel plate printed «HEURE LIMITE DE DÉPÔT 14 h 37» (printed, not handwritten, unlike the Minsk sticker).
+- Mailbox BY (Minsk): подъезд bank, RAL 7035, numbered doors, cylinder lock, slot, six peek holes; our door is live, neighbours are baked. Mail shows as pale holes (4 for one letter, all 6 for more).
 - Mailbox FR: batterie, anthracite RAL 7016, 260 × 260 mm doors, 235 × 26 mm slot with an inner flap, aluminium-framed nameplate with the name in capitals. Mail shows as envelope corners drooping out of the slot (up to 3, offset), then a chalked «+N».
 - An object going into a slot darkens as it enters (a gradient in its own space): a clip alone looks like a mask.
 
@@ -115,10 +118,10 @@ The illusion breaks on the *first* digital-looking detail. Every rule below exis
 2. Is any colour pure white/black?
 3. Do all shadows agree with `LIGHT_DIR`?
 4. Is grain visible but not noisy at 100 %?
-5. RU and FR samples both render without fallback glyphs?
+5. RU, BY and FR samples (Belarusian «і ў» included) render without fallback glyphs?
 6. Desk: squint at the grain and at the drawers' stagger; nothing pure black or white; captions legible.
 
 ## Envelope formats
 - One per fold (ISO 269): tri-fold → DL 220×110, half (A5) → C5 229×162, quarter (A6, turned sideways) → C6 162×114. `envelopeGeometry(width, seed, format)`; `formatForFold`.
 - Printed and written things keep their real size across formats: size them from `g.unit` (a DL's height at this scale), place them as fractions of the envelope. A DL renders exactly as before.
-- At the RU 171 mm slot a DL or C5 turns to go in short edge first; a C6 goes in long edge first. In the mailbox, formats keep their size relative to each other.
+- At the Minsk 171 mm slot a DL or C5 turns to go in short edge first; a C6 goes in long edge first. In the mailbox, formats keep their size relative to each other.

@@ -25,18 +25,19 @@ import { paperUniforms } from '@/letter/paperLayout';
 import { PAPER_SKSL } from '@/letter/shaders';
 import { paperFor } from '@/letter/sheet';
 import { FONT_KEYS, INK_KINDS, SHEET_PAPERS, type FontKey, type InkKind, type SheetPaper } from '@/theme/kinds';
+import type { Lang } from '@/letter/tracking/copy';
 import { DESK, type Country } from '@/theme/stationery';
 
 /**
  * Realism board for the writing desk (spec §6 WP-C): the desk top with the sous-main and a blank sheet
  * over the band of closed fronts; the three drawers pulled out (t = 1) side by side; every item at the
- * drawers' far scale and at the desk's near scale. `?country=ru|fr` picks the desk; `?paper=&ink=&font=`
+ * drawers' far scale and at the desk's near scale. `?country=by|fr` picks the desk; `?paper=&ink=&font=`
  * what is in use (an empty groove, an ink ring, the laptop's resting items); `?item=` lifts one in its drawer.
  */
 
 const STATIC = Platform.OS === 'web';
 const COUNTRIES = [
-  { key: 'ru', label: 'Минск · дуб' },
+  { key: 'by', label: 'Минск · дуб' },
   { key: 'fr', label: 'Lille · noyer' },
 ] as const;
 
@@ -46,7 +47,8 @@ export default function DeskBoard() {
   const q = useLabParams();
   const insets = useSafeAreaInsets();
   const layout = useDeskLayout();
-  const country: Country = q.country === 'fr' ? 'fr' : 'ru';
+  const country: Country = q.country === 'fr' ? 'fr' : 'by';
+  const lang: Lang = country === 'fr' ? 'fr' : 'ru';
   const seed = deskSeed(country);
   const look = {
     paper: valid<SheetPaper>(q.paper, SHEET_PAPERS) ?? 'grid',
@@ -88,7 +90,7 @@ export default function DeskBoard() {
           layout={layout}
           preset={country}
           seed={seed}
-          lang={country}
+          lang={lang}
           style={{ position: 'absolute', left: 0, top: topH }}
         />
       </View>
@@ -107,7 +109,7 @@ export default function DeskBoard() {
               seed={seed}
               inUse={inUse}
               lifted={q.item}
-              lang={country}
+              lang={lang}
               style={{ position: 'absolute', left: f.x, top: deepest - depth + 6 }}
             />
           );

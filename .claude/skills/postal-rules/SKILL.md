@@ -42,11 +42,11 @@ description: Delivery-time algorithm, database invariants, RLS rules and push co
 Oldest unopened first. After reading one, return to the open mailbox (skip the door). The box shows how many wait (RU: all peek holes pale; FR: up to three corners, then a chalked «+N») and the hint says so («В ящике писем: 3» / «3 lettres t’attendent»).
 
 ## Postmark
-Server-stamped at posting: sender's city + local date (`envelope.postmark`). The client renders it procedurally from these values only, in the sender's country style (RU calendar stamp «… ПОЧТА», FR «… FRANCE»).
+Server-stamped at posting: sender's city + local date (`envelope.postmark`). The client renders it procedurally from these values only, in the sender's post office's style (`postage.ts`): Minsk, a hand-struck calendar postmark «БЕЛАРУСЬ / МИНСК-50» with the date `dd mm yy`; France, the sorting machine's inkjet «LA POSTE 59xxxA / FRANCE dd-mm-yy» (no town), its code from the city.
 
 ## Push
 - `dispatch_deliveries()` every minute → Edge Function `deliver` → Expo Push. On failure the function clears `pushed_at` so the next tick retries.
 - Copy is vague and localized (ru/fr): "В ящике письмо — Загляни в почтовый ящик: там что-то белеет." / "Tu as du courrier — Quelque chose dépasse de ta boîte aux lettres." Never include letter text.
-- **No mailbox flag.** On US boxes a raised flag means *outgoing* mail, and RU/FR boxes have none. The cue is the envelope itself: pale through the peek holes (RU подъезд box) or a corner poking out of the slot (FR).
+- **No mailbox flag.** On US boxes a raised flag means *outgoing* mail, and Belarusian/French boxes have none. The cue is the envelope itself: pale through the peek holes (Minsk подъезд box) or a corner poking out of the slot (FR).
 - Times in copy say whose clock they are: «Можно забрать до 14:37» is the sender's time; delivery rounds are the recipient's.
 - Web (laptop) gets no push; the mailbox updates through Realtime on `letters`.

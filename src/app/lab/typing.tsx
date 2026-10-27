@@ -58,9 +58,9 @@ export default function TypingLab() {
   // The writer's desk: their locale, and their country's furniture (a Paris time zone is the French desk).
   const session = useSession();
   const { couple } = useCouple(session?.user.id);
-  const qCountry: Country = q.country === 'fr' ? 'fr' : 'ru';
-  const country: Country = couple ? (couple.me.tz === 'Europe/Paris' ? 'fr' : 'ru') : qCountry;
-  const lang: Lang = couple?.me.locale ?? qCountry;
+  const qCountry: Country = q.country === 'fr' ? 'fr' : 'by';
+  const country: Country = couple ? (couple.me.tz === 'Europe/Paris' ? 'fr' : 'by') : qCountry;
+  const lang: Lang = couple?.me.locale ?? (qCountry === 'fr' ? 'fr' : 'ru');
   const copy = COPY[lang];
 
   // Back from /fold: the same letter, as you left it. A new one starts from what was last taken from the drawers.

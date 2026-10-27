@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { Platform, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 
 import { Desk } from '@/components/Desk';
 import { useMotionPrefs } from '@/lib/useMotionPrefs';
@@ -12,6 +12,7 @@ import { ReceivingCeremony, type OpenedBy, type ReceiveStage } from '@/letter/Re
 import { defaultSeal, sealHold } from '@/letter/seal';
 import { SHEET_RATIO } from '@/letter/sheet';
 import { bulgeFor, type FaceRef } from '@/letter/stack';
+import type { Lang } from '@/letter/tracking/copy';
 import type { Country } from '@/theme/stationery';
 
 export type MailboxPhase = 'mailbox' | 'unfold' | 'read' | 'empty';
@@ -47,6 +48,7 @@ export const MAILBOX_COPY = {
     nextSheet: 'Следующий лист',
     prevFace: 'Назад',
     overleaf: 'На обороте ещё есть',
+    mouseHint: 'Ctrl + тяни — перевернуть лист · Пробел + тяни — подвинуть письмо · правой кнопкой — повернуть',
     where: (f: FaceRef, n: number) => `Лист ${f.sheet + 1} из ${n}${f.side === 'verso' ? ', оборот' : ''}`,
   },
   fr: {
@@ -76,6 +78,7 @@ export const MAILBOX_COPY = {
     nextSheet: 'Feuille suivante',
     prevFace: 'Retour',
     overleaf: 'La suite au verso',
+    mouseHint: 'Ctrl + glisser pour tourner la page · Maj + glisser pour déplacer la lettre',
     where: (f: FaceRef, n: number) => `Feuille ${f.sheet + 1} sur ${n}${f.side === 'verso' ? ', verso' : ''}`,
   },
 };
@@ -86,8 +89,8 @@ export const LAB_HAND: Omit<LetterLook, 'seed'> = { paper: 'cotton', ink: 'blueB
 export type MailboxViewProps = {
   letters: MailLetter[];
   /** Language of the copy (the recipient's). */
-  lang: Country;
-  /** The mailbox: RU подъезд bank or FR batterie. */
+  lang: Lang;
+  /** The mailbox: the Minsk подъезд bank or a French batterie. */
   country: Country;
   /** FR nameplate. */
   name: string;
@@ -201,7 +204,7 @@ export function MailboxView({ letters, lang, country, name, fixedT, fixedTurn, f
             flat={47}
             name={name}
             country={country}
-            senderCountry={letter?.senderCountry ?? 'ru'}
+            senderCountry={letter?.senderCountry ?? 'by'}
             waiting={phase === 'empty' ? 0 : letters.length - index}
             others={letters.slice(index + 1)}
             startOpen={index > 0 || phase === 'empty'}
@@ -312,6 +315,8 @@ export function ReadingControls({
       <Text style={styles.note} accessibilityLiveRegion="polite" accessibilityLabel={copy.where(here, sheets)}>
         {overleaf ? copy.overleaf : copy.where(here, sheets)}
       </Text>
+      {/* On the laptop a plain drag moves the letter; say how to turn it. */}
+      {Platform.OS === 'web' && <Text style={styles.note}>{copy.mouseHint}</Text>}
       <View style={styles.row}>
         {reading.index > 0 && <MailboxButton label={copy.prevFace} quiet onPress={() => onStep(-1)} />}
         {next && <MailboxButton label={overleaf ? copy.turnOver : copy.nextSheet} quiet={!needsButtons} onPress={() => onStep(1)} />}

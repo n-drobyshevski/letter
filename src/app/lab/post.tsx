@@ -20,7 +20,8 @@ import { bulgeFor } from '@/letter/stack';
 import { promiseLine, type LetterRow } from '@/letter/tracking/fromServer';
 import { routed, type Tier } from '@/letter/tracking/itinerary';
 import type { Lang } from '@/letter/tracking/copy';
-import type { Country, PostboxSkin } from '@/theme/stationery';
+import { countryOf } from '@/letter/mailboxFromServer';
+import { langOf, type Country, type PostboxSkin } from '@/theme/stationery';
 
 /**
  * Posting a letter. Two modes:
@@ -37,7 +38,7 @@ const LAB_TIERS = [
 ] as const;
 
 const COUNTRIES = [
-  { key: 'ru', label: 'Россия' },
+  { key: 'by', label: 'Беларусь' },
   { key: 'fr', label: 'France' },
 ] as const;
 
@@ -143,7 +144,7 @@ function LivePost({ couple, onOffline }: { couple: Couple; onOffline: () => void
   const lang: Lang = me.locale;
   const copy = COPY[lang];
   // The box you stand in front of is the one where you live.
-  const country: Country = me.tz === 'Europe/Paris' ? 'fr' : 'ru';
+  const country: Country = countryOf(me.tz);
   const hasRoute = routed(me.tz, them?.tz);
   const tiers = (hasRoute ? (['postal', 'standard', 'express'] as const) : (['standard', 'express'] as const)).map((key) => ({
     key,
@@ -364,8 +365,8 @@ function PostLab() {
   const width = Math.min(sw, 480);
   const height = Math.round(Math.min(sh - 190, 640));
   const [skin, setSkin] = useState<PostboxSkin>('blue');
-  const [country, setCountry] = useState<Country>(q.country === 'fr' ? 'fr' : 'ru');
-  const copy = COPY[country];
+  const [country, setCountry] = useState<Country>(q.country === 'fr' ? 'fr' : 'by');
+  const copy = COPY[langOf(country)];
   const [state, setState] = useState<State>('ready');
   const [commitKey, setCommitKey] = useState(0);
   const [retrieveKey, setRetrieveKey] = useState(0);
@@ -404,7 +405,7 @@ function PostLab() {
       {state === 'ready' && (
         <View style={styles.choices}>
           <Choice options={COUNTRIES} value={country} onChange={setCountry} />
-          {country === 'ru' && <Choice options={LAB_TIERS} value={skin} onChange={setSkin} />}
+          {country === 'by' && <Choice options={LAB_TIERS} value={skin} onChange={setSkin} />}
         </View>
       )}
       <View style={styles.stage}>

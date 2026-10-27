@@ -64,7 +64,7 @@ test('due letters get one push, retrieved and future ones none', async () => {
   await db.exec(`
     insert into auth.users values ('${A}'), ('${B}');
     insert into public.couples (id) values ('${C}');
-    insert into public.profiles (id, couple_id, display_name, city) values ('${A}', '${C}', 'N', 'Paris'), ('${B}', '${C}', 'M', 'Moscou');
+    insert into public.profiles (id, couple_id, display_name, city) values ('${A}', '${C}', 'N', 'Paris'), ('${B}', '${C}', 'M', 'Minsk');
     insert into public.letters (id, couple_id, sender_id, recipient_id, tier, posted_at, collect_at, deliver_at, retrieved_at, seed) values
       ('00000000-0000-0000-0000-000000000001', '${C}', '${A}', '${B}', 'express', now() - interval '3 h', now() - interval '2 h', now() - interval '1 min', null, 1),
       ('00000000-0000-0000-0000-000000000002', '${C}', '${A}', '${B}', 'express', now() - interval '3 h', now() - interval '2 h', now() - interval '1 min', now() - interval '150 min', 2),
