@@ -32,6 +32,7 @@ import {
   type FaceRef,
   type SheetContent,
 } from './stack';
+import { gripOf, type Grip } from './grip';
 import type { Stroke } from './strokes';
 import { WritingDesk, type WritingMode } from './WritingDesk';
 
@@ -41,14 +42,19 @@ import { WritingDesk, type WritingMode } from './WritingDesk';
  * take another sheet. Each face keeps its own text and strokes; nothing flows.
  * The turn is drawn on a Skia overlay with both faces baked: a native TextInput
  * can't turn in 3D, so the desk under it waits, hidden, and changes face when the
- * turn lands. A turn is a button or the page's corner: take the bottom-right corner
- * and drag left to turn forward (to the back, then the next sheet), the bottom-left
- * corner and drag right to come back. The sheet follows the finger; released past
- * halfway (or flicked) it completes, otherwise it falls back.
+ * turn lands. A turn is a button or the hand: take the sheet anywhere along its right
+ * edge and drag left to turn forward (to the back, then the next sheet), along its
+ * left edge and drag right to come back. The sheet follows the finger, and how it is
+ * taken shapes the turn: the axis leans with the drag's direction and with where the
+ * edge was taken (from the top corner, the top leads), the sheet travels a little
+ * with the hand, and a slide to another sheet goes the way it was pushed. Released
+ * past halfway (or flicked) it completes, otherwise it falls back.
  */
 
-// The corners that take a drag (pt): big enough for a thumb, small enough to leave the writing alone.
+// The edge strips that take a drag (pt), and the lifted-corner hint at their foot.
+const EDGE = 30;
 const CORNER = { w: 56, h: 88 };
+
 type Turn = {
   kind: 'flip' | 'slide';
   /** 1 forward (to the back, the next sheet), -1 back. */
@@ -79,8 +85,8 @@ const COPY = {
   overflowMore: 'Лист закончился — возьми ещё лист',
   overflowLast: 'Лист закончился, а листов больше нет',
   clearPen: 'Стереть перо',
-  cornerForward: 'Уголок листа: потяни влево, чтобы перевернуть',
-  cornerBack: 'Уголок листа: потяни вправо, чтобы вернуться',
+  cornerForward: 'Край листа: потяни влево, чтобы перевернуть',
+  cornerBack: 'Край листа: потяни вправо, чтобы вернуться',
 };
 
 type Props = {
@@ -96,9 +102,11 @@ type Props = {
   /** Lab/QA: start on this face (0-based, sheet × 2 + back) and freeze a turn of the sheet at this progress. */
   initialFace?: number;
   fixedTurn?: number;
+  /** Lab/QA: the turn's axis lean for that frozen turn (rad). */
+  fixedTilt?: number;
 };
 
-export function DeskStack({ look, width, height, mode, sheets, onSheets, maxSheets = MAX_SHEETS, placeholder, initialFace = 0, fixedTurn }: Props) {
+export function DeskStack({ look, width, height, mode, sheets, onSheets, maxSheets = MAX_SHEETS, placeholder, initialFace = 0, fixedTurn, fixedTilt }: Props) {
   const [face, setFace] = useState<FaceRef>(() => {
     const sheet = Math.min(sheets.length - 1, Math.floor(initialFace / 2));
     return { sheet, side: initialFace % 2 && sheets[sheet]?.twoSided ? 'verso' : 'recto' };
@@ -122,9 +130,12 @@ export function DeskStack({ look, width, height, mode, sheets, onSheets, maxShee
   const reduceMotion = useReducedMotion();
 
   const p = useSharedValue(fixedTurn ?? 0);
+  // The hand's grip on the turn under way (buttons turn square, pushed the plain way).
+  const grip = useSharedValue<Grip>({ tilt: fixedTilt ?? 0, ux: -1, uy: 0 });
   useEffect(() => {
     if (fixedTurn !== undefined) p.set(fixedTurn);
-  }, [fixedTurn, p]);
+    if (fixedTilt !== undefined) grip.set({ tilt: fixedTilt, ux: -Math.cos(fixedTilt), uy: Math.sin(fixedTilt) });
+  }, [fixedTurn, fixedTilt, p, grip]);
 
   const setCurrent = (next: { text?: string; strokes?: Stroke[] }) => onSheets(withFace(sheets, face, { ...current, ...next }));
 
@@ -151,6 +162,7 @@ export function DeskStack({ look, width, height, mode, sheets, onSheets, maxShee
     if (!turn) return;
     begin(turn);
     const finish = () => land(true, turn.apply);
+    grip.set({ tilt: 0, ux: -turn.dir, uy: 0 });
     p.set(0);
     const done = (finished?: boolean) => {
       'worklet';
@@ -194,20 +206,27 @@ export function DeskStack({ look, width, height, mode, sheets, onSheets, maxShee
     play(slide({ sheet: sheets.length, side: 'recto' }, () => onSheets([...sheets, blank]), blank));
   };
 
-  // The page's corners: the finger writes p (0 → 1 is the whole turn).
+  // The sheet's edges: the finger writes p (0 → 1 is the whole turn) and the grip.
   const travel = width * 0.8;
+  const grabY = useSharedValue(0.5);
   const startDrag = (dir: 1 | -1) => begin(dir === 1 ? forward() : backward());
-  const corner = (dir: 1 | -1) => ({
+  const edge = (dir: 1 | -1) => ({
     // Not switched off while its own turn is under way: that would cancel the drag.
     enabled: fixedTurn === undefined && (dir === 1 ? canForward : canBackward),
     activeOffsetX: dir === 1 ? -6 : 6,
-    failOffsetY: [-24, 24] as [number, number],
-    onActivate: () => {
+    // Mostly vertical still scrolls the desk; anything with a sideways start turns, at any angle after.
+    failOffsetY: [-40, 40] as [number, number],
+    onBegin: (e: { y: number }) => {
+      grabY.set(Math.min(1, Math.max(0, e.y / height)));
+    },
+    onActivate: (e: { translationX: number; translationY: number }) => {
       p.set(0);
+      grip.set(gripOf(dir, e.translationX, e.translationY, grabY.get()));
       scheduleOnRN(startDrag, dir);
     },
-    onUpdate: (e: { translationX: number }) => {
+    onUpdate: (e: { translationX: number; translationY: number }) => {
       p.set(Math.min(1, Math.max(0, (-dir * e.translationX) / travel)));
+      grip.set(gripOf(dir, e.translationX, e.translationY, grabY.get()));
     },
     onDeactivate: (e: { velocityX: number; canceled: boolean }) => {
       const v = (-dir * e.velocityX) / travel;
@@ -225,8 +244,8 @@ export function DeskStack({ look, width, height, mode, sheets, onSheets, maxShee
   });
   const canForward = (face.side === 'recto' && sheet.twoSided) || face.sheet < sheets.length - 1;
   const canBackward = face.side === 'verso' || face.sheet > 0;
-  const forwardCorner = usePanGesture(corner(1));
-  const backCorner = usePanGesture(corner(-1));
+  const forwardEdge = usePanGesture(edge(1));
+  const backEdge = usePanGesture(edge(-1));
 
   const removeSheet = () => {
     const next = sheets.filter((_, i) => i !== face.sheet);
@@ -274,18 +293,20 @@ export function DeskStack({ look, width, height, mode, sheets, onSheets, maxShee
         {MULTI_SHEET && fixedTurn === undefined && (
           <>
             {canForward && (
-              <GestureDetector gesture={forwardCorner} touchAction="pan-y">
-                <View style={[styles.corner, { right: 0 }]} accessibilityLabel={COPY.cornerForward}>
-                  <CornerLift side="right" />
-                </View>
-              </GestureDetector>
+              <>
+                <CornerLift side="right" />
+                <GestureDetector gesture={forwardEdge} touchAction="pan-y">
+                  <View style={[styles.edge, { right: 0 }]} accessibilityLabel={COPY.cornerForward} />
+                </GestureDetector>
+              </>
             )}
             {canBackward && (
-              <GestureDetector gesture={backCorner} touchAction="pan-y">
-                <View style={[styles.corner, { left: 0 }]} accessibilityLabel={COPY.cornerBack}>
-                  <CornerLift side="left" />
-                </View>
-              </GestureDetector>
+              <>
+                <CornerLift side="left" />
+                <GestureDetector gesture={backEdge} touchAction="pan-y">
+                  <View style={[styles.edge, { left: 0 }]} accessibilityLabel={COPY.cornerBack} />
+                </GestureDetector>
+              </>
             )}
           </>
         )}
@@ -295,6 +316,7 @@ export function DeskStack({ look, width, height, mode, sheets, onSheets, maxShee
             to={turning?.to ?? frozen!.verso}
             kind={turning?.kind ?? 'flip'}
             dir={turning?.dir ?? 1}
+            grip={grip}
             fade={reduceMotion}
             p={p}
             width={width}
@@ -349,6 +371,7 @@ function TurnOverlay({
   to,
   kind,
   dir,
+  grip,
   fade,
   p,
   width,
@@ -358,6 +381,7 @@ function TurnOverlay({
   to: SkPicture;
   kind: 'flip' | 'slide';
   dir: 1 | -1;
+  grip: SharedValue<Grip>;
   fade: boolean;
   p: SharedValue<number>;
   width: number;
@@ -367,14 +391,32 @@ function TurnOverlay({
   const back = useMemo(() => mirrorPicture(to, { width, height }), [to, width, height]);
   const EMPTY = Skia.XYWHRect(0, 0, 0, 0);
   const full = Skia.XYWHRect(-2, -2, width + 4, height + 4);
+  const room = Math.round(width * 0.2);
   const angle = useDerivedValue(() => p.value * Math.PI);
   // The sheet that moves: forward it is the one leaving; coming back, the previous one returning.
   const away = useDerivedValue(() => (dir === 1 ? p.value : 1 - p.value));
-  const transform = useDerivedValue<Transforms3d>(() =>
-    kind === 'slide'
-      ? [{ translateX: -width * 0.12 * away.value }, { translateY: -height * 0.03 * away.value }, { rotate: -0.03 * away.value }]
-      : [{ perspective: PERSPECTIVE }, { rotateY: -dir * angle.value }, { scale: 1 + 0.015 * Math.sin(angle.value) }],
-  );
+  const transform = useDerivedValue<Transforms3d>(() => {
+    const { tilt, ux, uy } = grip.value;
+    if (kind === 'slide') {
+      // Pushed the way the hand went (coming back, it arrives from the other side, moving the same way).
+      const k = dir === 1 ? away.value : -away.value;
+      return [{ translateX: width * 0.12 * ux * k }, { translateY: height * 0.05 * uy * k - height * 0.02 * away.value }, { rotate: 0.03 * ux * away.value }];
+    }
+    // Turned about an axis leaning by `tilt`, travelling a little with the hand. The twist
+    // (tilt − 2·tilt·e) brings the far face down upright whatever the lean: at the end the
+    // whole transform is the plain book-page mirror the back picture is drawn for.
+    const lift = Math.sin(angle.value) * width * 0.05;
+    const e = p.value * p.value * (3 - 2 * p.value);
+    return [
+      { translateX: ux * lift },
+      { translateY: uy * lift },
+      { perspective: PERSPECTIVE },
+      { rotate: tilt - 2 * tilt * e },
+      { rotateY: -dir * angle.value },
+      { rotate: -tilt },
+      { scale: 1 + 0.015 * Math.sin(angle.value) },
+    ];
+  });
   const frontClip = useDerivedValue(() => (kind === 'slide' || angle.value < Math.PI / 2 ? full : EMPTY));
   const backClip = useDerivedValue(() => (kind === 'flip' && angle.value >= Math.PI / 2 ? full : EMPTY));
   const shade = useDerivedValue(() => (kind === 'flip' ? 0.3 * Math.sin(angle.value) : 0));
@@ -400,19 +442,22 @@ function TurnOverlay({
     );
   }
   return (
-    <Canvas style={StyleSheet.flatten([StyleSheet.absoluteFill, { width, height }])} pointerEvents="none">
-      {/* A slide: the sheet that stays put lies beneath the one that moves. */}
-      {kind === 'slide' && <Picture picture={dir === 1 ? to : from} />}
-      <Group origin={{ x: width / 2, y: height / 2 }} transform={transform}>
-        <Group clip={frontClip} layer={kind === 'slide' ? <Paint opacity={present} /> : undefined}>
-          <Picture picture={kind === 'slide' && dir === -1 ? to : from} />
-        </Group>
-        {kind === 'flip' && (
-          <Group clip={backClip}>
-            <Picture picture={back} />
+    // Room around the sheet: a leaning, travelling turn reaches past the sheet's own bounds.
+    <Canvas style={{ position: 'absolute', left: -room, top: -room, width: width + room * 2, height: height + room * 2 }} pointerEvents="none">
+      <Group transform={[{ translateX: room }, { translateY: room }]}>
+        {/* A slide: the sheet that stays put lies beneath the one that moves. */}
+        {kind === 'slide' && <Picture picture={dir === 1 ? to : from} />}
+        <Group origin={{ x: width / 2, y: height / 2 }} transform={transform}>
+          <Group clip={frontClip} layer={kind === 'slide' ? <Paint opacity={present} /> : undefined}>
+            <Picture picture={kind === 'slide' && dir === -1 ? to : from} />
           </Group>
-        )}
-        <Rect x={0} y={0} width={width} height={height} color="#140c04" opacity={shade} />
+          {kind === 'flip' && (
+            <Group clip={backClip}>
+              <Picture picture={back} />
+            </Group>
+          )}
+          <Rect x={0} y={0} width={width} height={height} color="#140c04" opacity={shade} />
+        </Group>
       </Group>
     </Canvas>
   );
@@ -422,7 +467,7 @@ function TurnOverlay({
 function CornerLift({ side }: { side: 'left' | 'right' }) {
   const x = side === 'right' ? CORNER.w : 0;
   return (
-    <Canvas style={{ width: CORNER.w, height: CORNER.h }} pointerEvents="none">
+    <Canvas style={{ position: 'absolute', bottom: 0, [side]: 0, width: CORNER.w, height: CORNER.h }} pointerEvents="none">
       <Rect x={0} y={0} width={CORNER.w} height={CORNER.h}>
         <RadialGradient c={vec(x, CORNER.h)} r={30} colors={['rgba(30, 18, 8, 0.14)', 'rgba(30, 18, 8, 0)']} />
       </Rect>
@@ -465,5 +510,5 @@ const styles = StyleSheet.create({
   link: { color: '#b9a88f', fontSize: 13, textDecorationLine: 'underline' },
   strong: { minHeight: 40, paddingHorizontal: 14, justifyContent: 'center', borderRadius: 3, backgroundColor: '#efe2cc' },
   strongText: { color: '#2a211b', fontSize: 14 },
-  corner: { position: 'absolute', bottom: 0, width: CORNER.w, height: CORNER.h },
+  edge: { position: 'absolute', top: 0, bottom: 0, width: EDGE },
 });

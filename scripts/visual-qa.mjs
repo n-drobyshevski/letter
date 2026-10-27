@@ -27,6 +27,8 @@ const SHOTS = [
   { name: 'desk-verso', path: '/lab/typing?seed=7&sheets=2&face=1' },
   { name: 'desk-sheet2', path: '/lab/typing?seed=7&sheets=3&face=2' },
   { name: 'desk-turn-0.5', path: '/lab/typing?seed=7&sheets=2&turn=0.42' },
+  // taken by the top of the right edge and pulled up-left: the axis leans, the sheet travels with the hand
+  ...[0.3, 0.7].map((turn) => ({ name: `desk-turn-tilt-${turn}`, path: `/lab/typing?seed=7&sheets=2&turn=${turn}&tilt=-0.4` })),
   { name: 'desk-cotton-verso', path: '/lab/typing?seed=7&paper=cotton&sheets=3&face=5' },
   // the whole journey, one frame per step (later steps start with a sample letter)
   { name: 'journey-write', path: '/lab/journey' },
