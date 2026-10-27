@@ -29,6 +29,8 @@ const SHOTS = [
   { name: 'desk-turn-0.5', path: '/lab/typing?seed=7&sheets=2&turn=0.42' },
   // taken by the top of the right edge and pulled up-left: the axis leans, the sheet travels with the hand
   ...[0.3, 0.7].map((turn) => ({ name: `desk-turn-tilt-${turn}`, path: `/lab/typing?seed=7&sheets=2&turn=${turn}&tilt=-0.4` })),
+  // Ctrl + drag straight down on the laptop's loose desk: top over bottom, spinning upright as it turns.
+  ...[0.15, 0.3, 0.5, 0.7, 0.85].map((turn) => ({ name: `desk-turn-vertical-${turn}`, path: `/lab/typing?seed=7&sheets=2&turn=${turn}&tilt=1.57` })),
   { name: 'desk-cotton-verso', path: '/lab/typing?seed=7&paper=cotton&sheets=3&face=5' },
   // the whole journey, one frame per step (later steps start with a sample letter)
   { name: 'journey-write', path: '/lab/journey' },

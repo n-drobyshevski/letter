@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { MAX_TILT, gripOf } from '../src/letter/grip';
+import { MAX_TILT, freeGripOf, gripOf } from '../src/letter/grip';
 
 /** How the hand takes the sheet shapes the turn (DeskStack). */
 
@@ -28,8 +28,27 @@ test('whatever the lean, the turned face lands as the plain book-page mirror (so
   const R = (a: number) => [Math.cos(a), -Math.sin(a), Math.sin(a), Math.cos(a)];
   const M = [-1, 0, 0, 1];
   const mul = (a: number[], b: number[]) => [a[0] * b[0] + a[1] * b[2], a[0] * b[1] + a[1] * b[3], a[2] * b[0] + a[3] * b[2], a[2] * b[1] + a[3] * b[3]];
-  for (const tilt of [-MAX_TILT, -0.2, 0, 0.13, MAX_TILT]) {
+  // rotateY(±π) is the same mirror seen flat, whichever way the sheet spun; up to ±π/2 for a top-over-bottom turn.
+  for (const tilt of [-Math.PI / 2, -MAX_TILT, -0.2, 0, 0.13, MAX_TILT, 1.2, Math.PI / 2]) {
     const end = mul(mul(R(tilt - 2 * tilt), M), R(-tilt));
     end.forEach((v, i) => assert.ok(Math.abs(v - M[i]) < 1e-9, `tilt ${tilt}`));
+  }
+});
+
+test('a loose sheet turns over any way: the axis square to the drag, the spin the way the hand went', () => {
+  const left = freeGripOf(1, -120, 0, 0.5);
+  const right = freeGripOf(-1, 120, 0, 0.5);
+  assert.deepEqual([left.tilt, left.spin, left.ux], [0, 1, -1]);
+  assert.deepEqual([right.tilt, right.spin, right.ux], [0, -1, 1]);
+  // Straight down or up: top over bottom, the axis lying flat.
+  assert.ok(Math.abs(Math.abs(freeGripOf(1, 0, 150, 0.5).tilt) - Math.PI / 2) < 1e-9);
+  assert.ok(Math.abs(Math.abs(freeGripOf(1, 0, -150, 0.5).tilt) - Math.PI / 2) < 1e-9);
+  // Down and up lean opposite ways; a diagonal in between.
+  assert.ok(freeGripOf(1, 0, 150, 0.5).tilt * freeGripOf(1, 0, -150, 0.5).tilt < 0);
+  const diag = freeGripOf(1, -100, -100, 0.5).tilt;
+  assert.ok(Math.abs(Math.abs(diag) - Math.PI / 4) < 1e-9);
+  // Never past a quarter turn, wherever it was taken.
+  for (const [tx, ty, y] of [[0, 300, 0], [0, -300, 1], [-5, 300, 1], [5, -300, 0]] as const) {
+    assert.ok(Math.abs(freeGripOf(tx > 0 ? -1 : 1, tx, ty, y).tilt) <= Math.PI / 2 + 1e-9);
   }
 });
