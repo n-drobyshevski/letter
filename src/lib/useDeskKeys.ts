@@ -16,6 +16,7 @@ type KeyLike = {
   repeat: boolean;
   ctrlKey: boolean;
   metaKey: boolean;
+  shiftKey: boolean;
   target: El | null;
   preventDefault: () => void;
   stopPropagation: () => void;
@@ -32,21 +33,31 @@ const pressable = (el: El | null) =>
 
 /**
  * The laptop's keys for sheets on the desk: Ctrl (or ⌘ on a Mac) + drag turns a page,
- * Space + drag moves a sheet; a plain drag writes, draws or selects as usual.
+ * Space + drag moves a sheet, Shift + click picks several to move or turn as one; a plain
+ * drag writes, draws or selects as usual.
  * Gesture Handler's events carry no keys, so the window's are followed here: as shared
- * values (read by gestures) and as state (the desk lays a turn or a move layer over the
- * sheets only while the key is held). Always off on native, where a finger turns the page.
+ * values (read by gestures) and as state (the desk lays a turn, a move or a pick layer
+ * over the sheets only while the key is held). Always off on native, where a finger turns the page.
  *
  * Space + drag moves even while you write: the space that the key typed is taken back
  * when the drag starts (and holding Space never repeats it). A button you clicked keeps
  * the focus but not Space: Space + drag still moves (the button isn't pressed). One
  * reached with Tab is pressed by Space as usual. Space no longer scrolls the page.
  */
-export function useDeskKeys(): { turn: SharedValue<boolean>; move: SharedValue<boolean>; moveHeld: boolean; turnHeld: boolean } {
+export function useDeskKeys(): {
+  turn: SharedValue<boolean>;
+  move: SharedValue<boolean>;
+  pick: SharedValue<boolean>;
+  moveHeld: boolean;
+  turnHeld: boolean;
+  pickHeld: boolean;
+} {
   const turn = useSharedValue(false);
   const move = useSharedValue(false);
+  const pick = useSharedValue(false);
   const [moveHeld, setMoveHeld] = useState(false);
   const [turnHeld, setTurnHeld] = useState(false);
+  const [pickHeld, setPickHeld] = useState(false);
   useEffect(() => {
     if (Platform.OS !== 'web') return;
     const win = (globalThis as unknown as { window?: Target }).window;
@@ -66,13 +77,19 @@ export function useDeskKeys(): { turn: SharedValue<boolean>; move: SharedValue<b
       turn.set(on);
       setTurnHeld(on);
     };
+    // Ctrl (⌘) and Shift as an event has them.
+    const mods = (e: KeyLike) => {
+      setTurn(e.ctrlKey || e.metaKey);
+      pick.set(e.shiftKey);
+      setPickHeld(e.shiftKey);
+    };
     const setMove = (on: boolean) => {
       space = on;
       move.set(on);
       setMoveHeld(on);
     };
     const down = (e: KeyLike) => {
-      setTurn(e.ctrlKey || e.metaKey);
+      mods(e);
       if (e.key === 'Tab') byPointer = false;
       if (e.code !== 'Space') {
         typed = null;
@@ -96,7 +113,7 @@ export function useDeskKeys(): { turn: SharedValue<boolean>; move: SharedValue<b
       if (!space) setMove(true);
     };
     const up = (e: KeyLike) => {
-      setTurn(e.ctrlKey || e.metaKey);
+      mods(e);
       if (e.code !== 'Space') return;
       if (pressable(e.target)) {
         if (byPointer) keepFromButton(e);
@@ -104,9 +121,9 @@ export function useDeskKeys(): { turn: SharedValue<boolean>; move: SharedValue<b
       typed = null;
       setMove(false);
     };
-    // Presses too: Ctrl may have gone down while the tab had no focus.
+    // Presses too: Ctrl or Shift may have gone down while the tab had no focus.
     const press = (e: KeyLike) => {
-      setTurn(e.ctrlKey || e.metaKey);
+      mods(e);
       byPointer = true;
       if (!space || !typed) return;
       const { el, at } = typed;
@@ -118,6 +135,8 @@ export function useDeskKeys(): { turn: SharedValue<boolean>; move: SharedValue<b
     };
     const away = () => {
       typed = null;
+      pick.set(false);
+      setPickHeld(false);
       setTurn(false);
       setMove(false);
     };
@@ -132,6 +151,6 @@ export function useDeskKeys(): { turn: SharedValue<boolean>; move: SharedValue<b
       win.removeEventListener('pointerdown', press as (e: never) => void, { capture: true });
       win.removeEventListener('blur', away);
     };
-  }, [turn, move]);
-  return { turn, move, moveHeld, turnHeld };
+  }, [turn, move, pick]);
+  return { turn, move, pick, moveHeld, turnHeld, pickHeld };
 }
