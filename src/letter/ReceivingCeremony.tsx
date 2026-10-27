@@ -153,8 +153,8 @@ export function ReceivingCeremony({
   foldSeed,
   flat,
   name = '',
-  country = 'ru',
-  senderCountry = 'ru',
+  country = 'by',
+  senderCountry = 'by',
   waiting = 1,
   others = [],
   startOpen = false,
@@ -191,7 +191,7 @@ export function ReceivingCeremony({
             .slice(0, 2)
             .map((o) => {
               const og = envelopeGeometry(envelopeWidth(o.format ?? 'DL', width), o.seed, o.format ?? 'DL');
-              const pic = recordEnvelopeFront(og, o.paper, o.seed, o.address, o.postmark, faces, { wear: true, country: o.senderCountry ?? 'ru' });
+              const pic = recordEnvelopeFront(og, o.paper, o.seed, o.address, o.postmark, faces, { wear: true, country: o.senderCountry ?? 'by' });
               return { pic, w: og.width, h: og.height };
             })
         : [],

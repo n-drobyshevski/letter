@@ -73,7 +73,7 @@ export function PostingCeremony({
   height,
   look,
   skin,
-  country = 'ru',
+  country = 'by',
   collectAt,
   fixedT,
   onPosted,

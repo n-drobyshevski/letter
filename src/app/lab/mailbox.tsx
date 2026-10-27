@@ -18,7 +18,8 @@ import { SAMPLE_LETTER, SAMPLE_LETTER_FR, SHORT_NOTES, sampleSheets } from '@/le
 import { FLAP_TIP, parseDie, parseSeal, presetSeal, sealFromParams, tipFraction, type SealDie, type SealPlacement } from '@/letter/seal';
 import { SHEET_RATIO } from '@/letter/sheet';
 import { shortDate } from '@/letter/tracking/copy';
-import type { Country, PaperKind, WaxKind, WaxType } from '@/theme/stationery';
+import type { Lang } from '@/letter/tracking/copy';
+import { langOf, type Country, type PaperKind, type WaxKind, type WaxType } from '@/theme/stationery';
 
 const daysAgo = (n: number, fixed: boolean) =>
   fixed ? `2026-10-${String(24 - n).padStart(2, '0')}` : new Date(Date.now() - n * 864e5).toISOString().slice(0, 10);
@@ -60,14 +61,14 @@ function variedSeal(i: number, seed: number): { seal: SealPlacement; die: SealDi
 }
 
 /**
- * The couple's two directions: a RU mailbox receives letters posted in France,
- * a FR mailbox receives letters posted in Russia. Oldest first.
+ * The couple's two directions: a Minsk mailbox receives letters posted in France,
+ * a French one receives letters posted in Minsk. Oldest first.
  */
 function lettersFor(recipient: Country, count: number, seed: number, fixed: boolean, waxType: WaxType): MailLetter[] {
   const waxes: WaxKind[] = ['bordeaux', 'gold', 'navy', 'forest'];
   const papers: PaperKind[] = ['cream', 'kraft', 'cream'];
   return Array.from({ length: count }, (_, i) => {
-    const fromFrance = recipient === 'ru';
+    const fromFrance = recipient === 'by';
     const text = i === 0 ? (fromFrance ? SAMPLE_LETTER_FR : SAMPLE_LETTER) : SHORT_NOTES[fromFrance ? 'fr' : 'ru'][(i - 1) % 3];
     return {
       seed: seed + i * 977,
@@ -79,12 +80,12 @@ function lettersFor(recipient: Country, count: number, seed: number, fixed: bool
       wax: waxes[i % waxes.length],
       waxType: i === 0 ? waxType : i % 2 ? 'flexible' : 'brittle',
       initials: fromFrance ? 'M' : 'Н',
-      senderCountry: fromFrance ? 'fr' : 'ru',
+      senderCountry: fromFrance ? 'fr' : 'by',
       address: fromFrance
-        ? { fromName: 'M.', fromCity: 'Paris', toName: 'N.', toCity: 'Moscou', toCountry: 'Russie' }
-        : { fromName: 'Н.', fromCity: 'Москва', toName: 'М.', toCity: 'Paris, France' },
-      postmark: { city: fromFrance ? 'Paris' : 'Москва', date: daysAgo(2 + (count - 1 - i), fixed) },
-      fromLabel: fromFrance ? { name: 'М.', city: 'из Парижа' } : { name: 'N.', city: 'de Moscou' },
+        ? { fromName: 'M.', fromCity: 'Paris', toName: 'N.', toCity: 'Minsk', toCountry: 'Biélorussie' }
+        : { fromName: 'Н.', fromCity: 'Минск', toName: 'М.', toCity: 'Paris, France' },
+      postmark: { city: fromFrance ? 'Paris' : 'Минск', date: daysAgo(2 + (count - 1 - i), fixed) },
+      fromLabel: fromFrance ? { name: 'М.', city: 'из Парижа' } : { name: 'N.', city: 'de Minsk' },
     };
   });
 }
@@ -116,7 +117,7 @@ export default function MailboxScreen() {
 
 function LiveMailbox({ couple, onOffline }: { couple: Couple; onOffline: () => void }) {
   const { me } = couple;
-  const lang: Country = me.locale;
+  const lang: Lang = me.locale;
   const copy = MAILBOX_COPY[lang];
   const box = useMailbox(couple);
   const transit = useLettersInTransit(me.id).filter((l) => l.recipient_id === me.id);
@@ -192,7 +193,7 @@ function LiveMailbox({ couple, onOffline }: { couple: Couple; onOffline: () => v
 }
 
 /** Re-reading skips the ceremony: the unfolded sheets, straight away, from the first page. */
-function Reread({ letter, lang, onBack }: { letter: MailLetter; lang: Country; onBack: () => void }) {
+function Reread({ letter, lang, onBack }: { letter: MailLetter; lang: Lang; onBack: () => void }) {
   const { width: sw } = useWindowDimensions();
   const ew = Math.round(Math.min(Math.min(sw, 480) - 40, 360));
   const sheet = { width: Math.round(ew * 0.93), height: Math.round(ew * 0.93 * SHEET_RATIO) };
@@ -223,7 +224,7 @@ function Reread({ letter, lang, onBack }: { letter: MailLetter; lang: Country; o
 function MailboxLab() {
   const q = useLabParams();
   const fixed = q.t !== undefined;
-  const [country, setCountry] = useState<Country>(q.country === 'fr' ? 'fr' : 'ru');
+  const [country, setCountry] = useState<Country>(q.country === 'fr' ? 'fr' : 'by');
   const total = Math.max(0, Math.min(6, q.waiting ?? 1));
   // ?fold=half|quarter: the first letter is folded that way, in its envelope (C5, C6).
   const fold = FOLD_KINDS.includes(q.fold as FoldKind) ? (q.fold as FoldKind) : undefined;
@@ -251,7 +252,7 @@ function MailboxLab() {
     <MailboxView
       key={country}
       letters={letters}
-      lang={country}
+      lang={langOf(country)}
       country={country}
       name={country === 'fr' ? 'M. Laurent' : ''}
       fixedT={q.t}
@@ -259,7 +260,7 @@ function MailboxLab() {
       fixedTilt={q.tilt}
       openMode={q.open === 'seal' ? 'seal' : 'slit'}
       header={
-        <Choice options={[{ key: 'ru', label: 'Москва' }, { key: 'fr', label: 'Paris' }] as const} value={country} onChange={setCountry} />
+        <Choice options={[{ key: 'by', label: 'Минск' }, { key: 'fr', label: 'Paris' }] as const} value={country} onChange={setCountry} />
       }
     />
   );

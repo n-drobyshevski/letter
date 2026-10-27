@@ -12,6 +12,7 @@ import { ReceivingCeremony, type OpenedBy, type ReceiveStage } from '@/letter/Re
 import { defaultSeal, sealHold } from '@/letter/seal';
 import { SHEET_RATIO } from '@/letter/sheet';
 import { bulgeFor, type FaceRef } from '@/letter/stack';
+import type { Lang } from '@/letter/tracking/copy';
 import type { Country } from '@/theme/stationery';
 
 export type MailboxPhase = 'mailbox' | 'unfold' | 'read' | 'empty';
@@ -88,8 +89,8 @@ export const LAB_HAND: Omit<LetterLook, 'seed'> = { paper: 'cotton', ink: 'blueB
 export type MailboxViewProps = {
   letters: MailLetter[];
   /** Language of the copy (the recipient's). */
-  lang: Country;
-  /** The mailbox: RU подъезд bank or FR batterie. */
+  lang: Lang;
+  /** The mailbox: the Minsk подъезд bank or a French batterie. */
   country: Country;
   /** FR nameplate. */
   name: string;
@@ -203,7 +204,7 @@ export function MailboxView({ letters, lang, country, name, fixedT, fixedTurn, f
             flat={47}
             name={name}
             country={country}
-            senderCountry={letter?.senderCountry ?? 'ru'}
+            senderCountry={letter?.senderCountry ?? 'by'}
             waiting={phase === 'empty' ? 0 : letters.length - index}
             others={letters.slice(index + 1)}
             startOpen={index > 0 || phase === 'empty'}

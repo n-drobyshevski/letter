@@ -151,8 +151,13 @@ export const POSTBOX = {
 };
 export type PostboxSkin = 'blue' | 'yellow';
 
-/** Whose post office: the sender's for the postbox and the envelope, the recipient's for the mailbox. */
-export type Country = 'ru' | 'fr';
+/**
+ * Whose post office: the sender's for the postbox and the envelope, the recipient's for the mailbox.
+ * 'by' is Belarus (Minsk); the language of the copy is a separate thing (Lang, 'ru' | 'fr').
+ */
+export type Country = 'by' | 'fr';
+/** The language people use with that post office: French in France, Russian in Minsk. */
+export const langOf = (c: Country): 'ru' | 'fr' => (c === 'fr' ? 'fr' : 'ru');
 
 /** French street box: La Poste yellow (#FFCB05). No logo: original signage only. */
 export const POSTBOX_FR = {

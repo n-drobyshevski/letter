@@ -92,9 +92,9 @@ export type PostboxLayout = {
 };
 
 /** Slot sizes in mm. RU: the 2015 wall box (artlebedev.ru). FR: street box, an estimate. */
-const SLOT_MM = { ru: { w: 171, h: 6 }, fr: { w: 250, h: 20 } };
+const SLOT_MM = { by: { w: 171, h: 6 }, fr: { w: 250, h: 20 } };
 
-export function postboxLayout(width: number, height: number, country: Country = 'ru', envelopeMm = 220): PostboxLayout {
+export function postboxLayout(width: number, height: number, country: Country = 'by', envelopeMm = 220): PostboxLayout {
   // Close-up framing: the slot spans ~70 % of the screen width.
   const mm = SLOT_MM[country];
   const scale = Math.min(1.6, (width * 0.72) / mm.w);
@@ -339,9 +339,9 @@ export type MailboxLayout = {
 };
 
 /** Door sizes in mm. RU ~190 × 125 (estimate). FR 260 × 260, slot 235 × 26 (laposte.fr). */
-const DOOR_MM = { ru: { w: 190, h: 125 }, fr: { w: 260, h: 260 } };
+const DOOR_MM = { by: { w: 190, h: 125 }, fr: { w: 260, h: 260 } };
 
-export function mailboxLayout(width: number, height: number, country: Country = 'ru'): MailboxLayout {
+export function mailboxLayout(width: number, height: number, country: Country = 'by'): MailboxLayout {
   // Our door fills ~80 % of the width; neighbours are cut off at the edges.
   const mm = DOOR_MM[country];
   const scale = Math.min(country === 'fr' ? 1.25 : 1.7, (width * 0.8) / mm.w);

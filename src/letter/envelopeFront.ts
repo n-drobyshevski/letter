@@ -284,8 +284,8 @@ export function recordEnvelopeFront(
   ink.setBlendMode(BlendMode.Multiply);
   ink.setAntiAlias(true);
 
-  const country = options.country ?? 'ru';
-  if (country === 'ru') {
+  const country = options.country ?? 'by';
+  if (country === 'by') {
     // От кого / Откуда, top-left.
     const lx = w * 0.05;
     const lw = w * 0.42;
