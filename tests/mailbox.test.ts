@@ -2,6 +2,7 @@ import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { countryOf, mailboxFromServer, parseSheets, sheetsOf, type MailRow } from '../src/letter/mailboxFromServer';
+import { parseSeal, presetSeal, sealFromPx, sealToPx, type SealPlacement } from '../src/letter/seal';
 
 /** What RLS hands the recipient becomes the letters in their mailbox. */
 
@@ -69,12 +70,72 @@ describe('mailboxFromServer', () => {
     assert.equal(recorded.waiting[0].format, 'C5');
   });
 
+  test('an envelope seed that is not an integer falls back to the row seed', () => {
+    for (const seed of ['abc', 1.5, null, Number.NaN, { n: 1 }, [3], '11']) {
+      const got = mailboxFromServer({
+        rows: [row('x', '2026-11-19T13:00:00Z', { envelope: { seed } as never })],
+        contents: [],
+        receipts: [],
+        me,
+        them,
+        now,
+      });
+      assert.equal(got.waiting[0].seed, 7, `seed ${JSON.stringify(seed)}`);
+    }
+  });
+
   test('addressed from Lille to Minsk, in French, with the real postmark', () => {
     const l = box.waiting[0];
     assert.deepEqual(l.address, { fromName: 'Н.', fromCity: 'Lille', toName: 'М.', toCity: 'Minsk', toCountry: 'Biélorussie' });
     assert.deepEqual(l.postmark, { city: 'Lille', date: '2026-11-03' });
     assert.equal(l.senderCountry, 'fr');
     assert.equal(countryOf(me.tz), 'ru');
+  });
+
+  test('the seal, the die and the liner come through; old letters keep today\'s seal', () => {
+    const left = presetSeal('left', 'DL', 11);
+    const placed: SealPlacement = {
+      ...left,
+      stretch: [0.2, -0.1],
+      drops: [[0.41, 0.3, 1.5]],
+      stamp: { ...left.stamp!, x: left.x + 0.02, rot: 0.4, depth: 0.6 },
+    };
+    // What the sender's ceremony stores: sealFromPx output, sent as JSON.
+    const stored = JSON.parse(JSON.stringify(sealFromPx(sealToPx(placed, 340, 170, 'DL', 11), 340, 170, 'DL')));
+    const box = (envelope: MailRow['envelope']) =>
+      mailboxFromServer({ rows: [row('x', '2026-11-19T13:00:00Z', { envelope })], contents: [], receipts: [], me, them, now }).waiting[0];
+
+    const sealed = box({ seed: 11, liner: 'forest', die: 'lily', seal: stored });
+    assert.deepEqual(sealed.seal, parseSeal(stored));
+    assert.ok(Math.abs(sealed.seal!.x - placed.x) < 1e-9 && Math.abs(sealed.seal!.stamp!.rot - 0.4) < 1e-9);
+    assert.deepEqual(sealed.seal!.drops, stored.drops);
+    assert.equal(sealed.die, 'lily');
+    assert.equal(sealed.liner, 'forest');
+
+    // A legacy row: no seal (the ceremony draws defaultSeal), the monogram, the postal liner.
+    const legacy = box({ paper: 'kraft', wax: 'navy', initials: 'Н', seed: 11 });
+    assert.equal(legacy.seal, undefined);
+    assert.equal(legacy.die, 'monogram');
+    assert.equal(legacy.liner, 'postal');
+
+    // Garbage never reaches the renderer.
+    for (const seal of [
+      'tip',
+      42,
+      [0.5, 0.5],
+      { v: 2, x: 0.5, y: 0.5, rMm: 18, stamp: null },
+      { v: 1, x: 'left', y: 0.5, rMm: 18, stamp: null },
+      { v: 1, x: Number.NaN, y: 0.5, rMm: 18, stamp: null },
+      { v: 1, x: 9, y: 0.5, rMm: 18, stamp: null },
+      { v: 1, x: 0.5, y: 0.5, rMm: 18, stamp: 5 },
+      { v: 1, x: 0.5, y: 0.5, rMm: 18, stamp: null, drops: [[0.1, 0.1, 1], [0.2, 0.2, 1], [0.3, 0.3, 1]] },
+    ]) {
+      assert.equal(box({ seed: 11, seal }).seal, undefined, JSON.stringify(seal));
+    }
+    const odd = box({ seed: 11, die: 'pahonia', liner: 'velvet' } as MailRow['envelope']);
+    assert.equal(odd.die, 'monogram');
+    assert.equal(odd.liner, 'postal');
+    assert.equal(box({ seed: 11, die: 'toString' }).die, 'monogram');
   });
 });
 

@@ -344,24 +344,3 @@ export function recordEnvelopeFront(
   if (options.wear) drawWear(c, w, h, seed);
   return recorder.finishRecordingAsPicture();
 }
-
-/** A hairline crack across a seal that travelled through the post. Drawn over the wax. */
-export function sealCrackPath(cx: number, cy: number, r: number, seed: number) {
-  const rand = mulberry32(subSeed(seed, 'crack'));
-  const a = rand() * Math.PI;
-  const path = Skia.PathBuilder.Make();
-  const start = [cx + Math.cos(a) * r * 0.95, cy + Math.sin(a) * r * 0.95] as const;
-  path.moveTo(start[0], start[1]);
-  let px = start[0];
-  let py = start[1];
-  const steps = 7;
-  for (let i = 1; i <= steps; i++) {
-    const t = i / steps;
-    const tx = cx + Math.cos(a) * r * 0.95 * (1 - 2 * t);
-    const ty = cy + Math.sin(a) * r * 0.95 * (1 - 2 * t);
-    px = tx + wobble(rand, r * 0.08);
-    py = ty + wobble(rand, r * 0.08);
-    path.lineTo(px, py);
-  }
-  return path.detach();
-}

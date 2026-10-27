@@ -20,6 +20,7 @@ import { mulberry32, subSeed, wobble } from '../lib/random';
 import { LINERS, PAPERS, type LinerKind, type PaperKind } from '../theme/stationery';
 import { foldLines, type FoldKind } from './fold';
 import { paperUniforms } from './renderLetter';
+import { ENVELOPE_MM, FLAP_TIP, TIP_ROUND, tipFraction, type EnvelopeFormat } from './seal';
 import { LINER_SKSL, PAPER_SKSL } from './shaders';
 
 /**
@@ -29,16 +30,8 @@ import { LINER_SKSL, PAPER_SKSL } from './shaders';
  */
 
 
-/**
- * ISO 269 envelope sizes (mm), one per fold: an A4 folded in three goes in a DL,
- * folded in half (A5) in a C5, folded in four (A6, turned sideways) in a C6.
- */
-export type EnvelopeFormat = 'DL' | 'C5' | 'C6';
-export const ENVELOPE_MM: Record<EnvelopeFormat, { w: number; h: number }> = {
-  DL: { w: 220, h: 110 },
-  C5: { w: 229, h: 162 },
-  C6: { w: 162, h: 114 },
-};
+// ISO 269 sizes (mm) per fold. They live in the pure seal.ts, which stores seals relative to them.
+export { ENVELOPE_MM, type EnvelopeFormat };
 export const ENVELOPE_FORMATS = Object.keys(ENVELOPE_MM) as EnvelopeFormat[];
 export const formatForFold = (fold: FoldKind): EnvelopeFormat => (fold === 'half' ? 'C5' : fold === 'quarter' ? 'C6' : 'DL');
 
@@ -53,11 +46,16 @@ export type EnvelopeGeometry = {
    */
   unit: number;
   flapTip: number;
+  /** The closed flap's tip (y = flapTip); x wobbles with the seed (seal.ts's tipFraction). */
+  tip: { x: number; y: number };
   flap: SkPath;
   left: SkPath;
   right: SkPath;
   bottom: SkPath;
-  /** Where the wax goes: on the flap tip, overlapping the pocket. */
+  /**
+   * Legacy default placement: today's seal on the flap tip, overlapping the pocket. Stored
+   * seals (letters.envelope.seal) go through seal.ts; defaultSeal reproduces this one.
+   */
   seal: { x: number; y: number; maxR: number; stampR: number };
 };
 
@@ -86,9 +84,9 @@ export function envelopeGeometry(width: number, seed: number, format: EnvelopeFo
   const height = Math.round((width * mm.h) / mm.w);
   const unit = format === 'DL' ? height : (width / mm.w) * 110;
   const rand = mulberry32(subSeed(seed, 'envelope'));
-  // Hand-folded envelopes are never exactly symmetric.
-  const tipX = width / 2 + wobble(rand, width * 0.006);
-  const flapTip = height * 0.56;
+  // Hand-folded envelopes are never exactly symmetric (the tip's wobble is the first draw from the stream).
+  const tipX = width * tipFraction(seed, rand);
+  const flapTip = height * FLAP_TIP;
   const maxR = unit * 0.17;
   return {
     width,
@@ -96,7 +94,8 @@ export function envelopeGeometry(width: number, seed: number, format: EnvelopeFo
     format,
     unit,
     flapTip,
-    flap: roundedTriangle([0, 0], [tipX, flapTip], [width, 0], height * 0.14),
+    tip: { x: tipX, y: flapTip },
+    flap: roundedTriangle([0, 0], [tipX, flapTip], [width, 0], height * TIP_ROUND),
     // Side flaps stay above the closing flap's edges, so a closed envelope shows no gap.
     left: roundedTriangle([0, 0], [width * 0.45, height * 0.42], [0, height], height * 0.1),
     right: roundedTriangle([width, 0], [width * 0.55, height * 0.42], [width, height], height * 0.1),
@@ -209,7 +208,7 @@ export function recordEnvelope(g: EnvelopeGeometry, paper: PaperKind, liner: Lin
     gum.setColor(Skia.Color('rgba(196, 170, 120, 0.45)'));
     const edges = Skia.PathBuilder.Make()
       .moveTo(0, 0)
-      .lineTo(g.seal.x, g.flapTip)
+      .lineTo(g.tip.x, g.flapTip)
       .lineTo(w, 0)
       .detach();
     c.drawPath(edges, gum);

@@ -154,65 +154,186 @@ half4 main(float2 xy) {
 `;
 
 /**
- * Sealing wax. A noisy puddle (same seeded outline everywhere it is sampled) with a
- * rounded edge; once pressed, a flat stamp face with the monogram raised from it
- * and a rim of wax pushed outwards. Lit by the desk light; glossy while molten.
- * `monogram` is the stamp's engraving as alpha (1 = raised letter in the imprint).
+ * Sealing wax, poured and pressed anywhere (envelope-local pt).
+ *
+ * Puddle: centre uCenter, base radius uR, a seeded wavy outline, optionally drawn
+ * out along uStretch (direction × amount, the way the stick moved while pouring),
+ * plus up to two satellite drops (uDropA/B: x, y, r; r = 0 → none).
+ * Die: centre uStamp (independent of the puddle), radius uStampR, rotation uAngle.
+ * `die` is the imprint's height map (alpha; 1 = raised in the wax), a square image of
+ * uDieSize px that covers the die disc, sampled in image space (identity local matrix).
+ * uImprint (0..1) is how far the die has travelled down; uDepth (0..1) how warm the
+ * wax was when it arrived: deep, crisp and squeezed out when warm; shallow, soft,
+ * only the crown touched, and crazed when late. A die that misses the wax leaves nothing.
  */
 export const WAX_SKSL = /* sksl */ `
-uniform shader monogram;
+uniform shader die;
+uniform float uDieSize;
 uniform float2 uCenter;
 uniform float uR;
+uniform float2 uStretch;
+uniform float3 uDropA;
+uniform float3 uDropB;
+uniform float2 uStamp;
 uniform float uStampR;
-uniform float uSeed;
+uniform float uAngle;
 uniform float uImprint;
+uniform float uDepth;
 uniform float uMolten;
+uniform float uSeed;
 uniform float3 uColor;
 uniform float2 uLight;
+uniform float uFlex;
 ${NOISE}
 float edgeR(float a) {
   return uR * (1.0 + 0.055 * sin(3.0 * a + uSeed) + 0.035 * sin(5.0 * a + uSeed * 1.7)
                    + 0.02 * sin(9.0 * a + uSeed * 0.3) + 0.012 * sin(17.0 * a + uSeed * 2.1));
 }
-float heightAt(float2 p, float letter) {
-  float2 d = p - uCenter;
-  float r = length(d);
-  float er = edgeR(atan(d.y, d.x));
-  float t = clamp((er - r) / max(er * 0.38, 1.0), 0.0, 1.0);
-  float h = sqrt(1.0 - (1.0 - t) * (1.0 - t)) * 0.85;
-  float face = 1.0 - smoothstep(uStampR - 1.2, uStampR + 1.2, r);
-  float rimD = (r - uStampR * 1.07) / (uStampR * 0.07);
-  float rim = exp(-rimD * rimD) * 0.22 * step(0.02, h);
-  // The stamp face is never mirror-smooth: a faint grain is pressed in with it.
-  float pressed = 0.48 + 0.36 * letter + 0.015 * vnoise(p * 0.22 + uSeed);
-  return mix(h, mix(h + rim, pressed, face), uImprint);
+// Undo the pour's elongation: the leading side (where the stick went) is drawn out more.
+float2 unstretch(float2 d) {
+  float e = length(uStretch);
+  if (e < 0.001) {
+    return d;
+  }
+  float2 u = uStretch / e;
+  float a = dot(d, u);
+  float b = dot(d, float2(-u.y, u.x));
+  float lead = smoothstep(-uR * 0.6, uR * 0.6, a);
+  return float2(a / (1.0 + e * (0.55 + 0.9 * lead)), b * (1.0 + 0.45 * e));
+}
+float smaxk(float a, float b, float k) {
+  float h = max(k - abs(a - b), 0.0) / k;
+  return max(a, b) + h * h * k * 0.25;
+}
+// Signed distance to the puddle's edge, in pt, positive inside (approximate off the edge).
+float puddleSD(float2 p) {
+  float2 d = unstretch(p - uCenter);
+  float sd = edgeR(atan(d.y, d.x + 0.0001)) - length(d);
+  if (uDropA.z > 0.0) {
+    sd = smaxk(sd, uDropA.z - length(p - uDropA.xy), uDropA.z * 0.9);
+  }
+  if (uDropB.z > 0.0) {
+    sd = smaxk(sd, uDropB.z - length(p - uDropB.xy), uDropB.z * 0.9);
+  }
+  return sd;
+}
+// The distance the surface is shaded from: surface tension smooths the outline's fine
+// waviness (the 9th and 17th harmonics) within a millimetre or two of the rim, so the
+// meniscus is one continuous curve, not a lobe (and a highlight) per scallop. The full
+// outline still decides the outermost rim; coverage (puddleSD) is untouched.
+float shadeSD(float2 p, float sd) {
+  float2 d = unstretch(p - uCenter);
+  float a = atan(d.y, d.x + 0.0001);
+  float low = uR * (1.0 + 0.055 * sin(3.0 * a + uSeed) + 0.035 * sin(5.0 * a + uSeed * 1.7)) - length(d);
+  if (uDropA.z > 0.0) {
+    low = smaxk(low, uDropA.z - length(p - uDropA.xy), uDropA.z * 0.9);
+  }
+  if (uDropB.z > 0.0) {
+    low = smaxk(low, uDropB.z - length(p - uDropB.xy), uDropB.z * 0.9);
+  }
+  return mix(sd, low, smoothstep(0.0, 0.12 * uR, sd));
+}
+// A gentle crown over the plateau (surface tension again), so the gloss is one broad glint.
+float crownAt(float2 p) {
+  float r = clamp(length(unstretch(p - uCenter)) / max(uR, 1.0), 0.0, 1.0);
+  return 0.06 * (1.0 - r) * (1.0 - r);
+}
+float dome(float sd, float w) {
+  float t = clamp(sd / w, 0.0, 1.0);
+  return sqrt(1.0 - (1.0 - t) * (1.0 - t)) * 0.85;
+}
+// Height of the wax at p (0 = paper, ~0.85 = crown) and, in .y, how much the die touched.
+float2 heightAt(float2 p) {
+  float sd = shadeSD(p, puddleSD(p));
+  float w = max(uR * 0.38, 1.0);
+  float squeeze = uImprint * uDepth;
+  float spread = uR * 0.1 * squeeze;
+
+  float2 q = p - uStamp;
+  float rs = length(q);
+  float c = cos(uAngle);
+  float s = sin(uAngle);
+  float2 uv = float2(c * q.x + s * q.y, -s * q.x + c * q.y) / uStampR;
+  float eng = die.eval((uv * 0.5 + 0.5) * uDieSize).a;
+
+  // Outside the die: the puddle, bulged out a little next to the die, and the lip of
+  // wax squeezed up around its rim.
+  float near = exp(-max(rs - uStampR, 0.0) / (uStampR * 0.3));
+  float sdOut = sd + spread * near;
+  float hOut = dome(sdOut, w);
+  float lipD = (rs - uStampR * 1.06) / (uStampR * 0.08);
+  float lip = exp(-lipD * lipD) * 0.24 * squeeze * smoothstep(0.0, 0.2, hOut);
+  hOut += lip;
+
+  // Under the die: wax pushed outwards, but no further than the die's rim, so a die
+  // hanging over the edge leaves a cut arc. Pressed wax stands up steeply at its edge.
+  float sdIn = max(sd, min(sd + spread, uStampR - rs));
+  float avail = dome(sdIn, mix(w, 1.6, squeeze));
+  // uImprint 0 = the die just resting on the crown; 1 = as deep as this wax allows.
+  float face = mix(0.88, mix(0.72, 0.46, uDepth), uImprint) + 0.015 * vnoise(p * 0.22 + uSeed);
+  // Warm wax fills the engraving; cold wax only its deepest middle, and not as high.
+  float fill = smoothstep(mix(0.5, 0.04, uDepth), 1.0, eng);
+  float dieZ = face + mix(0.07, 0.36, uDepth) * fill;
+  // Cold wax springs back a little: the crown's curve survives under a late press.
+  float hIn = avail - (avail - min(avail, dieZ)) * mix(0.6, 1.0, uDepth);
+  float touched = smoothstep(-0.01, 0.03, avail - face);
+
+  float inDie = 1.0 - smoothstep(uStampR - 0.7, uStampR + 0.7, rs);
+  // The die flattens the crown where it goes in.
+  float crown = crownAt(p) * step(0.0, sd) * (1.0 - inDie * uImprint);
+  return float2(mix(hOut, hIn, inDie) + crown, touched * inDie * step(0.001, uImprint));
+}
+// Where the wax ends after the press (pt, positive = wax): heightAt's outline, without the die image.
+float coverAt(float2 p) {
+  float sd = puddleSD(p);
+  float rs = length(p - uStamp);
+  float spread = uR * 0.1 * uImprint * uDepth;
+  float inDie = 1.0 - smoothstep(uStampR - 0.7, uStampR + 0.7, rs);
+  float near = exp(-max(rs - uStampR, 0.0) / (uStampR * 0.3));
+  return mix(sd + spread * near, max(sd, min(sd + spread, uStampR - rs)), inDie);
 }
 half4 main(float2 xy) {
-  float2 d = xy - uCenter;
-  float r = length(d);
-  float er = edgeR(atan(d.y, d.x));
-  float alpha = 1.0 - smoothstep(er - 0.9, er + 0.6, r);
-  if (alpha <= 0.0) {
-    return half4(0.0);
+  float2 q = xy - uStamp;
+  float alpha = smoothstep(-0.6, 0.9, coverAt(xy));
+  // The seal's own soft shadow, cast away from the desk light (same shape, drops and all).
+  // Only needed where the wax doesn't fully cover.
+  half4 shadow = half4(0.0);
+  if (alpha < 1.0) {
+    float sh = smoothstep(-4.0, 3.0, coverAt(xy + uLight * 3.0));
+    shadow = half4(0.047, 0.012, 0.006, 0.4) * half(sh * sh);
   }
-  float l0 = monogram.eval(xy).a;
-  float lx = monogram.eval(xy + float2(1.0, 0.0)).a;
-  float ly = monogram.eval(xy + float2(0.0, 1.0)).a;
-  float h0 = heightAt(xy, l0);
-  float hx = heightAt(xy + float2(1.0, 0.0), lx);
-  float hy = heightAt(xy + float2(0.0, 1.0), ly);
-  float3 n = normalize(float3(-(hx - h0) * 6.0, -(hy - h0) * 6.0, 1.0));
+  if (alpha <= 0.0) {
+    return shadow;
+  }
+  float2 h0 = heightAt(xy);
+  float hx = heightAt(xy + float2(1.0, 0.0)).x;
+  float hy = heightAt(xy + float2(0.0, 1.0)).x;
+  float3 n = normalize(float3(-(hx - h0.x) * 6.0, -(hy - h0.x) * 6.0, 1.0));
   float3 L = normalize(float3(uLight, 1.2));
   float diffuse = max(dot(n, L), 0.0);
   float3 H = normalize(L + float3(0.0, 0.0, 1.0));
-  float gloss = mix(28.0, 70.0, uMolten);
-  float spec = pow(max(dot(n, H), 0.0), gloss) * mix(0.32, 0.6, uMolten);
+  // The die leaves a satin face; the rest keeps whatever gloss the wax had.
+  float molten = uMolten * (1.0 - 0.7 * h0.y);
+  float gloss = mix(28.0, 70.0, molten);
+  float spec = pow(max(dot(n, H), 0.0), gloss) * mix(0.32, 0.6, molten);
   float grain = 0.96 + 0.08 * fbm((xy + uSeed * 13.0) * 0.12);
-  float occlusion = 0.72 + 0.28 * clamp(h0 / 0.85, 0.0, 1.0);
-  // Thin wax at the very edge lets a little light through.
-  float thin = 1.0 - smoothstep(0.0, 0.25, h0);
+  float occlusion = 0.72 + 0.28 * clamp(h0.x / 0.85, 0.0, 1.0);
+  float thin = 1.0 - smoothstep(0.0, 0.25, h0.x);
+  // Pressed too late, the stiff wax splits in short radial cracks out from the die's rim.
+  float rs = length(q);
+  float sector = atan(q.y, q.x + 0.0001) * 3.8197; // 24 sectors
+  float cell = floor(sector);
+  float off = (hash(float2(cell + 7.0, uSeed)) - 0.5) * 0.5 + (vnoise(float2(rs * 0.35, cell * 3.1)) - 0.5) * 0.3;
+  float halfW = 0.35 / max(rs * 0.2618, 0.5);
+  float crackLen = uStampR * mix(0.08, 0.3, hash(float2(cell + 13.0, uSeed)));
+  float crack = step(0.5, hash(float2(cell, uSeed)))
+    * (1.0 - smoothstep(halfW, halfW * 2.5, abs(fract(sector) - 0.5 - off) / max(1.0 - (rs - uStampR) / crackLen, 0.05)))
+    * smoothstep(uStampR * 0.97, uStampR * 1.0, rs) * (1.0 - smoothstep(uStampR + crackLen - 1.5, uStampR + crackLen, rs));
+  // Brittle wax only: flexible (glue-gun) wax bends instead of cracking.
+  float craze = crack * pow(1.0 - uDepth, 1.5) * uImprint * step(0.06, h0.x) * 0.6 * (1.0 - uFlex);
   float3 col = uColor * grain * (0.42 + 0.72 * diffuse) * occlusion + uColor * thin * 0.35 + spec;
-  return half4(half3(col) * alpha, alpha);
+  col *= 1.0 - craze;
+  return half4(half3(col) * alpha, alpha) + shadow * half(1.0 - alpha);
 }
 `;
 

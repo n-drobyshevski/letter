@@ -2,7 +2,40 @@ import { useSyncExternalStore } from 'react';
 
 import type { FoldKind } from '../letter/fold';
 import type { LetterLook } from '../letter/LetterSheet';
+import type { EnvelopeFormat, SealDie, SealPlacement } from '../letter/seal';
 import { isEmptyFace, isEmptySheet, quantizeStroke, trimSheets, type FaceContent, type SheetContent } from '../letter/stack';
+import type { LinerKind, PaperKind, WaxKind, WaxType } from '../theme/stationery';
+
+/** The envelope as sealed at /seal: everything the recipient needs to see the same seal. */
+export type DraftEnvelope = {
+  paper: PaperKind;
+  liner: LinerKind;
+  wax: WaxKind;
+  waxType: WaxType;
+  die: SealDie;
+  initials: string;
+  /** The envelope's own seed (tip wobble, wax outline): kept from sealing to posting, never reseeded. */
+  seed: number;
+  format: EnvelopeFormat;
+  seal: SealPlacement;
+};
+
+/**
+ * letters.envelope as the client sends it (the server adds `postmark`). `waxType`, `die`
+ * and `seal` are absent on letters posted before sealing was free (and from senders that
+ * skipped /seal): those render as brittle wax, the monogram, defaultSeal.
+ */
+export type EnvelopeJson = {
+  paper: PaperKind;
+  liner: LinerKind;
+  wax: WaxKind;
+  waxType?: WaxType;
+  die?: SealDie;
+  initials: string;
+  seed: number;
+  format?: EnvelopeFormat;
+  seal?: SealPlacement;
+};
 
 /**
  * The letter being written, handed from the desk to the postbox. In memory only for
@@ -17,6 +50,8 @@ export type Draft = {
   look: LetterLook;
   /** How it was folded at /fold (tri-fold if never folded). */
   fold?: FoldKind;
+  /** Sealed at /seal; cleared by any change to the letter or its fold (it must be sealed again). */
+  envelope?: DraftEnvelope;
 };
 
 let draft: Draft | null = null;
@@ -81,6 +116,29 @@ export function draftBody(d: Draft) {
   return body;
 }
 
+/** letters.envelope for a sealed draft. */
+export function envelopeJson(e: DraftEnvelope): EnvelopeJson {
+  return {
+    paper: e.paper,
+    liner: e.liner,
+    wax: e.wax,
+    waxType: e.waxType,
+    die: e.die,
+    initials: e.initials,
+    seed: e.seed,
+    format: e.format,
+    seal: e.seal,
+  };
+}
+
+// The die picked last, for the next letter in this session (in memory only, like the draft).
+let lastDie: SealDie | null = null;
+
+export const getLastDie = (): SealDie | null => lastDie;
+
+export function setLastDie(die: SealDie) {
+  lastDie = die;
+}
 /** Bytes of the body as the server counts them (UTF-8), for the "too heavy" check before posting. */
 export const bodyBytes = (body: unknown) => new TextEncoder().encode(JSON.stringify(body)).length;
 /** Under the server's 2 MB, with room for jsonb's own spacing. */

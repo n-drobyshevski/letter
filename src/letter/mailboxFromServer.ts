@@ -2,9 +2,10 @@ import type { EnvelopeFormat } from './envelope';
 import type { Address, Postmark } from './envelopeFront';
 import type { FoldKind } from './fold';
 import type { LetterLook } from './LetterSheet';
+import { parseDie, parseSeal, type SealDie, type SealPlacement } from './seal';
 import { MAX_SHEETS, emptyFace, type FaceContent, type SheetContent } from './stack';
 import type { Stroke } from './strokes';
-import type { Country, FontKey, InkKind, PaperKind, WaxKind, WaxType } from '../theme/stationery';
+import type { Country, FontKey, InkKind, LinerKind, PaperKind, WaxKind, WaxType } from '../theme/stationery';
 
 /**
  * The recipient's mailbox, from what RLS lets them read: envelopes once collected,
@@ -21,8 +22,13 @@ export type MailRow = {
   seed: number;
   envelope: {
     paper?: string;
+    liner?: string;
     wax?: string;
     waxType?: string;
+    /** The brass die (sealDies.ts); absent on old letters. */
+    die?: string;
+    /** Where the wax and the die went (seal.ts's SealPlacement); untrusted, absent on old letters. */
+    seal?: unknown;
     initials?: string;
     seed?: number;
     format?: string;
@@ -70,8 +76,14 @@ export type MailLetter = {
   /** The envelope it came in, sized for the fold. */
   format?: EnvelopeFormat;
   paper: PaperKind;
+  /** Inside of the envelope; the postal pattern when not recorded. */
+  liner: LinerKind;
   wax: WaxKind;
   waxType: WaxType;
+  /** The engraving on the seal; the monogram when not recorded. */
+  die: SealDie;
+  /** Where the sender poured the wax and pressed the die; undefined on old letters (today's seal, seal.ts's defaultSeal). */
+  seal?: SealPlacement;
   initials: string;
   address: Address;
   postmark: Postmark;
@@ -84,6 +96,7 @@ export type MailLetter = {
 // Runtime whitelists (stationery.ts itself loads font files, so it can't be imported here).
 const PAPERS: PaperKind[] = ['grid', 'cotton', 'cream', 'kraft'];
 const ENVELOPE_PAPERS: PaperKind[] = ['cream', 'kraft'];
+const LINER_KINDS: LinerKind[] = ['postal', 'bordeaux', 'forest'];
 const WAXES: WaxKind[] = ['bordeaux', 'forest', 'navy', 'gold'];
 const INKS: InkKind[] = ['blueBlack', 'ironGall', 'violet'];
 const FONTS: FontKey[] = ['badScript', 'marckScript', 'caveat'];
@@ -166,7 +179,8 @@ export function mailboxFromServer(input: {
     const sheets = parseSheets(b);
     return {
       id: r.id,
-      seed: env.seed ?? r.seed,
+      // The envelope is client-written jsonb: only a real integer seeds the seal's outline (r.seed is an int column).
+      seed: Number.isSafeInteger(env.seed) ? (env.seed as number) : r.seed,
       sheetSeed: typeof b?.seed === 'number' && Number.isFinite(b.seed) ? b.seed : undefined,
       text: sheets[0].recto.text,
       strokes: sheets[0].recto.strokes.length ? sheets[0].recto.strokes : undefined,
@@ -180,8 +194,11 @@ export function mailboxFromServer(input: {
       fold,
       format: pick(env.format, FORMATS, FORMAT_OF[fold]),
       paper: pick(env.paper, ENVELOPE_PAPERS, 'cream'),
+      liner: pick(env.liner, LINER_KINDS, 'postal'),
       wax: pick(env.wax, WAXES, 'bordeaux'),
       waxType: env.waxType === 'flexible' ? 'flexible' : 'brittle',
+      die: parseDie(env.die),
+      seal: parseSeal(env.seal) ?? undefined,
       initials: env.initials || sender.display_name.charAt(0) || '·',
       address: {
         fromName: sender.display_name,

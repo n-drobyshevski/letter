@@ -34,6 +34,8 @@ const SHOTS = [
   { name: 'journey-write', path: '/lab/journey' },
   { name: 'journey-fold', path: '/lab/journey?step=fold' },
   { name: 'journey-envelope-c5', path: '/lab/journey?step=envelope&fold=half' },
+  // the flap shut, the wax poured: the die tray under the envelope, the swallow picked
+  { name: 'journey-envelope-dies', path: '/lab/journey?step=envelope&fold=half&t=0.65&die=swallow' },
   { name: 'journey-post-c6', path: '/lab/journey?step=post&fold=quarter' },
   { name: 'journey-receive-c5', path: '/lab/journey?step=receive&fold=half' },
   ...[0, 0.25, 0.5, 0.75, 1].map((t) => ({ name: `fold-${t}`, path: `/lab/fold?seed=1407&t=${t}` })),
@@ -51,9 +53,18 @@ const SHOTS = [
   { name: 'postbulge-c6-2', path: '/lab/post?seed=1407&fold=quarter&sheets=2&t=0.15' },
   // insert 0–.3 · close .3–.5 · pour .5–.7 · press .7–1
   ...[0.15, 0.3, 0.4, 0.6, 0.7, 0.8, 0.86, 1].map((t) => ({ name: `envelope-${t}`, path: `/lab/envelope?seed=1407&t=${t}` })),
+  // free placement: wax off the tip on the left V edge, a lily die turned and pressed beside it ·
+  // a die hanging off the puddle (cut-off imprint) · pressed late (shallow) · the die tray
+  { name: 'envelope-offtip-0.86', path: '/lab/envelope?seed=1407&t=0.86&sx=0.3&sy=0.32&kx=0.31&ky=0.33&rot=0.4&die=lily' },
+  { name: 'envelope-overhang-1', path: '/lab/envelope?seed=1407&t=1&sx=0.5&sy=0.526&kx=0.585&ky=0.526&die=moon' },
+  { name: 'envelope-late-1', path: '/lab/envelope?seed=1407&t=1&depth=0.4&die=cornflower' },
+  { name: 'envelope-wax-0.65', path: '/lab/envelope?seed=1407&t=0.65&die=swallow' },
   // orient 0–.15 · insert .15–.85 (seal snag ~.45) · drop .85–1
   ...[0, 0.08, 0.15, 0.3, 0.5, 0.7, 0.86, 1].map((t) => ({ name: `post-${t}`, path: `/lab/post?seed=1407&t=${t}` })),
   ...[0, 0.15, 0.5, 1].map((t) => ({ name: `post-fr-${t}`, path: `/lab/post?seed=1407&country=fr&t=${t}` })),
+  // the off-tip seal catches the lip somewhere else (RU: short edge first, FR: long edge first)
+  { name: 'post-offtip-0.5', path: '/lab/post?seed=1407&t=0.5&sx=0.3&sy=0.32&kx=0.31&ky=0.33&rot=0.4&die=lily' },
+  { name: 'post-fr-offtip-0.5', path: '/lab/post?seed=1407&country=fr&t=0.5&sx=0.3&sy=0.32&kx=0.31&ky=0.33&rot=0.4&die=lily' },
   // envelopes sized for the fold: C5 (half fold) turns to the RU slot like a DL; C6 (in four) goes in long edge first
   ...[0, 0.15, 0.5].map((t) => ({ name: `postc5-${t}`, path: `/lab/post?seed=1407&fold=half&t=${t}` })),
   ...[0, 0.15, 0.5].map((t) => ({ name: `postc6-${t}`, path: `/lab/post?seed=1407&fold=quarter&t=${t}` })),
@@ -63,6 +74,11 @@ const SHOTS = [
   ...[0, 0.05, 0.1, 0.18, 0.25, 0.29, 0.41, 0.5, 0.6, 0.7, 0.85, 1].map((t) => ({ name: `mailbox-${t}`, path: `/lab/mailbox?seed=1407&t=${t}` })),
   // opened by breaking the seal: strain · just snapped (crumbs) · crumbs landing · flap half open · open · pulling
   ...[0.345, 0.365, 0.38, 0.42, 0.5, 0.6].map((t) => ({ name: `seal-${t}`, path: `/lab/mailbox?seed=1407&open=seal&t=${t}` })),
+  // a seal on the left V edge breaks along that edge only · on the body or deep on the flap it
+  // holds nothing (decoration): the knife opens it and the seal stays whole
+  ...[0.365, 0.42].map((t) => ({ name: `seal-left-${t}`, path: `/lab/mailbox?seed=1407&open=seal&hold=left&t=${t}` })),
+  { name: 'seal-body-0.41', path: '/lab/mailbox?seed=1407&open=seal&hold=body&t=0.41' },
+  { name: 'seal-flaponly-0.41', path: '/lab/mailbox?seed=1407&open=seal&hold=flap&t=0.41' },
   // reading a letter of three sheets: front · turning over · its back · sliding off to sheet 2 · sheet 3 · its back
   ...[0, 0.35, 1, 1.3, 3, 4].map((turn) => ({ name: `read-${turn}`, path: `/lab/mailbox?seed=1407&sheets=3&t=1.01&turn=${turn}` })),
   // taken high and pulled up-left: the turn leans; a read sheet pushed up-left slides off that way
@@ -86,6 +102,7 @@ const SHOTS = [
   { name: 'track-fr', path: '/lab/track?seed=1407&viewer=sender&day=15' },
   // flexible wax: no transit crack · bending · peeled off whole, film left behind
   ...[0.3, 0.345, 0.42, 0.5].map((t) => ({ name: `flex-${t}`, path: `/lab/mailbox?seed=1407&open=seal&wax=flexible&t=${t}` })),
+  { name: 'flex-left-0.42', path: '/lab/mailbox?seed=1407&open=seal&wax=flexible&hold=left&t=0.42' },
 ];
 const VIEWPORTS = [
   { name: 'phone', width: 390, height: 844, deviceScaleFactor: 2 },

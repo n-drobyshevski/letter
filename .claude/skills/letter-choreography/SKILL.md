@@ -17,11 +17,14 @@ description: How to build the letter "ceremonies" (fold, insert, seal, stamp, po
 - With `minDistance: 0` a tap *does* activate on native (handle it in `onDeactivate` by tiny translation), and on web it does not (handle it in `onFinalize` unless `onDeactivate` already ran). Handle both.
 - **Never commit on `e.canceled`** (a call, a scroll taking over): spring back instead.
 - Action props (`advanceKey`, `commitKey`, `retrieveKey`) only count when they change *while mounted*; a remount (next letter) must not replay the last press.
-- Every gesture has a tap/button alternative (`advanceKey`/`commitKey` props); it leads when `useMotionPrefs().needsButtons`.
+- Every gesture has a tap/button alternative (`advanceKey`/`commitKey` props, `EnvelopeCeremony`'s `command`); it leads when `useMotionPrefs().needsButtons`, otherwise it stays on screen as a quiet link. On web `needsButtons` is Reduce Motion only (React Native Web can't detect a screen reader and always says yes).
 - **Perspective must be in the same `transform` list as the rotation.** Each `Group` flattens its matrix to 2D, so `perspective` on a parent group does nothing. Put the vanishing point on the hinge's mid-line (`origin`).
 - Choosing between two gestures in one stage (knife vs seal): decide on `onBegin` by where the finger lands, lock it with a `mode` shared value, and reset the choice if nothing happened.
 - Time-based physics after a gesture event (wax crumbs): closed-form motion of a `withTiming` 0→1 value, so a frozen QA frame shows exactly where each piece is.
 - Hold-to-do (pouring wax): start a `withTiming` in `onBegin`, `cancelAnimation` in `onFinalize`, and keep what was done.
+- Tap vs hold vs drag in one stage (placing the die): decide with a `withDelay` clock watched by `useAnimatedReaction` (a busy frame can't turn a tap into a hold), plus movement > 8 pt; settle taps in `onFinalize`.
+- Reanimated's `withTiming`/`withDelay` default to `ReduceMotion.System`: with Reduce Motion on they jump to the end. Animations that are **clocks** (a hold-to-pour, a tap-vs-hold timer, cooling, a press timeline whose callback commits) must pass `reduceMotion: ReduceMotion.Never` and shorten their duration by hand instead.
+- A derived value or animated reaction only subscribes to shared values read **directly in its own closure**, not inside helper worklets it calls: read them inline (`EnvelopeCeremony`'s `live`).
 
 ## Physics cues
 - Nothing moves at constant velocity. Falls ease in; landings settle with a damped spring (damping ~18–22, stiffness ~140–160).
@@ -44,14 +47,14 @@ description: How to build the letter "ceremonies" (fold, insert, seal, stamp, po
 | Fold: in half / in four | pull the top edge down; then swipe left | `crease` per fold |
 | Insert into envelope | drag down + page curl | rustle |
 | Close flap | tap | soft thud |
-| Wax seal | hold to pour (puddle size = hold time), release to press | `tick` while pouring, `press` on impact |
+| Wax seal (`EnvelopeCeremony` stage 2, `mode` ready → pouring → wax → carry → drop) | hold where the seal should go: the first drop lands exactly under the finger after 120 ms, the puddle grows while held (`R = maxR·√v`), moving steers it (drift ≤ 0.6 maxR, a flick throws ≤ 2 drops); hold on the puddle again to add a layer; pick a die in the tray; tap where to press it, or drag the stamp there (rides 56 pt above a finger, under a mouse); turn it with a two-finger twist, the wheel, `[` `]`, or ↺ ↻ (15° clicks, snaps upright within 3°); the die drops on release; off the wax it bounces back («Мимо сургуча»). The wax cools over 8 s + 6 s·v (no clock when `needsButtons`): pressed late, the relief is shallow. Buttons for all of it (`command`); a tap aims the pour button (crosshair). A tap too quick for the first drop still leaves a drip. A mouse: the stick follows it before and during the pour, the die floats see-through over the wax with a ring where its face lands, the system cursor is hidden only while one of them is under it. A resize mid-ceremony scales the seal with the envelope | `tick` first drop and every 0.2 of wax, second pour, pickup, miss; `crease` on die pick and the upright snap; `fibre` every 15°; `press` on impact |
 | Stamp / postmark | tap | `press` |
 | Post (`PostingCeremony`) | drag/flick up: tilt out of the wall (RU box: also turn to portrait, short edge first; FR box: long edge first) → through the slot; commit ≥ 0.55 or flick ≤ −900 pt/s | `tick` at contact and when the seal catches the lip, `posted` on the drop, `clack` as the inner flap swings back |
 | Take back (grace window) | button | reverse, 600 ms ease-out |
 | Mailbox door (`ReceivingCeremony`) | tap (unlock + open) or drag right | `door` |
 | Take out / flip | drag up or tap / tap | `crease` / `tick` |
 | Slit with paper knife | drag along the top fold from either corner; auto-finishes past 0.92 | `fibre` at seeded stick-slip catches (18–30 pt) |
-| Break the seal (alternative to the knife; flexible wax peels off whole with `peel`) | touch the seal and pull up: 0–14 pt strain (hairline crack, flap rises 1 pt), snap at 14 pt, then the flap swings open with the finger; released before the snap it holds, after it the flap opens past 0.55 or falls back | `crack` once on the snap |
+| Break the seal (alternative to the knife, only when the seal straddles the flap edge; a decorative seal leaves the knife; flexible wax peels off whole with `peel`) | touch the seal (its real outline, wherever it is) and pull up: 0–14 pt strain (hairline crack, flap rises 1 pt), snap at 14 pt, then the flap swings open with the finger; released before the snap it holds, after it the flap opens past 0.55 or falls back | `crack` once on the snap |
 | Pull letter out | drag up | `crease` |
 | Next letter | button after reading | back to the open box (door stage skipped), oldest unopened first; the rest lie underneath |
 | Unfold | `FoldableLetter initialT={1}`, drag down | `crease` per panel |

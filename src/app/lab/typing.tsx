@@ -50,11 +50,14 @@ export default function TypingLab() {
   useEffect(() => {
     if (!touched || fixture) return;
     const written = demo ? sheets.map((s, i) => (i === 0 ? { ...s, recto: { ...s.recto, text: '' } } : s)) : sheets;
-    const folded = getDraft()?.fold;
+    const prev = getDraft();
+    const folded = prev?.fold;
     const draft = { sheets: written, sheetWidth: size.width, look };
     // More sheets than that fold takes (two, in four): it has to be folded again.
     const fits = folded && writtenSheets(draft).length <= maxSheetsFor(folded);
-    setDraft(written.every(isEmptySheet) ? null : { ...draft, fold: fits ? folded : undefined });
+    // Coming back to the desk without changing a word keeps the letter sealed; any edit unseals it.
+    const unchanged = fits && prev.sheets === written && prev.sheetWidth === size.width;
+    setDraft(written.every(isEmptySheet) ? null : { ...draft, fold: fits ? folded : undefined, envelope: unchanged ? prev.envelope : undefined });
   }, [touched, fixture, demo, sheets, size.width, look]);
 
   return (
