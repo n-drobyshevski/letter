@@ -3,6 +3,7 @@ import {
   BlurStyle,
   ClipOp,
   PaintStyle,
+  PathOp,
   TileMode,
   Skia,
   StrokeCap,
@@ -216,6 +217,114 @@ export function recordEnvelope(g: EnvelopeGeometry, paper: PaperKind, liner: Lin
   });
 
   return { interior, pocket, flapOuter, flapInner };
+}
+
+/** Where the folded letter rests inside an envelope (envelope coordinates), turned by `rot` radians about its top-left corner. */
+export type PacketRect = { x: number; y: number; w: number; h: number; rot?: number };
+
+/** The side and bottom flaps as one outline: the paper over the letter while the flap is open. */
+export function pocketPath(g: EnvelopeGeometry): SkPath {
+  const sides = Skia.Path.MakeFromOp(g.left, g.right, PathOp.Union) ?? g.left;
+  return Skia.Path.MakeFromOp(sides, g.bottom, PathOp.Union) ?? sides;
+}
+
+/** The letter lying on the bottom of the pocket when only the envelope is known (as in the postbox). */
+export function restingPacket(g: EnvelopeGeometry): PacketRect {
+  const w = g.width * 0.93;
+  const h = g.height * 0.88;
+  return { x: (g.width - w) / 2, y: g.height - h - g.height * 0.045, w, h };
+}
+
+/**
+ * The envelope bulging over a thick letter, as an overlay on either face (`amount`
+ * 0..1, from bulgeFor). The paper is drawn taut over the packet: its edges press
+ * through, lit on the lamp's side (top-left) and shaded on the far side; the
+ * middle domes a little, lighter towards the lamp; from about half a bulge,
+ * tension wrinkles run from the packet's corners towards the envelope's.
+ * Callers clip it to the paper actually lying over the letter and fade it out
+ * when the letter is not in the envelope.
+ */
+export function recordBulge(g: EnvelopeGeometry, packet: PacketRect, amount: number): SkPicture {
+  const { width: w, height: h } = g;
+  return record(w, 0, h, (c) => {
+    if (amount <= 0) return;
+    const a = Math.min(1, amount);
+    const { w: pw, h: ph } = packet;
+
+    // Tension wrinkles first, under the packet's own shading.
+    if (a > 0.35) {
+      const k = (a - 0.35) / 0.65;
+      const rot = packet.rot ?? 0;
+      const cos = Math.cos(rot);
+      const sin = Math.sin(rot);
+      const at = (x: number, y: number): [number, number] => [packet.x + x * cos - y * sin, packet.y + x * sin + y * cos];
+      const corners: [[number, number], [number, number]][] = [
+        [at(0, 0), [0, 0]],
+        [at(pw, 0), [w, 0]],
+        [at(0, ph), [0, h]],
+        [at(pw, ph), [w, h]],
+      ];
+      const dark = Skia.Paint();
+      dark.setStyle(PaintStyle.Stroke);
+      dark.setStrokeWidth(1.4);
+      dark.setStrokeCap(StrokeCap.Round);
+      dark.setMaskFilter(Skia.MaskFilter.MakeBlur(BlurStyle.Normal, 1.1, true));
+      dark.setColor(Skia.Color(`rgba(30, 18, 8, ${0.13 * k})`));
+      const light = dark.copy();
+      light.setColor(Skia.Color(`rgba(255, 251, 242, ${0.22 * k})`));
+      for (const [[px, py], [ex, ey]] of corners) {
+        // Only part of the way: the crease dies out before the envelope's corner.
+        const tx = px + (ex - px) * 0.55 * k;
+        const ty = py + (ey - py) * 0.55 * k;
+        c.drawLine(px, py, tx, ty, dark);
+        c.drawLine(px - 0.9, py - 1.1, tx - 0.9, ty - 1.1, light);
+      }
+    }
+
+    c.save();
+    c.translate(packet.x, packet.y);
+    c.rotate(((packet.rot ?? 0) * 180) / Math.PI, 0, 0);
+    const body = Skia.RRectXY(Skia.XYWHRect(0, 0, pw, ph), 3, 3);
+
+    // The dome: lighter towards the lamp, darker away from it, soft at the rim.
+    const dome = Skia.Paint();
+    dome.setShader(
+      Skia.Shader.MakeLinearGradient(
+        { x: 0, y: 0 },
+        { x: pw * 0.55, y: ph },
+        [Skia.Color(`rgba(255, 251, 242, ${0.16 * a})`), Skia.Color('rgba(255, 251, 242, 0)'), Skia.Color(`rgba(30, 18, 8, ${0.12 * a})`)],
+        [0, 0.45, 1],
+        TileMode.Clamp,
+      ),
+    );
+    dome.setMaskFilter(Skia.MaskFilter.MakeBlur(BlurStyle.Normal, 2 + 3 * a, true));
+    c.drawRRect(body, dome);
+
+    // The packet's edges pressing through: shade beyond the far edges, a lit lip along the near ones.
+    const shade = Skia.Paint();
+    shade.setStyle(PaintStyle.Stroke);
+    shade.setStrokeWidth(1.2 + 1.4 * a);
+    shade.setMaskFilter(Skia.MaskFilter.MakeBlur(BlurStyle.Normal, 0.8 + 1.4 * a, true));
+    shade.setColor(Skia.Color(`rgba(30, 18, 8, ${0.32 * a})`));
+    const far = Skia.PathBuilder.Make()
+      .moveTo(pw + 0.8, 2)
+      .lineTo(pw + 0.8, ph + 0.8)
+      .lineTo(2, ph + 0.8)
+      .detach();
+    c.drawPath(far, shade);
+    const lip = Skia.Paint();
+    lip.setStyle(PaintStyle.Stroke);
+    lip.setStrokeWidth(1 + 0.8 * a);
+    lip.setMaskFilter(Skia.MaskFilter.MakeBlur(BlurStyle.Normal, 0.6 + 0.8 * a, true));
+    lip.setColor(Skia.Color(`rgba(255, 252, 244, ${0.5 * a})`));
+    const near = Skia.PathBuilder.Make()
+      .moveTo(0.6, ph - 2)
+      .lineTo(0.6, 0.6)
+      .lineTo(pw - 2, 0.6)
+      .detach();
+    c.drawPath(near, lip);
+    c.restore();
+  });
 }
 
 /**

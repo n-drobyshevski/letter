@@ -79,6 +79,21 @@ export const inkSeed = (seed: number, ref: FaceRef) => {
   return k === 0 ? seed : subSeed(seed, `face${k}`);
 };
 
+// Thickness of one sheet (mm): thin notebook paper, heavier cotton writing paper.
+const CALIPER_MM: Record<PaperKind, number> = { grid: 0.075, cotton: 0.13, cream: 0.11, kraft: 0.12 };
+// Layers of paper per sheet once folded.
+const LAYERS: Record<FoldKind, number> = { tri: 3, half: 2, quarter: 4 };
+
+/** How thick the folded letter is (mm): layers × caliper, plus the air each crease traps. */
+export const packetMm = (fold: FoldKind, sheets: number, paper: PaperKind) => LAYERS[fold] * sheets * CALIPER_MM[paper] * 1.3;
+
+/**
+ * How much the envelope bulges, 0..1. A sheet or two lies flat (under ~0.7 mm);
+ * four sheets of cotton folded in three (~2 mm) round it out almost fully.
+ */
+export const bulgeFor = (fold: FoldKind, sheets: number, paper: PaperKind) =>
+  Math.min(1, Math.max(0, (packetMm(fold, sheets, paper) - 0.7) / 1.5));
+
 /** Sheets in a stack never line up exactly: a small seeded offset and skew for each one under the top. */
 export function sheetJitter(seed: number, sheet: number): { dx: number; dy: number; rot: number } {
   if (sheet === 0) return { dx: 0, dy: 0, rot: 0 };

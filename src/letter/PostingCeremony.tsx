@@ -14,7 +14,7 @@ import { scheduleOnRN } from 'react-native-worklets';
 
 import { feel } from '../lib/haptics';
 import type { Country, PostboxSkin } from '../theme/stationery';
-import { ENVELOPE_MM, envelopeGeometry, recordEnvelope } from './envelope';
+import { ENVELOPE_MM, envelopeGeometry, recordBulge, recordEnvelope, restingPacket } from './envelope';
 import type { EnvelopeLook } from './EnvelopeCeremony';
 import { postboxLayout, recordPostbox } from './steelBox';
 import { useTypefaces } from './useTypefaces';
@@ -63,6 +63,8 @@ type Props = {
   commitKey?: number;
   /** Bump to take the letter back out (grace window). */
   retrieveKey?: number;
+  /** How much the letter inside rounds the envelope out (bulgeFor), 0..1. */
+  bulge?: number;
 };
 
 export function PostingCeremony({
@@ -77,6 +79,7 @@ export function PostingCeremony({
   onRetrieved,
   commitKey,
   retrieveKey,
+  bulge = 0,
 }: Props) {
   const format = look.format ?? 'DL';
   const layout = useMemo(() => postboxLayout(width, height, country, ENVELOPE_MM[format].w), [width, height, country, format]);
@@ -90,6 +93,7 @@ export function PostingCeremony({
   );
   const g = useMemo(() => envelopeGeometry(Math.round(ENVELOPE_MM[format].w * s), look.seed, format), [s, look.seed, format]);
   const parts = useMemo(() => recordEnvelope(g, look.paper, look.liner, look.seed), [g, look.paper, look.liner, look.seed]);
+  const bulgePic = useMemo(() => recordBulge(g, restingPacket(g), bulge), [g, bulge]);
 
   const pw = g.width;
   const ph = g.height;
@@ -242,6 +246,7 @@ export function PostingCeremony({
             <Group transform={envelopeTransform}>
               <Picture picture={parts.pocket} />
               <Picture picture={parts.flapOuter} />
+              {bulge > 0 && <Picture picture={bulgePic} />}
               <WaxSeal seal={g.seal} wax={look.wax} initials={look.initials} seed={look.seed} pour={1} imprint={1} />
             </Group>
             {/* light falls off into the slot: a hole, not a mask */}

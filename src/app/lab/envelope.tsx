@@ -7,6 +7,7 @@ import { useLabParams } from '@/lib/params';
 import { EnvelopeCeremony, type EnvelopeLook, type Stage } from '@/letter/EnvelopeCeremony';
 import { useStackPictures, type LetterLook } from '@/letter/LetterSheet';
 import { sampleSheets } from '@/letter/samples';
+import { bulgeFor } from '@/letter/stack';
 import { SHEET_RATIO } from '@/letter/sheet';
 import { LINERS, WAX, WAX_TYPES, type LinerKind, type PaperKind, type WaxKind, type WaxType } from '@/theme/stationery';
 
@@ -62,6 +63,7 @@ export default function EnvelopeLab() {
           letterBack={back}
           sheet={sheet}
           sheets={sheets.length}
+          bulge={bulgeFor('tri', sheets.length, letterLook.paper)}
           width={envW}
           look={look}
           onStage={setStage}

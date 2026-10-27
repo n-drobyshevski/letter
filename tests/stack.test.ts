@@ -3,9 +3,11 @@ import assert from 'node:assert/strict';
 
 import { paperUniforms, writingArea } from '../src/letter/paperLayout';
 import {
+  bulgeFor,
   emptyFace,
   inkSeed,
   maxSheetsFor,
+  packetMm,
   paperSeed,
   quantizeStroke,
   sheetJitter,
@@ -78,4 +80,17 @@ test('a notebook verso has its margin on the outer edge: the writing area mirror
   // The side is the shader's last uniform; everything before it is unchanged.
   assert.deepEqual(paperUniforms(grid, sheetSize, 3, 1).slice(0, -1), paperUniforms(grid, sheetSize, 3, 1, 'tri', 'verso').slice(0, -1));
   assert.deepEqual([paperUniforms(grid, sheetSize, 3, 1).at(-1), paperUniforms(grid, sheetSize, 3, 1, 'tri', 'verso').at(-1)], [0, 1]);
+});
+
+test('the envelope bulges with the stack: flat for a sheet, round for four', () => {
+  // Today's one-sheet letters lie flat in every fold.
+  for (const fold of ['tri', 'half', 'quarter'] as const) for (const paper of ['grid', 'cotton'] as const) assert.equal(bulgeFor(fold, 1, paper), 0, `${fold} ${paper}`);
+  assert.ok(Math.abs(packetMm('tri', 4, 'cotton') - 2.03) < 0.01, 'four cotton sheets in three: about 2 mm');
+  // More sheets, more bulge; heavier paper bulges more than notebook paper.
+  const cotton = [1, 2, 3, 4].map((n) => bulgeFor('tri', n, 'cotton'));
+  for (let i = 1; i < 4; i++) assert.ok(cotton[i] > cotton[i - 1]);
+  assert.ok(bulgeFor('tri', 4, 'grid') < bulgeFor('tri', 4, 'cotton'));
+  assert.ok(cotton[3] > 0.8 && cotton[3] <= 1);
+  // Folded in four, two sheets are as thick as more sheets folded in three.
+  assert.ok(bulgeFor('quarter', 2, 'cotton') > bulgeFor('tri', 2, 'cotton'));
 });

@@ -57,7 +57,7 @@ The repo `n-drobyshevski/letter` is empty (no commits). We're building a private
   - the fold is 1–3 mm off-third and slightly skewed
   - the unfolded sheet doesn't lie flat (crease lift casts a shadow)
   - the letter sits crooked in the envelope
-  - the envelope bulges with the sheet count (still to do; the packet already shows the extra sheets' edges)
+  - the envelope bulges with the sheet count
 - **Envelope / seal / stamp:**
   - Envelope: Skia paths; the flap swaps z-order when it passes 90°.
   - Wax seal: hold to pour, the stamp drops with a thud and a heavy haptic, monogram from an initials heightmap, seeded so each seal is unique, cracks on opening.

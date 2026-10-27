@@ -41,7 +41,12 @@ const SHOTS = [
   // a stack of three sheets folded together: the last sheet's back outside, the others as edges
   ...[0.5, 1].map((t) => ({ name: `foldmulti-${t}`, path: `/lab/fold?seed=1407&paper=grid&sheets=3&t=${t}` })),
   { name: 'foldmulti-half-1', path: '/lab/fold?seed=1407&paper=grid&sheets=3&fold=half&t=1' },
+  // the envelope bulging with the sheet count (cotton, in three): letter in · sealed, for 2 and 4 sheets
   ...[0.3, 0.86].map((t) => ({ name: `envmulti-${t}`, path: `/lab/envelope?seed=1407&sheets=4&t=${t}` })),
+  { name: 'envbulge-2', path: '/lab/envelope?seed=1407&sheets=2&t=1' },
+  { name: 'envbulge-4', path: '/lab/envelope?seed=1407&sheets=4&t=1' },
+  { name: 'postbulge-4', path: '/lab/post?seed=1407&sheets=4&t=0' },
+  { name: 'postbulge-c6-2', path: '/lab/post?seed=1407&fold=quarter&sheets=2&t=0.15' },
   // insert 0–.3 · close .3–.5 · pour .5–.7 · press .7–1
   ...[0.15, 0.3, 0.4, 0.6, 0.7, 0.8, 0.86, 1].map((t) => ({ name: `envelope-${t}`, path: `/lab/envelope?seed=1407&t=${t}` })),
   // orient 0–.15 · insert .15–.85 (seal snag ~.45) · drop .85–1
@@ -60,6 +65,8 @@ const SHOTS = [
   ...[0, 0.35, 1, 1.3, 3, 4].map((turn) => ({ name: `read-${turn}`, path: `/lab/mailbox?seed=1407&sheets=3&t=1.01&turn=${turn}` })),
   { name: 'read-fr-quarter', path: '/lab/mailbox?seed=1407&country=fr&sheets=2&fold=quarter&t=1.01&turn=1' },
   { name: 'mbmulti-0.6', path: '/lab/mailbox?seed=1407&sheets=3&t=0.6' },
+  // a four-sheet letter in her hands: address side · seal side (bulging) · the bulge gone once it is out
+  ...[0.25, 0.32, 0.7].map((t) => ({ name: `mbbulge-${t}`, path: `/lab/mailbox?seed=1407&sheets=4&t=${t}` })),
   { name: 'journey-receive-2sheets', path: '/lab/journey?step=receive&sheets=2' },
   // FR mailbox (letters from Russia) · RU mailbox with three letters · an empty box
   { name: 'mbfr-5-closed', path: '/lab/mailbox?seed=1407&country=fr&waiting=5&t=0' },

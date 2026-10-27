@@ -16,7 +16,7 @@ import type { MailLetter } from '@/letter/mailboxFromServer';
 import { PostingCeremony } from '@/letter/PostingCeremony';
 import { SAMPLE_LETTER, sampleSheets } from '@/letter/samples';
 import { SHEET_RATIO, useSheetSize } from '@/letter/sheet';
-import { defaultTwoSided, emptyFace, emptySheet, isEmptySheet, maxSheetsFor, trimSheets, type SheetContent } from '@/letter/stack';
+import { bulgeFor, defaultTwoSided, emptyFace, emptySheet, isEmptySheet, maxSheetsFor, trimSheets, type SheetContent } from '@/letter/stack';
 import type { WritingMode } from '@/letter/WritingDesk';
 import { WAX, type Country, type PaperKind, type WaxKind } from '@/theme/stationery';
 
@@ -122,7 +122,16 @@ export default function JourneyLab() {
         <EnvelopeStep progress={progress} letter={letter} look={look} envelope={envelope} onEnvelope={setEnvelope} onNext={() => setStep('post')} />
       );
     case 'post':
-      return <PostStep progress={progress} look={look} from={from} onFrom={setFrom} onNext={() => setStep('receive')} />;
+      return (
+        <PostStep
+          progress={progress}
+          look={look}
+          bulge={bulgeFor(fold, letter.sheets.length, paper)}
+          from={from}
+          onFrom={setFrom}
+          onNext={() => setStep('receive')}
+        />
+      );
     case 'receive':
       return <ReceiveStep progress={progress} letter={letter} look={look} from={from} onRestart={restart} />;
   }
@@ -264,6 +273,7 @@ function EnvelopeStep(props: {
           letterBack={back}
           sheet={sheet}
           sheets={sheets}
+          bulge={bulgeFor(letter.fold, sheets, letter.hand.paper)}
           foldSeed={letter.hand.seed}
           width={envW}
           look={look}
@@ -276,7 +286,14 @@ function EnvelopeStep(props: {
   );
 }
 
-function PostStep(props: { progress: React.ReactNode; look: EnvelopeLook; from: Country; onFrom: (c: Country) => void; onNext: () => void }) {
+function PostStep(props: {
+  progress: React.ReactNode;
+  look: EnvelopeLook;
+  bulge: number;
+  from: Country;
+  onFrom: (c: Country) => void;
+  onNext: () => void;
+}) {
   const { width: sw, height: sh } = useWindowDimensions();
   const width = Math.min(sw, 480);
   const height = Math.round(Math.min(sh - 230, 640));
@@ -299,6 +316,7 @@ function PostStep(props: { progress: React.ReactNode; look: EnvelopeLook; from: 
           width={width}
           height={height}
           look={props.look}
+          bulge={props.bulge}
           skin="blue"
           country={props.from}
           collectAt={collectAt}

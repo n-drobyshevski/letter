@@ -10,7 +10,7 @@ import { sheetsOf, type MailLetter } from '@/letter/mailboxFromServer';
 import { ReadingStack } from '@/letter/ReadingStack';
 import { ReceivingCeremony, type OpenedBy, type ReceiveStage } from '@/letter/ReceivingCeremony';
 import { SHEET_RATIO } from '@/letter/sheet';
-import type { FaceRef } from '@/letter/stack';
+import { bulgeFor, type FaceRef } from '@/letter/stack';
 import type { Country } from '@/theme/stationery';
 
 export type MailboxPhase = 'mailbox' | 'unfold' | 'read' | 'empty';
@@ -179,6 +179,7 @@ export function MailboxView({ letters, lang, country, name, fixedT, fixedTurn, o
             letterBack={back}
             sheet={sheet}
             sheets={stack.sheets}
+            bulge={bulgeFor(fold, stack.sheets, letterLook.paper)}
             foldSeed={letterLook.seed}
             flat={47}
             name={name}
