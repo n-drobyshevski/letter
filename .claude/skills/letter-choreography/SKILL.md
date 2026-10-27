@@ -55,6 +55,6 @@ description: How to build the letter "ceremonies" (fold, insert, seal, stamp, po
 | Pull letter out | drag up | `crease` |
 | Next letter | button after reading | back to the open box (door stage skipped), oldest unopened first; the rest lie underneath |
 | Unfold | `FoldableLetter initialT={1}`, drag down | `crease` per panel |
-| Turn a sheet over at the desk (`DeskStack`) | button «Перевернуть» (the pen owns drags on the sheet); a Skia overlay turns the two baked faces about the vertical axis, the desk underneath is hidden and already on the new face | `tick` as the edge passes upright |
-| Another sheet at the desk | «Ещё лист» / «Лист →»: the written sheet slides aside, the next lies underneath | — |
+| Turn a page at the desk (`DeskStack`) | drag the bottom-right corner left (forward: over to the back, then the next sheet) or the bottom-left corner right (back: the previous page returns); only those 56×88 pt corners take the drag, so pen and keyboard keep the sheet; the sheet follows the finger, release past 0.5 or a flick completes, else it falls back; buttons «Перевернуть» / «Лист →» / «← Лист» do the same. A Skia overlay draws the turn; the desk underneath is hidden and changes face when the turn lands | `tick` as the edge passes upright |
+| Another sheet at the desk | «Ещё лист»: the written sheet slides aside, the blank one lies underneath | — |
 | Read a stack (`ReadingStack`) | horizontal drag (`activeOffsetX ±12`, fails on vertical so the desk still scrolls; `touchAction: pan-y`); release springs to the nearest face, at most one per gesture; canceled → back | `tick` on a turn over, `fibre` as a read sheet slides to the back |
