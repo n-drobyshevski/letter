@@ -1,4 +1,4 @@
-import { Canvas, Group, Picture, Rect, Shadow, Skia, type Transforms3d } from '@shopify/react-native-skia';
+import { Canvas, Group, Image, Picture, Rect, Skia, type Transforms3d } from '@shopify/react-native-skia';
 import { useEffect, useRef, useState } from 'react';
 import { Platform, View } from 'react-native';
 import { GestureDetector, PointerType, usePanGesture } from 'react-native-gesture-handler';
@@ -21,6 +21,7 @@ import { HOME, dragPlacement, type Placement } from './deskMove';
 import type { FoldKind } from './fold';
 import { gripOf, type Grip } from './grip';
 import { paperEdgeColor, useSheetFaces, type LetterLook, type SheetFaces } from './LetterSheet';
+import { useShadow, type ShadowSpec } from './raster';
 import { sheetJitter, writtenFaces, type FaceRef, type SheetContent } from './stack';
 
 /**
@@ -40,6 +41,12 @@ import { sheetJitter, writtenFaces, type FaceRef, type SheetContent } from './st
 
 const PERSPECTIVE = 1400;
 const PAD = 24;
+// The stack on the desk, and a sheet off it (baked once: raster.ts).
+const STACK_SHADOW: ShadowSpec[] = [
+  { dx: 2, dy: 6, blur: 10, color: 'rgba(20, 12, 4, 0.35)' },
+  { dx: 0, dy: 1, blur: 1.5, color: 'rgba(20, 12, 4, 0.4)' },
+];
+const LIFTED_SHADOW: ShadowSpec[] = [{ dx: 3, dy: 8, blur: 14, color: 'rgba(20, 12, 4, 0.35)' }];
 // The laptop (web): a mouse pushes the letter about, Ctrl (⌘) + drag turns it.
 const web = Platform.OS === 'web';
 
@@ -67,6 +74,8 @@ export function ReadingStack({ sheets, look, width, height, fold, strokesWidth, 
   const s2 = useSheetFaces(sheets[2], 2, look, width, height, crease, fold, strokesWidth);
   const s3 = useSheetFaces(sheets[3], 3, look, width, height, crease, fold, strokesWidth);
   const baked = [s0, s1, s2, s3].slice(0, sheets.length);
+  const stackShadow = useShadow({ width, height }, STACK_SHADOW);
+  const liftedShadow = useShadow({ width, height }, LIFTED_SHADOW);
 
   const faces = writtenFaces(sheets);
   const last = faces.length - 1;
@@ -209,18 +218,15 @@ export function ReadingStack({ sheets, look, width, height, fold, strokesWidth, 
       <GestureDetector gesture={pan} touchAction="pan-y">
         <Canvas style={{ width: width + PAD * 2, height: height + (PAD + room) * 2 }}>
           <Group transform={[{ translateX: PAD }, { translateY: PAD + room }]}>
-            <Rect x={0} y={0} width={width} height={height} color="#000">
-              <Shadow dx={2} dy={6} blur={10} color="rgba(20, 12, 4, 0.35)" shadowOnly />
-              <Shadow dx={0} dy={1} blur={1.5} color="rgba(20, 12, 4, 0.4)" shadowOnly />
-            </Rect>
+            {stackShadow && <Image image={stackShadow.image} {...stackShadow.rect} fit="fill" />}
             {/* Read sheets, tucked under the stack: only their edges show. */}
             {ready.map((faces, i) => (
-              <ReadSheet key={`under${i}`} layer="under" faces={faces} index={i} mark={marks[i]} turn={turn} grip={grip} seed={look.seed} edge={edge} width={width} height={height} />
+              <ReadSheet key={`under${i}`} layer="under" faces={faces} shadow={liftedShadow} index={i} mark={marks[i]} turn={turn} grip={grip} seed={look.seed} edge={edge} width={width} height={height} />
             ))}
             {/* The stack, the first unread sheet on top. */}
             {ready
               .map((faces, i) => (
-                <ReadSheet key={`top${i}`} layer="top" faces={faces} index={i} mark={marks[i]} turn={turn} grip={grip} seed={look.seed} edge={edge} width={width} height={height} />
+                <ReadSheet key={`top${i}`} layer="top" faces={faces} shadow={liftedShadow} index={i} mark={marks[i]} turn={turn} grip={grip} seed={look.seed} edge={edge} width={width} height={height} />
               ))
               .reverse()}
           </Group>
@@ -248,6 +254,7 @@ const ease = (x: number) => {
 function ReadSheet({
   layer,
   faces,
+  shadow,
   index,
   mark,
   turn,
@@ -259,6 +266,7 @@ function ReadSheet({
 }: {
   layer: 'top' | 'under';
   faces: SheetFaces;
+  shadow: ReturnType<typeof useShadow>;
   index: number;
   mark: { first: number; hasBack: boolean; done: number };
   turn: SharedValue<number>;
@@ -313,9 +321,7 @@ function ReadSheet({
     <Group clip={clip}>
       <Group origin={{ x: width / 2, y: height / 2 }} transform={transform}>
         {/* Off the stack it casts its own shadow on the desk. */}
-        <Rect x={0} y={0} width={width} height={height} color="#000" opacity={lifted}>
-          <Shadow dx={3} dy={8} blur={14} color="rgba(20, 12, 4, 0.35)" shadowOnly />
-        </Rect>
+        {layer === 'top' && shadow && <Image image={shadow.image} {...shadow.rect} fit="fill" opacity={lifted} />}
         <Rect x={0} y={0} width={width} height={height} color={edge} />
         <Rect x={0} y={0} width={width} height={height} color="rgba(30, 18, 8, 0.22)" style="stroke" strokeWidth={0.6} />
         <Group clip={frontClip}>

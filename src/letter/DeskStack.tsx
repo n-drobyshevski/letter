@@ -1,5 +1,5 @@
-import { Canvas, Group, Paint, Picture, RadialGradient, Rect, Shadow, Skia, useFont, vec, type SkPicture, type Transforms3d } from '@shopify/react-native-skia';
-import { useEffect, useMemo, useState } from 'react';
+import { Canvas, Group, Image, Paint, Picture, RadialGradient, Rect, Skia, useFont, vec, type SkPicture, type Transforms3d } from '@shopify/react-native-skia';
+import { useEffect, useId, useMemo, useState } from 'react';
 import { Keyboard, Platform, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { GestureDetector, PointerType, usePanGesture, useTapGesture } from 'react-native-gesture-handler';
 import Animated, {
@@ -21,6 +21,7 @@ import { HANDWRITING_FONTS } from '../theme/stationery';
 import { bakeSheetFaces, paperEdgeColor, useGhostOf, useSheetFaces, type LetterLook, type SheetFaces } from './LetterSheet';
 import { HOME, deskBounds, dragPlacement, fanOut, nextPlacement, sheetAt, type Placement } from './deskMove';
 import { fontSizeFor, paperFor } from './sheet';
+import { useShadow, type ShadowSpec } from './raster';
 import { mirrorPicture } from './showThrough';
 import {
   MAX_SHEETS,
@@ -81,6 +82,10 @@ type Turn = {
 type Side = FaceRef['side'];
 
 const PERSPECTIVE = 1400;
+// Each desk's top-sheet bake (see facesOf), by the desk's useId.
+const topBakes = new Map<string, { sheet: SheetContent; index: number; look: string; faces: SheetFaces }>();
+// A loose sheet on the desk (baked once: raster.ts).
+const LOOSE_SHADOW: ShadowSpec[] = [{ dx: 2, dy: 5, blur: 9, color: 'rgba(20, 12, 4, 0.32)' }];
 const COPY = {
   sheet: (i: number, n: number, back: boolean) => `Лист ${i + 1} из ${n}${back ? ' · оборот' : ''}`,
   turn: 'Перевернуть',
@@ -133,10 +138,24 @@ export function DeskStack({ look, width, height, mode, sheets, onSheets, maxShee
   const current = faceOf(sheets, face);
   const other: FaceRef = { sheet: face.sheet, side: face.side === 'recto' ? 'verso' : 'recto' };
   const ghost = useGhostOf(faceOf(sheets, other), other, look, width, height, width);
-  // Finished faces for the turn overlay: baked when a turn starts, not on every keystroke.
+  // Finished faces for the turn overlay: baked when the pen rests or a turn starts, not on every keystroke.
   const font = useFont(HANDWRITING_FONTS[look.font].file, fontSizeFor(paperFor(look.paper, width), width));
-  const facesOf = (i: number, s: SheetContent | undefined = sheets[i]) =>
-    font && s ? bakeSheetFaces(font, s, i, look, width, height, 0, 'tri', width) : null;
+  // The top sheet's faces are kept here rather than with the sheet: it is baked again after
+  // every pause in the writing, and each bake holds two full-size images, so the one it
+  // replaces is freed at once (only a turn draws it, and none is under way while you write).
+  const desk = useId();
+  useEffect(() => () => void topBakes.delete(desk), [desk]);
+  const facesOf = (i: number, s: SheetContent | undefined = sheets[i]) => {
+    if (!font || !s) return null;
+    if (i !== face.sheet) return bakeSheetFaces(font, s, i, look, width, height, 0, 'tri', width);
+    const id = `${look.paper}|${look.ink}|${look.font}|${look.seed}|${width}|${height}`;
+    const kept = topBakes.get(desk);
+    if (kept?.sheet === s && kept.index === i && kept.look === id) return kept.faces;
+    const faces = bakeSheetFaces(font, s, i, look, width, height, 0, 'tri', width, false);
+    if (kept) for (const pic of [kept.faces.recto, kept.faces.verso, kept.faces.versoThrough]) pic.dispose();
+    topBakes.set(desk, { sheet: s, index: i, look: id, faces });
+    return faces;
+  };
   const frozen = useMemo(
     () => (fixedTurn !== undefined && font ? bakeSheetFaces(font, sheet, face.sheet, look, width, height, 0, 'tri', width) : null),
     // QA frames only: bake once the font is in
@@ -150,6 +169,7 @@ export function DeskStack({ look, width, height, mode, sheets, onSheets, maxShee
   const loose = web && MULTI_SHEET && screenW >= LOOSE_MIN_WIDTH;
   const size = { width, height };
   const area = loose ? { width: Math.max(width, Math.min(screenW - 32, Math.round(width * 2.15))), height: height + 48 } : size;
+
   // Bottom to top; the top one is `face.sheet`.
   const [order, setOrder] = useState<number[]>(() => [...sheets.keys()].filter((i) => i !== face.sheet).concat(face.sheet));
   const orderNow = useSharedValue(order);
@@ -202,6 +222,25 @@ export function DeskStack({ look, width, height, mode, sheets, onSheets, maxShee
   // Where the turn under way lands. Kept as a shared value: the corner's gesture callbacks
   // were made in an earlier render, so they can't read this render's state.
   const target = useSharedValue<FaceRef | null>(null);
+
+  // The faces a turn from here would show, baked while the pen rests: a turn then starts
+  // at once instead of baking under the hand.
+  useEffect(() => {
+    if (!font || !MULTI_SHEET || fixedTurn !== undefined) return;
+    const timer = setTimeout(() => {
+      // Never while a turn is drawing the top sheet's faces.
+      if (target.get()) return;
+      const near = loose ? [face.sheet] : [face.sheet, face.sheet + 1, face.sheet - 1];
+      for (const i of near) {
+        const s = sheets[i];
+        if (s && (i !== face.sheet || s.twoSided || (!loose && sheets.length > 1))) facesOf(i);
+      }
+    }, 600);
+    return () => clearTimeout(timer);
+    // facesOf reads only these
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [font, sheets, face.sheet, look, width, height, fixedTurn, loose]);
+
   const begin = (turn: Turn | null) => {
     Keyboard.dismiss();
     setAsk(null);
@@ -376,6 +415,7 @@ export function DeskStack({ look, width, height, mode, sheets, onSheets, maxShee
   const u2 = useSheetFaces(under(2), 2, look, width, height, 0, 'tri', width);
   const u3 = useSheetFaces(under(3), 3, look, width, height, 0, 'tri', width);
   const underFaces = [u0, u1, u2, u3];
+  const looseShadow = useShadow(size, LOOSE_SHADOW);
   const topPlaced = useAnimatedStyle(() => {
     const pl = placements.value[face.sheet] ?? HOME;
     return {
@@ -438,28 +478,26 @@ export function DeskStack({ look, width, height, mode, sheets, onSheets, maxShee
       </View>
       {MULTI_SHEET && fixedTurn === undefined && (
         <>
+          {/* Both corners stay mounted (a canvas is a WebGL context on the web); the one you can't take is hidden. */}
+          <CornerLift side="right" shown={canForward} />
+          <CornerLift side="left" shown={canBackward} />
           {canForward && (
-            <>
-              <CornerLift side="right" />
-              <GestureDetector gesture={forwardEdge} touchAction="pan-y">
-                <View style={[styles.edge, { right: 0 }]} accessibilityLabel={COPY.cornerForward} />
-              </GestureDetector>
-            </>
+            <GestureDetector gesture={forwardEdge} touchAction="pan-y">
+              <View style={[styles.edge, { right: 0 }]} accessibilityLabel={COPY.cornerForward} />
+            </GestureDetector>
           )}
           {canBackward && (
-            <>
-              <CornerLift side="left" />
-              <GestureDetector gesture={backEdge} touchAction="pan-y">
-                <View style={[styles.edge, { left: 0 }]} accessibilityLabel={COPY.cornerBack} />
-              </GestureDetector>
-            </>
+            <GestureDetector gesture={backEdge} touchAction="pan-y">
+              <View style={[styles.edge, { left: 0 }]} accessibilityLabel={COPY.cornerBack} />
+            </GestureDetector>
           )}
         </>
       )}
-      {(turning || frozen) && (
+      {/* Mounted for good, empty between turns: on the web a canvas is a WebGL context, slow to make and to lose. */}
+      {MULTI_SHEET && (
         <TurnOverlay
-          from={turning?.from ?? frozen!.recto}
-          to={turning?.to ?? frozen!.verso}
+          from={turning?.from ?? frozen?.recto ?? null}
+          to={turning?.to ?? frozen?.verso ?? null}
           kind={turning?.kind ?? 'flip'}
           dir={turning?.dir ?? 1}
           grip={grip}
@@ -486,6 +524,7 @@ export function DeskStack({ look, width, height, mode, sheets, onSheets, maxShee
                     key={i}
                     index={i}
                     faces={underFaces[i]!}
+                    shadow={looseShadow}
                     side={sheets[i]?.twoSided ? (sides[i] ?? 'recto') : 'recto'}
                     placements={placements}
                     area={area}
@@ -553,6 +592,7 @@ export function DeskStack({ look, width, height, mode, sheets, onSheets, maxShee
 function LooseSheet({
   index,
   faces,
+  shadow,
   side,
   placements,
   area,
@@ -561,6 +601,7 @@ function LooseSheet({
 }: {
   index: number;
   faces: SheetFaces;
+  shadow: ReturnType<typeof useShadow>;
   side: Side;
   placements: SharedValue<Placement[]>;
   area: { width: number; height: number };
@@ -579,9 +620,7 @@ function LooseSheet({
   });
   return (
     <Group transform={transform}>
-      <Rect x={0} y={0} width={width} height={height} color="#000">
-        <Shadow dx={2} dy={5} blur={9} color="rgba(20, 12, 4, 0.32)" shadowOnly />
-      </Rect>
+      {shadow && <Image image={shadow.image} {...shadow.rect} fit="fill" />}
       <Picture picture={side === 'verso' ? faces.verso : faces.recto} />
     </Group>
   );
@@ -603,8 +642,9 @@ function TurnOverlay({
   width,
   height,
 }: {
-  from: SkPicture;
-  to: SkPicture;
+  /** Nothing to draw between turns. */
+  from: SkPicture | null;
+  to: SkPicture | null;
   kind: 'flip' | 'slide';
   dir: 1 | -1;
   grip: SharedValue<Grip>;
@@ -614,7 +654,7 @@ function TurnOverlay({
   height: number;
 }) {
   // Seen from behind, the far face reads mirrored: draw it pre-mirrored so it lands upright.
-  const back = useMemo(() => mirrorPicture(to, { width, height }), [to, width, height]);
+  const back = useMemo(() => (to ? mirrorPicture(to, { width, height }) : null), [to, width, height]);
   const EMPTY = Skia.XYWHRect(0, 0, 0, 0);
   const full = Skia.XYWHRect(-2, -2, width + 4, height + 4);
   const room = Math.round(width * 0.2);
@@ -659,45 +699,59 @@ function TurnOverlay({
   if (fade) {
     // Reduce Motion: a crossfade, no turning.
     return (
-      <Canvas style={StyleSheet.flatten([StyleSheet.absoluteFill, { width, height }])} pointerEvents="none">
-        <Picture picture={to} />
-        <Group layer={<Paint opacity={fadeOut} />}>
-          <Picture picture={from} />
-        </Group>
-      </Canvas>
+      <View style={[StyleSheet.absoluteFill, styles.through]}>
+        <Canvas style={{ width, height }}>
+          {from && to && (
+            <>
+              <Picture picture={to} />
+              <Group layer={<Paint opacity={fadeOut} />}>
+                <Picture picture={from} />
+              </Group>
+            </>
+          )}
+        </Canvas>
+      </View>
     );
   }
   return (
     // Room around the sheet: a leaning, travelling turn reaches past the sheet's own bounds.
-    <Canvas style={{ position: 'absolute', left: -room, top: -room, width: width + room * 2, height: height + room * 2 }} pointerEvents="none">
-      <Group transform={[{ translateX: room }, { translateY: room }]}>
-        {/* A slide: the sheet that stays put lies beneath the one that moves. */}
-        {kind === 'slide' && <Picture picture={dir === 1 ? to : from} />}
-        <Group origin={{ x: width / 2, y: height / 2 }} transform={transform}>
-          <Group clip={frontClip} layer={kind === 'slide' ? <Paint opacity={present} /> : undefined}>
-            <Picture picture={kind === 'slide' && dir === -1 ? to : from} />
-          </Group>
-          {kind === 'flip' && (
-            <Group clip={backClip}>
-              <Picture picture={back} />
+    // Touches go through to the sheet beneath (a Canvas drops pointerEvents on the web: its wrapper keeps it).
+    <View style={[{ position: 'absolute', left: -room, top: -room }, styles.through]}>
+      <Canvas style={{ width: width + room * 2, height: height + room * 2 }}>
+        {from && to && back && (
+          <Group transform={[{ translateX: room }, { translateY: room }]}>
+            {/* A slide: the sheet that stays put lies beneath the one that moves. */}
+            {kind === 'slide' && <Picture picture={dir === 1 ? to : from} />}
+            <Group origin={{ x: width / 2, y: height / 2 }} transform={transform}>
+              <Group clip={frontClip} layer={kind === 'slide' ? <Paint opacity={present} /> : undefined}>
+                <Picture picture={kind === 'slide' && dir === -1 ? to : from} />
+              </Group>
+              {kind === 'flip' && (
+                <Group clip={backClip}>
+                  <Picture picture={back} />
+                </Group>
+              )}
+              <Rect x={0} y={0} width={width} height={height} color="#140c04" opacity={shade} />
             </Group>
-          )}
-          <Rect x={0} y={0} width={width} height={height} color="#140c04" opacity={shade} />
-        </Group>
-      </Group>
-    </Canvas>
+          </Group>
+        )}
+      </Canvas>
+    </View>
   );
 }
 
 /** A corner you can take: lifted a hair off the desk, its shadow says so. */
-function CornerLift({ side }: { side: 'left' | 'right' }) {
+function CornerLift({ side, shown }: { side: 'left' | 'right'; shown: boolean }) {
   const x = side === 'right' ? CORNER.w : 0;
   return (
-    <Canvas style={{ position: 'absolute', bottom: 0, [side]: 0, width: CORNER.w, height: CORNER.h }} pointerEvents="none">
-      <Rect x={0} y={0} width={CORNER.w} height={CORNER.h}>
-        <RadialGradient c={vec(x, CORNER.h)} r={30} colors={['rgba(30, 18, 8, 0.14)', 'rgba(30, 18, 8, 0)']} />
-      </Rect>
-    </Canvas>
+    // The wrapper lets touches through: a Canvas drops pointerEvents on the web.
+    <View style={[{ position: 'absolute', bottom: 0, [side]: 0, opacity: shown ? 1 : 0 }, styles.through]}>
+      <Canvas style={{ width: CORNER.w, height: CORNER.h }}>
+        <Rect x={0} y={0} width={CORNER.w} height={CORNER.h}>
+          <RadialGradient c={vec(x, CORNER.h)} r={30} colors={['rgba(30, 18, 8, 0.14)', 'rgba(30, 18, 8, 0)']} />
+        </Rect>
+      </Canvas>
+    </View>
   );
 }
 
@@ -737,6 +791,7 @@ const styles = StyleSheet.create({
   strong: { minHeight: 40, paddingHorizontal: 14, justifyContent: 'center', borderRadius: 3, backgroundColor: '#efe2cc' },
   strongText: { color: '#2a211b', fontSize: 14 },
   edge: { position: 'absolute', top: 0, bottom: 0, width: EDGE },
+  through: { pointerEvents: 'none' },
   // react-native-web passes the cursor through.
   grab: { cursor: 'grab' } as object,
 });
