@@ -18,7 +18,7 @@ Reanimated 4 + Gesture Handler 3 hooks · perfect-freehand · Supabase (RLS, cro
 - `src/app/lab/*`: isolated spikes (jitter, typing, fold, envelope, post, mailbox) and `journey` (all of them chained offline, write → mailbox; `?step=`), index at `/lab`; `?seed=&t=&paper=` params make frames reproducible
 - `src/letter/tracking/`: itinerary generator (self-contained, copied to `supabase/functions/_shared`), copy, projection, server rows → itinerary; `TrackingMap.tsx`, `TrackingTimeline.tsx`, `TrackingView.tsx`
 - `src/lib/`: `supabase.ts` (null without `.env.local`: labs run offline), `mail.ts` (session, couple, post/retrieve, tracking, mailbox, open_letter), `draft.ts` (desk → postbox); `src/letter/mailboxFromServer.ts`: RLS rows → mailbox letters (pure, tested); `src/app/track/[id].tsx`: a real letter's journey
-- `supabase/migrations`: schema, delivery algorithm, RLS, dispatch, tracking, letter body check (v1/v2); `supabase/functions/deliver`: Expo push; `post-letter`: posting + itinerary
+- `supabase/migrations`: schema, delivery algorithm, RLS, dispatch, tracking, envelope seal placement/die checks, letter body check (v1/v2); `supabase/functions/deliver`: Expo push; `post-letter`: posting + itinerary
 - `tests/`: node:test via tsx (layout, shader compile, font coverage, SQL in PGlite)
 
 ## Skills to load

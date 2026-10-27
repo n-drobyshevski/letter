@@ -10,7 +10,12 @@ import { PGlite } from '@electric-sql/pglite';
 
 const migration = (f: string) => readFileSync(new URL(`../supabase/migrations/${f}`, import.meta.url), 'utf8');
 // 0002 needs Supabase-only extensions; it is covered by dispatch.test.ts.
-const MIGRATIONS = ['20261026000001_letters.sql', '20261027000003_collection_visibility.sql', '20261029000008_letter_sheets.sql'].map(migration);
+const MIGRATIONS = [
+  '20261026000001_letters.sql',
+  '20261027000003_collection_visibility.sql',
+  '20261027072655_envelope_seal.sql',
+  '20261029000008_letter_sheets.sql',
+].map(migration);
 
 const SUPABASE_STUB = `
 create role anon nologin;
@@ -251,5 +256,21 @@ describe('letter bodies (schema_v 1 and 2)', () => {
       /no front/,
     );
     await assert.rejects(db.query(`insert into public.letter_contents (letter_id, body) values ($1, '{"text":1}')`, [sent.id]), /text must be a string/);
+  });
+});
+
+describe('the envelope (seal placement and die)', () => {
+  const post = (envelope: unknown, seed: number) =>
+    as(A, () => db.query(`select id from public.post_letter('express', '{"text":"x"}', $1::jsonb, $2)`, [JSON.stringify(envelope), seed]));
+
+  test('a placed seal and its die are kept; letters without them still post', async () => {
+    await post({ paper: 'cream', die: 'heart', seal: { x: 0.5, y: 0.56, rMm: 9, stamp: null } }, 11);
+    await post({ paper: 'kraft' }, 12);
+  });
+
+  test('a seal that is not an object, a die that is not a name, or an oversized envelope is refused', async () => {
+    await assert.rejects(post({ seal: 'centre' }, 13), /letters_envelope_seal_object/);
+    await assert.rejects(post({ die: 7 }, 14), /letters_envelope_die_string/);
+    await assert.rejects(post({ note: 'x'.repeat(5000) }, 15), /letters_envelope_small/);
   });
 });
