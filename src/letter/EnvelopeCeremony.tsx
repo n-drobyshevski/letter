@@ -59,9 +59,14 @@ export type EnvelopeLook = {
 };
 
 type Props = {
+  /** The folded letter, as FoldableLetter's front and back (top sheet's recto, last sheet's verso). */
   letterFront: SkPicture;
   letterBack: SkPicture;
   sheet: { width: number; height: number };
+  /** Sheets folded together (a thicker packet). */
+  sheets?: number;
+  /** The letter's own seed, where its creases are (defaults to the envelope's). */
+  foldSeed?: number;
   /** Width of a DL envelope on screen; C5 and C6 keep their real size next to it. */
   width: number;
   look: EnvelopeLook;
@@ -99,7 +104,7 @@ function splitT(t: number) {
   };
 }
 
-export function EnvelopeCeremony({ letterFront, letterBack, sheet, width, look, fold = 'tri', onStage, fixedT, resetKey }: Props) {
+export function EnvelopeCeremony({ letterFront, letterBack, sheet, sheets = 1, foldSeed, width, look, fold = 'tri', onStage, fixedT, resetKey }: Props) {
   const format = look.format ?? formatForFold(fold);
   const g = useMemo(
     () => envelopeGeometry(format === 'DL' ? width : Math.round((width * ENVELOPE_MM[format].w) / ENVELOPE_MM.DL.w), look.seed, format),
@@ -107,8 +112,8 @@ export function EnvelopeCeremony({ letterFront, letterBack, sheet, width, look, 
   );
   const parts = useMemo(() => recordEnvelope(g, look.paper, look.liner, look.seed), [g, look.paper, look.liner, look.seed]);
   const letter = useMemo(
-    () => recordFoldedLetter(letterFront, letterBack, sheet, look.seed, fold),
-    [letterFront, letterBack, sheet, look.seed, fold],
+    () => recordFoldedLetter(letterFront, letterBack, sheet, foldSeed ?? look.seed, fold, sheets),
+    [letterFront, letterBack, sheet, foldSeed, look.seed, fold, sheets],
   );
 
 

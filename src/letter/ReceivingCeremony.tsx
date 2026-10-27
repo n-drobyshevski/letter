@@ -87,9 +87,14 @@ type Props = {
   look: EnvelopeLook;
   address: Address;
   postmark: Postmark;
+  /** The folded letter, as FoldableLetter's front and back (top sheet's recto, last sheet's verso). */
   letterFront: SkPicture;
   letterBack: SkPicture;
   sheet: { width: number; height: number };
+  /** Sheets folded together (a thicker packet). */
+  sheets?: number;
+  /** The letter's own seed, where its creases are (defaults to the envelope's). */
+  foldSeed?: number;
   /** RU: the flat number painted on the door. */
   flat: number;
   /** FR: the name on the nameplate. */
@@ -136,6 +141,8 @@ export function ReceivingCeremony({
   letterFront,
   letterBack,
   sheet,
+  sheets = 1,
+  foldSeed,
   flat,
   name = '',
   country = 'ru',
@@ -183,8 +190,8 @@ export function ReceivingCeremony({
     [faces, others, width],
   );
   const letter = useMemo(
-    () => recordFoldedLetter(letterFront, letterBack, sheet, look.seed, fold),
-    [letterFront, letterBack, sheet, look.seed, fold],
+    () => recordFoldedLetter(letterFront, letterBack, sheet, foldSeed ?? look.seed, fold, sheets),
+    [letterFront, letterBack, sheet, foldSeed, look.seed, fold, sheets],
   );
   const edge = useMemo(() => {
     const pts = slitEdge(ew, look.seed);

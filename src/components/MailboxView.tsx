@@ -5,10 +5,12 @@ import { Desk } from '@/components/Desk';
 import { useMotionPrefs } from '@/lib/useMotionPrefs';
 import type { EnvelopeLook } from '@/letter/EnvelopeCeremony';
 import { FoldableLetter } from '@/letter/FoldableLetter';
-import { LetterSheet, useLetterPicture, useWithStrokes, type LetterLook } from '@/letter/LetterSheet';
-import type { MailLetter } from '@/letter/mailboxFromServer';
+import { useStackPictures, type LetterLook } from '@/letter/LetterSheet';
+import { sheetsOf, type MailLetter } from '@/letter/mailboxFromServer';
+import { ReadingStack } from '@/letter/ReadingStack';
 import { ReceivingCeremony, type OpenedBy, type ReceiveStage } from '@/letter/ReceivingCeremony';
 import { SHEET_RATIO } from '@/letter/sheet';
+import type { FaceRef } from '@/letter/stack';
 import type { Country } from '@/theme/stationery';
 
 export type MailboxPhase = 'mailbox' | 'unfold' | 'read' | 'empty';
@@ -37,6 +39,11 @@ export const MAILBOX_COPY = {
     transit: (n: number) => (n === 1 ? 'Одно письмо в пути к тебе →' : `Писем в пути к тебе: ${n} →`),
     back: '← к ящику',
     offline: 'без почты (лаб)',
+    turnOver: 'Переверни лист',
+    nextSheet: 'Следующий лист',
+    prevFace: 'Назад',
+    overleaf: 'На обороте ещё есть',
+    where: (f: FaceRef, n: number) => `Лист ${f.sheet + 1} из ${n}${f.side === 'verso' ? ', оборот' : ''}`,
   },
   fr: {
     title: 'Boîte aux lettres',
@@ -59,6 +66,11 @@ export const MAILBOX_COPY = {
     transit: (n: number) => (n === 1 ? 'Une lettre est en route vers toi →' : `${n} lettres en route vers toi →`),
     back: '← à la boîte',
     offline: 'sans courrier (lab)',
+    turnOver: 'Retourne la feuille',
+    nextSheet: 'Feuille suivante',
+    prevFace: 'Retour',
+    overleaf: 'La suite au verso',
+    where: (f: FaceRef, n: number) => `Feuille ${f.sheet + 1} sur ${n}${f.side === 'verso' ? ', verso' : ''}`,
   },
 };
 
@@ -73,8 +85,10 @@ export type MailboxViewProps = {
   country: Country;
   /** FR nameplate. */
   name: string;
-  /** Lab/QA: freeze a frame (≤ 0.7 receiving, above that unfolding). */
+  /** Lab/QA: freeze a frame (≤ 0.7 receiving, up to 1 unfolding, above 1 reading at `fixedTurn`). */
   fixedT?: number;
+  /** Lab/QA: where the reader is in the stack of sheets (see ReadingStack). */
+  fixedTurn?: number;
   openMode?: OpenedBy;
   /** Shown over the closed box before the first letter (the lab's country switch). */
   header?: ReactNode;
@@ -85,7 +99,7 @@ export type MailboxViewProps = {
 };
 
 /** Open the box, take each letter out, open it, unfold, read; then the next one. */
-export function MailboxView({ letters, lang, country, name, fixedT, openMode = 'slit', header, emptyExtra, onPhase, onOpened }: MailboxViewProps) {
+export function MailboxView({ letters, lang, country, name, fixedT, fixedTurn, openMode = 'slit', header, emptyExtra, onPhase, onOpened }: MailboxViewProps) {
   const { width: sw, height: sh } = useWindowDimensions();
   const width = Math.min(sw, 480);
   const height = Math.round(Math.min(sh - 190, 640));
@@ -97,8 +111,11 @@ export function MailboxView({ letters, lang, country, name, fixedT, openMode = '
   const letter = letters[index];
 
   const fixedReceive = fixedT !== undefined && fixedT <= 0.7 ? fixedT : undefined;
-  const fixedUnfold = fixedT !== undefined && fixedT > 0.7 ? 1 - (fixedT - 0.7) / 0.3 : undefined;
-  const [phase, setPhase] = useState<Phase>(letters.length === 0 ? 'empty' : fixedUnfold !== undefined ? 'unfold' : 'mailbox');
+  const fixedUnfold = fixedT !== undefined && fixedT > 0.7 && fixedT <= 1 ? 1 - (fixedT - 0.7) / 0.3 : undefined;
+  const fixedRead = fixedT !== undefined && fixedT > 1;
+  const [phase, setPhase] = useState<Phase>(
+    letters.length === 0 ? 'empty' : fixedRead ? 'read' : fixedUnfold !== undefined ? 'unfold' : 'mailbox',
+  );
   const [stage, setStage] = useState<ReceiveStage>(0);
   const [advanceKey, setAdvanceKey] = useState(0);
   const [replayKey, setReplayKey] = useState(0);
@@ -111,7 +128,11 @@ export function MailboxView({ letters, lang, country, name, fixedT, openMode = '
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase]);
 
-  const letterLook: LetterLook = { ...(letter?.letterLook ?? LAB_HAND), seed: letter?.seed ?? 1 };
+  // The sheets are laid out with the seed they were written with.
+  const letterLook: LetterLook = { ...(letter?.letterLook ?? LAB_HAND), seed: letter?.sheetSeed ?? letter?.seed ?? 1 };
+  const sheets = letter ? sheetsOf(letter) : sheetsOf({ text: '' });
+  const [reading, setReading] = useState<{ index: number; faces: FaceRef[] }>({ index: 0, faces: [] });
+  const [step, setStep] = useState<{ key: number; dir: 1 | -1 } | undefined>(undefined);
   const look: EnvelopeLook = {
     paper: letter?.paper ?? 'cream',
     liner: 'postal',
@@ -122,9 +143,8 @@ export function MailboxView({ letters, lang, country, name, fixedT, openMode = '
     format: letter?.format,
   };
   const fold = letter?.fold ?? 'tri';
-  const { picture: inked } = useLetterPicture(letter?.text ?? '', letterLook, sheet.width, sheet.height, 1, 'all', fold);
-  const front = useWithStrokes(inked, letter?.strokes, letter?.strokesWidth, letterLook, sheet.width, sheet.height);
-  const { picture: back } = useLetterPicture('', letterLook, sheet.width, sheet.height, 1, 'paper', fold);
+  const stack = useStackPictures(sheets, letterLook, sheet.width, sheet.height, 1, fold, letter?.strokesWidth);
+  const { front, back } = stack;
 
   const onStage = (s: ReceiveStage) => {
     setStage(s);
@@ -158,6 +178,8 @@ export function MailboxView({ letters, lang, country, name, fixedT, openMode = '
             letterFront={front ?? back}
             letterBack={back}
             sheet={sheet}
+            sheets={stack.sheets}
+            foldSeed={letterLook.seed}
             flat={47}
             name={name}
             country={country}
@@ -181,9 +203,11 @@ export function MailboxView({ letters, lang, country, name, fixedT, openMode = '
         <FoldableLetter
           front={front}
           back={back}
+          sheets={stack.sheets}
+          edgeColor={stack.edgeColor}
           width={sheet.width}
           height={sheet.height}
-          seed={letter.seed}
+          seed={letterLook.seed}
           kind={fold}
           initialT={1}
           fixedT={fixedUnfold}
@@ -194,16 +218,21 @@ export function MailboxView({ letters, lang, country, name, fixedT, openMode = '
         />
       )}
       {phase === 'read' && (
-        <LetterSheet
-          text={letter.text}
+        <ReadingStack
+          key={`${index}-${replayKey}`}
+          sheets={sheets}
           look={letterLook}
           width={sheet.width}
           height={sheet.height}
-          crease={0.35}
-          strokes={letter.strokes}
-          strokesWidth={letter.strokesWidth}
           fold={fold}
+          strokesWidth={letter.strokesWidth}
+          fixedTurn={fixedRead ? (fixedTurn ?? 0) : undefined}
+          step={step}
+          onFace={(i, faces) => setReading({ index: i, faces })}
         />
+      )}
+      {phase === 'read' && reading.faces.length > 1 && (
+        <ReadingControls copy={copy} reading={reading} sheets={sheets.length} onStep={(dir) => setStep((s) => ({ key: (s?.key ?? 0) + 1, dir }))} />
       )}
       <View style={styles.actions}>
         {phase === 'mailbox' && stage < 5 && (
@@ -238,6 +267,36 @@ export function MailboxView({ letters, lang, country, name, fixedT, openMode = '
   );
 }
 
+/** Under the sheet: where you are in the letter, and the tap alternative to the drag. */
+function ReadingControls({
+  copy,
+  reading,
+  sheets,
+  onStep,
+}: {
+  copy: (typeof MAILBOX_COPY)['ru'];
+  reading: { index: number; faces: FaceRef[] };
+  sheets: number;
+  onStep: (dir: 1 | -1) => void;
+}) {
+  const { needsButtons } = useMotionPrefs();
+  const here = reading.faces[reading.index];
+  const next = reading.faces[reading.index + 1];
+  if (!here) return null;
+  const overleaf = next && next.sheet === here.sheet;
+  return (
+    <View style={styles.reading}>
+      <Text style={styles.note} accessibilityLiveRegion="polite" accessibilityLabel={copy.where(here, sheets)}>
+        {overleaf ? copy.overleaf : copy.where(here, sheets)}
+      </Text>
+      <View style={styles.row}>
+        {reading.index > 0 && <MailboxButton label={copy.prevFace} quiet onPress={() => onStep(-1)} />}
+        {next && <MailboxButton label={overleaf ? copy.turnOver : copy.nextSheet} quiet={!needsButtons} onPress={() => onStep(1)} />}
+      </View>
+    </View>
+  );
+}
+
 export function MailboxButton({ label, onPress, quiet = false }: { label: string; onPress: () => void; quiet?: boolean }) {
   return (
     <Pressable onPress={onPress} style={quiet ? styles.quiet : styles.button} accessibilityRole="button">
@@ -255,6 +314,8 @@ const styles = StyleSheet.create({
   link: { color: '#8f806b', fontSize: 12, textDecorationLine: 'underline' },
   linkLight: { color: '#e4d6bf', fontSize: 14, textDecorationLine: 'underline', paddingVertical: 4 },
   note: { color: '#b9a88f', fontSize: 13 },
+  reading: { alignItems: 'center', gap: 2 },
+  row: { flexDirection: 'row', gap: 8, justifyContent: 'center' },
   extra: { alignItems: 'center', gap: 10 },
   shoebox: { alignItems: 'center', gap: 2 },
   shoeboxTitle: { color: '#b9a88f', fontSize: 12, letterSpacing: 1, textTransform: 'uppercase' },

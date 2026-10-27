@@ -47,3 +47,27 @@ test('reports overflow when the sheet is full, at the right source index', () =>
   assert.equal(res.words.length, 2);
   assert.equal(text.slice(res.overflowAt).trim(), 'три\nчетыре');
 });
+
+test('a face filled at the desk never loses words when the reader lays it out at another width', async () => {
+  const { writingArea } = await import('../src/letter/paperLayout');
+  const paper = (w: number) => ({ kind: 'grid' as const, cell: w / 30, base: [1, 1, 1] as const, marginX: 0, gridColor: [0, 0, 0] as const, marginColor: [0, 0, 0] as const, bleed: 0, showThrough: 0, ghostBlur: 0 });
+  const layoutAt = (text: string, w: number, extraLines: number, seed: number) => {
+    const p = paper(w);
+    const fontSize = p.cell * 1.5;
+    const area = writingArea(p, { width: w, height: Math.round(w * Math.SQRT2) }, fontSize);
+    // A proportional-ish stand-in for the font, scaled with the sheet.
+    const m = (word: string) => [...word].reduce((s, c) => s + (/[mwшщжыюМШЩЖ]/.test(c) ? 0.8 : /[iljtf.,]/.test(c) ? 0.28 : 0.52), 0) * fontSize;
+    return layoutHandwriting(text, m, { seed, fontSize, ...area, maxLines: area.maxLines + extraLines });
+  };
+  const words = 'пишу тебе вечером за окном шуршит дождь а чай уже остыл je pense à toi mon cœur voix ambiguë'.split(' ');
+  for (const seed of [1, 7, 1407, 99991]) {
+    // Fill the desk's sheet to its last line, as a writer would.
+    let text = '';
+    for (let i = 0; ; i++) {
+      const next = text + (i ? ' ' : '') + words[i % words.length] + (i % 23 === 22 ? '\n' : '');
+      if (layoutAt(next, 520, 0, seed).overflowAt >= 0) break;
+      text = next;
+    }
+    for (const w of [335, 409, 440, 520]) assert.equal(layoutAt(text, w, 1, seed).overflowAt, -1, `seed ${seed}, ${w} px`);
+  }
+});

@@ -9,11 +9,11 @@ import { SignIn } from '@/components/SignIn';
 import { openLetter, useCouple, useLettersInTransit, useMailbox, useSession, type Couple } from '@/lib/mail';
 import { useLabParams } from '@/lib/params';
 import { supabase } from '@/lib/supabase';
-import { LetterSheet } from '@/letter/LetterSheet';
 import { formatForFold } from '@/letter/envelope';
 import { FOLD_KINDS, type FoldKind } from '@/letter/fold';
-import { countryOf, type MailLetter } from '@/letter/mailboxFromServer';
-import { SAMPLE_LETTER, SAMPLE_LETTER_FR, SHORT_NOTES } from '@/letter/samples';
+import { countryOf, sheetsOf, type MailLetter } from '@/letter/mailboxFromServer';
+import { ReadingStack } from '@/letter/ReadingStack';
+import { SAMPLE_LETTER, SAMPLE_LETTER_FR, SHORT_NOTES, sampleSheets } from '@/letter/samples';
 import { SHEET_RATIO } from '@/letter/sheet';
 import { shortDate } from '@/letter/tracking/copy';
 import type { Country, PaperKind, WaxKind, WaxType } from '@/theme/stationery';
@@ -150,7 +150,7 @@ function LiveMailbox({ couple, onOffline }: { couple: Couple; onOffline: () => v
   );
 }
 
-/** Re-reading skips the ceremony: the unfolded sheet, straight away. */
+/** Re-reading skips the ceremony: the unfolded sheets, straight away, from the first page. */
 function Reread({ letter, lang, onBack }: { letter: MailLetter; lang: Country; onBack: () => void }) {
   const { width: sw } = useWindowDimensions();
   const ew = Math.round(Math.min(Math.min(sw, 480) - 40, 360));
@@ -158,15 +158,13 @@ function Reread({ letter, lang, onBack }: { letter: MailLetter; lang: Country; o
   const copy = MAILBOX_COPY[lang];
   return (
     <Desk title={copy.title} hint={copy.from(letter.fromLabel.name, letter.fromLabel.city, false)}>
-      <LetterSheet
-        text={letter.text}
-        look={{ ...(letter.letterLook ?? LAB_HAND), seed: letter.seed }}
+      <ReadingStack
+        sheets={sheetsOf(letter)}
+        look={{ ...(letter.letterLook ?? LAB_HAND), seed: letter.sheetSeed ?? letter.seed }}
         width={sheet.width}
         height={sheet.height}
-        crease={0.35}
-        strokes={letter.strokes}
+        fold={letter.fold ?? 'tri'}
         strokesWidth={letter.strokesWidth}
-        fold={letter.fold}
       />
       <MailboxButton label={copy.back} quiet onPress={onBack} />
     </Desk>
@@ -180,10 +178,15 @@ function MailboxLab() {
   const total = Math.max(0, Math.min(6, q.waiting ?? 1));
   // ?fold=half|quarter: the first letter is folded that way, in its envelope (C5, C6).
   const fold = FOLD_KINDS.includes(q.fold as FoldKind) ? (q.fold as FoldKind) : undefined;
+  // ?sheets=2..4: the first letter is a stack of sample sheets, written on both sides.
   const letters = useMemo(() => {
-    const list = lettersFor(country, total, q.seed ?? 1407, fixed, q.wax === 'flexible' ? 'flexible' : 'brittle');
+    let list = lettersFor(country, total, q.seed ?? 1407, fixed, q.wax === 'flexible' ? 'flexible' : 'brittle');
+    if (q.sheets && q.sheets > 1 && list[0]) {
+      const sheets = sampleSheets(q.sheets);
+      list = [{ ...list[0], text: sheets[0].recto.text, sheets }, ...list.slice(1)];
+    }
     return fold && list[0] ? [{ ...list[0], fold, format: formatForFold(fold) }, ...list.slice(1)] : list;
-  }, [country, total, q.seed, fixed, q.wax, fold]);
+  }, [country, total, q.seed, fixed, q.wax, fold, q.sheets]);
   return (
     <MailboxView
       key={country}
@@ -192,6 +195,7 @@ function MailboxLab() {
       country={country}
       name={country === 'fr' ? 'M. Laurent' : ''}
       fixedT={q.t}
+      fixedTurn={q.turn}
       openMode={q.open === 'seal' ? 'seal' : 'slit'}
       header={
         <Choice options={[{ key: 'ru', label: 'Москва' }, { key: 'fr', label: 'Paris' }] as const} value={country} onChange={setCountry} />

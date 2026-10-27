@@ -1,4 +1,4 @@
-import { Canvas, Group, Paint, Path, Picture } from '@shopify/react-native-skia';
+import { Canvas, Group, Paint, Path, Picture, type SkImage } from '@shopify/react-native-skia';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { StyleSheet, Text, TextInput, View } from 'react-native';
 import { GestureDetector, usePanGesture } from 'react-native-gesture-handler';
@@ -9,6 +9,7 @@ import { HANDWRITING_FONTS, INKS } from '../theme/stationery';
 import { useLetterPicture, type LetterLook } from './LetterSheet';
 import { writingArea } from './renderLetter';
 import { fontSizeFor, paperFor } from './sheet';
+import type { FaceRef } from './stack';
 import { pressureFromSpeed, strokeToPath, type Stroke } from './strokes';
 
 /**
@@ -18,6 +19,8 @@ import { pressureFromSpeed, strokeToPath, type Stroke } from './strokes';
  * When you stop writing it crossfades into the jittered, inked Skia render.
  * Pen: finger/stylus strokes via perfect-freehand, for the signature, P.S. and doodles.
  * Text and strokes belong to the caller; strokes are in pixels of this sheet.
+ * One face at a time: on the verso the paper (and its margin) is mirrored, and the
+ * recto's ink shows through as `ghost`.
  */
 export type WritingMode = 'keyboard' | 'pen';
 
@@ -31,13 +34,19 @@ type Props = {
   strokes: Stroke[];
   onStrokes: (strokes: Stroke[]) => void;
   placeholder?: string;
+  /** Which face of which sheet this is (sheet 1's recto by default). */
+  face?: FaceRef;
+  /** The other face's ink, seen through the paper (LetterSheet's useGhostOf). */
+  ghost?: SkImage | null;
+  /** What to say once the face is full. */
+  overflowNote?: string;
 };
 
-export function WritingDesk({ look, width, height, mode, text, onText, strokes, onStrokes, placeholder }: Props) {
+export function WritingDesk({ look, width, height, mode, text, onText, strokes, onStrokes, placeholder, face, ghost, overflowNote }: Props) {
   const size = { width, height };
   const paper = paperFor(look.paper, width);
   const fontSize = fontSizeFor(paper, width);
-  const area = writingArea(paper, size, fontSize);
+  const area = writingArea(paper, size, fontSize, face?.side);
 
   const [editing, setEditing] = useState(false);
   // The stroke being drawn (absolute times until it ends): a ref, because gesture
@@ -49,8 +58,8 @@ export function WritingDesk({ look, width, height, mode, text, onText, strokes, 
     strokesRef.current = strokes;
   }, [strokes]);
 
-  const { picture: paperPic } = useLetterPicture('', look, width, height, 0, 'paper');
-  const { picture: inkPic, overflow } = useLetterPicture(text, look, width, height, 0, 'ink');
+  const { picture: paperPic } = useLetterPicture('', look, width, height, 0, 'paper', 'tri', { face, ghost });
+  const { picture: inkPic, overflow } = useLetterPicture(text, look, width, height, 0, 'ink', 'tri', { face });
 
   // Ink layer fades out while typing (the native text is visible instead) and back in after.
   const inkOpacity = useSharedValue(1);
@@ -140,7 +149,7 @@ export function WritingDesk({ look, width, height, mode, text, onText, strokes, 
           ]}
         />
       </View>
-      {overflow && <Text style={styles.warn}>Лист закончился — the rest won’t fit on this sheet.</Text>}
+      {overflow && <Text style={styles.warn}>{overflowNote ?? 'Лист закончился — the rest won’t fit on this sheet.'}</Text>}
     </>
   );
 }

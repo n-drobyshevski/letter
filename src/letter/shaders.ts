@@ -38,6 +38,8 @@ float fbm(float2 p) {
  * Paper: base colour × large mottling × fine grain − fibres, printed grid and
  * margin with uneven ink strike, crease shading at the thirds (never fully gone),
  * a whisper of edge darkening.
+ * The verso (uSide 1) is the same sheet seen from behind, turned like a book page:
+ * the pulp, rules and margin mirror left–right, and each crease valley is a ridge.
  */
 export const PAPER_SKSL = /* sksl */ `
 uniform float2 uSize;
@@ -51,9 +53,14 @@ uniform float uCrease;
 uniform float2 uLight;
 uniform float2 uCreaseOffset;
 uniform float uFold; // 0 tri-fold, 1 half, 2 quarter (half + a vertical crease)
+uniform float uSide; // 0 recto, 1 verso
 ${NOISE}
 half4 main(float2 xy) {
-  float2 p = xy + float2(uSeed * 0.731, uSeed * 0.317);
+  // Where this pixel is on the physical sheet (the recto's coordinates).
+  float2 s = uSide > 0.5 ? float2(uSize.x - xy.x, xy.y) : xy;
+  // A crease seen from the other side bends the other way.
+  float bend = uSide > 0.5 ? -1.0 : 1.0;
+  float2 p = s + float2(uSeed * 0.731, uSeed * 0.317);
   float mottle = fbm(p * 0.0045);
   float grain = vnoise(p * 0.85);
   float fibre = fbm(float2(p.x * 0.09 + p.y * 0.02, p.y * 0.55));
@@ -64,19 +71,19 @@ half4 main(float2 xy) {
   col -= 0.03 * smoothstep(0.6, 0.82, fibre);
 
   if (uCell > 0.0) {
-    float2 g = abs(fract(xy / uCell + 0.5) - 0.5) * uCell;
+    float2 g = abs(fract(s / uCell + 0.5) - 0.5) * uCell;
     float lineMask = 1.0 - smoothstep(0.2, 0.9, min(g.x, g.y));
-    float strike = 0.7 + 0.3 * vnoise(xy * 0.07 + uSeed);
+    float strike = 0.7 + 0.3 * vnoise(s * 0.07 + uSeed);
     col = mix(col, uGridColor * col, lineMask * 0.42 * strike);
   }
   if (uMarginX > 0.0) {
-    float d = abs(xy.x - uMarginX);
+    float d = abs(s.x - uMarginX);
     float m = 1.0 - smoothstep(0.55, 1.5, d);
-    float strike = 0.75 + 0.25 * vnoise(xy * 0.05 + uSeed * 2.0);
+    float strike = 0.75 + 0.25 * vnoise(s * 0.05 + uSeed * 2.0);
     col = mix(col, uMarginColor * col, m * 0.85 * strike);
   }
 
-  // Creases: a valley line plus a lit and a shaded side.
+  // Creases: a valley line plus a lit and a shaded side (a ridge on the verso).
   if (uFold < 0.5) {
     // Tri-fold: near the thirds.
     for (int k = 1; k <= 2; k++) {
@@ -86,17 +93,18 @@ half4 main(float2 xy) {
       float valley = exp(-d * d / 3.0);
       float slope = d * exp(-d * d / 90.0) / 9.5;
       float facing = (k == 1) ? -1.0 : 1.0;
-      col *= 1.0 + uCrease * (0.09 * slope * facing * -uLight.y - 0.07 * valley);
+      col *= 1.0 + uCrease * bend * (0.09 * slope * facing * -uLight.y - 0.07 * valley);
     }
   } else {
     // Half fold: across the middle; the quarter fold adds one down the middle.
     float d = xy.y - (uSize.y * 0.5 + uCreaseOffset.x);
     float slope = d * exp(-d * d / 90.0) / 9.5;
-    col *= 1.0 + uCrease * (0.09 * slope * uLight.y - 0.07 * exp(-d * d / 3.0));
+    col *= 1.0 + uCrease * bend * (0.09 * slope * uLight.y - 0.07 * exp(-d * d / 3.0));
     if (uFold > 1.5) {
-      float dx = xy.x - (uSize.x * 0.5 + uCreaseOffset.y);
+      // Measured on the sheet, the slope already turns with the mirror; only the valley flips.
+      float dx = s.x - (uSize.x * 0.5 + uCreaseOffset.y);
       float sx = dx * exp(-dx * dx / 90.0) / 9.5;
-      col *= 1.0 + uCrease * (0.09 * sx * uLight.x - 0.06 * exp(-dx * dx / 3.0));
+      col *= 1.0 + uCrease * (0.09 * sx * uLight.x - bend * 0.06 * exp(-dx * dx / 3.0));
     }
   }
 

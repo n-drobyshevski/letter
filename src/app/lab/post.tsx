@@ -5,7 +5,7 @@ import { Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-na
 import { Choice } from '@/components/Choice';
 import { Desk } from '@/components/Desk';
 import { SignIn } from '@/components/SignIn';
-import { draftBody, isEmptyDraft, setDraft, useDraft, type Draft } from '@/lib/draft';
+import { MAX_BODY_BYTES, bodyBytes, draftBody, isEmptyDraft, setDraft, useDraft, type Draft } from '@/lib/draft';
 import { postLetter, retrieveLetter, useCouple, useLettersInTransit, useSession, type Couple } from '@/lib/mail';
 import { useLabParams } from '@/lib/params';
 import { supabase } from '@/lib/supabase';
@@ -62,6 +62,7 @@ const COPY = {
     write: 'Сначала напиши письмо',
     toDesk: 'За стол →',
     empty: 'Конверт пустой: сначала напиши письмо',
+    heavy: 'Письмо слишком тяжёлое для конверта: убери лист или часть рисунков',
     refused: (why: string) => `Ящик не принял письмо: ${why}`,
     tooLate: 'Поздно: письмо уже забрали',
     track: 'Где письмо? →',
@@ -88,6 +89,7 @@ const COPY = {
     write: 'Écris d’abord ta lettre',
     toDesk: 'À ton bureau →',
     empty: 'L’enveloppe est vide : écris d’abord ta lettre',
+    heavy: 'La lettre est trop lourde pour l’enveloppe : retire une feuille ou quelques dessins',
     refused: (why: string) => `La boîte n’a pas pris la lettre : ${why}`,
     tooLate: 'Trop tard : la lettre est déjà partie',
     track: 'Où est ma lettre ? →',
@@ -194,12 +196,14 @@ function LivePost({ couple, onOffline }: { couple: Couple; onOffline: () => void
 
   const onPosted = async () => {
     if (isEmptyDraft(draft)) return bounce(copy.empty);
+    const body = draftBody(draft!);
+    if (bodyBytes(body) > MAX_BODY_BYTES) return bounce(copy.heavy);
     setState('sending');
     setNotice(null);
     try {
       const row = await postLetter({
         tier,
-        body: draftBody(draft!),
+        body,
         envelope: { ...look },
         seed,
       });

@@ -1,7 +1,7 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { countryOf, mailboxFromServer, type MailRow } from '../src/letter/mailboxFromServer';
+import { countryOf, mailboxFromServer, parseSheets, sheetsOf, type MailRow } from '../src/letter/mailboxFromServer';
 
 /** What RLS hands the recipient becomes the letters in their mailbox. */
 
@@ -75,5 +75,52 @@ describe('mailboxFromServer', () => {
     assert.deepEqual(l.postmark, { city: 'Lille', date: '2026-11-03' });
     assert.equal(l.senderCountry, 'fr');
     assert.equal(countryOf(me.tz), 'ru');
+  });
+});
+
+describe('sheets of a letter', () => {
+  const pen = [[1, 2, 0.5, 0]];
+  test('schema_v 1 is one sheet with a blank back', () => {
+    const [only, ...rest] = parseSheets({ text: 'Привет', strokes: [pen] as never });
+    assert.equal(rest.length, 0);
+    assert.deepEqual(only, { recto: { text: 'Привет', strokes: [pen] }, verso: { text: '', strokes: [] }, twoSided: false });
+    assert.deepEqual(parseSheets(null), [{ recto: { text: '', strokes: [] }, verso: { text: '', strokes: [] }, twoSided: false }]);
+  });
+
+  test('schema_v 2: sheet 1 from the top level, the rest from sheets[]', () => {
+    const sheets = parseSheets({ text: 'раз', schema_v: 2, sheets: [{ verso: { text: 'два' } }, { recto: { text: 'три', strokes: [pen] } }] });
+    assert.deepEqual(
+      sheets.map((s) => [s.recto.text, s.verso.text, s.recto.strokes.length, s.twoSided]),
+      [['раз', 'два', 0, true], ['три', '', 1, false]],
+    );
+  });
+
+  test('never trusts the shape: junk is dropped, numbers are not text, at most four sheets', () => {
+    assert.equal(parseSheets({ text: 'a', sheets: { recto: {} } }).length, 1);
+    const junk = parseSheets({ text: 7 as never, strokes: 'x' as never, sheets: [{ verso: 'no' }, 'page', { recto: { text: 5, strokes: [1, pen] } }, null, { verso: {} }] });
+    assert.deepEqual(
+      junk.map((s) => [s.recto.text, s.recto.strokes.length, s.verso.text]),
+      [['', 0, ''], ['', 1, '']],
+    );
+    const many = Array.from({ length: 9 }, (_, i) => ({ recto: { text: String(i) } }));
+    assert.equal(parseSheets({ text: 'x', sheets: [{}, ...many] }).length, 4);
+  });
+
+  test('the mailbox keeps every sheet and the seed the desk wrote with', () => {
+    const box = mailboxFromServer({
+      rows: [row('long', '2026-11-19T13:00:00Z')],
+      contents: [{ letter_id: 'long', body: { text: 'раз', seed: 42, sheets: [{ verso: { text: 'два' } }] } }],
+      receipts: [],
+      me,
+      them,
+      now,
+    });
+    const [l] = box.waiting;
+    assert.equal(l.seed, 11, 'the envelope keeps its own seed');
+    assert.equal(l.sheetSeed, 42);
+    assert.equal(l.text, 'раз');
+    assert.deepEqual(sheetsOf(l).map((s) => s.verso.text), ['два']);
+    // A lab letter with only text is one sheet.
+    assert.deepEqual(sheetsOf({ text: 'lab' }).map((s) => s.recto.text), ['lab']);
   });
 });

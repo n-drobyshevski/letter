@@ -27,6 +27,7 @@ import { scheduleOnRN } from 'react-native-worklets';
 
 import { feel } from '../lib/haptics';
 import { foldLines, type FoldKind } from './fold';
+import { sheetJitter } from './stack';
 
 /**
  * Folding a letter, with the gesture choosing the fold:
@@ -49,9 +50,19 @@ function ease(x: number) {
 }
 
 type Props = {
+  /** The top sheet's recto (face view). */
   front: SkPicture;
-  /** Paper-only picture used for the back side of folded panels. */
+  /**
+   * The back of the stack (the last sheet's verso, through view: in the front's
+   * coordinates, its other face showing through), seen on folded panels.
+   */
   back: SkPicture;
+  /** Sheets folded together; the ones under the top show only as edges. */
+  sheets?: number;
+  /** Colour of the paper's cut edge, for those under-sheets. */
+  edgeColor?: string;
+  /** Whether a sideways swipe may fold it once more, in four (two sheets at most). */
+  allowQuarter?: boolean;
   width: number;
   height: number;
   seed: number;
@@ -82,7 +93,21 @@ const split = (kind: FoldKind | undefined, v: number) => ({
   q: kind === 'quarter' ? Math.max(0, v * 2 - 1) : 0,
 });
 
-export function FoldableLetter({ front, back, width, height, seed, kind, fixedT, initialT = 0, onSettled, onKind }: Props) {
+export function FoldableLetter({
+  front,
+  back,
+  sheets = 1,
+  edgeColor = '#e9e1d0',
+  allowQuarter = true,
+  width,
+  height,
+  seed,
+  kind,
+  fixedT,
+  initialT = 0,
+  onSettled,
+  onKind,
+}: Props) {
   const init = split(kind, fixedT ?? initialT);
   const t = useSharedValue(init.t);
   const h = useSharedValue(init.h);
@@ -149,7 +174,7 @@ export function FoldableLetter({ front, back, width, height, seed, kind, fixedT,
         // Folded in half and nothing more: sideways folds again, vertical unfolds.
         if (Math.hypot(e.translationX, e.translationY) < 10) return;
         const sideways = Math.abs(e.translationX) > Math.abs(e.translationY);
-        if (q.get() > 0.001 || (h.get() > 0.999 && sideways && kind !== 'half')) {
+        if (q.get() > 0.001 || (h.get() > 0.999 && sideways && kind !== 'half' && allowQuarter)) {
           axis.set(AXIS_Q);
           start.set(q.get());
         } else {
@@ -192,23 +217,53 @@ export function FoldableLetter({ front, back, width, height, seed, kind, fixedT,
     },
   );
 
+  const under = sheets > 1 ? <UnderSheets sheets={sheets} seed={seed} width={width} height={height} color={edgeColor} /> : null;
+
   return (
     <GestureDetector gesture={pan}>
       <Canvas style={{ width: width + PAD * 2, height: height + PAD * 2 }}>
         {drawn === 'tri' ? (
-          <TriFold front={front} back={back} width={width} height={height} seed={seed} t={t} />
+          <TriFold front={front} back={back} under={under} width={width} height={height} seed={seed} t={t} />
         ) : (
-          <HalfFold front={front} back={back} width={width} height={height} seed={seed} h={h} q={q} />
+          <HalfFold front={front} back={back} under={under} width={width} height={height} seed={seed} h={h} q={q} />
         )}
       </Canvas>
     </GestureDetector>
   );
 }
 
-type Layers = { front: SkPicture; back: SkPicture; width: number; height: number; seed: number };
+type Layers = { front: SkPicture; back: SkPicture; under: React.ReactNode; width: number; height: number; seed: number };
+
+// Panel clips reach this far past the sheet's outer edges, so the sheets beneath can peek out.
+const EDGE = 3;
+
+/**
+ * The sheets under the top one, folded with it: never quite aligned, so their cut
+ * edges show as hairlines around each panel. Drawn beneath a panel's face, inside
+ * its group, so they turn with it.
+ */
+function UnderSheets({ sheets, seed, width, height, color }: { sheets: number; seed: number; width: number; height: number; color: string }) {
+  return (
+    <>
+      {Array.from({ length: sheets - 1 }, (_, i) => {
+        const j = sheetJitter(seed, i + 1);
+        return (
+          <Group
+            key={i}
+            origin={{ x: width / 2, y: height / 2 }}
+            transform={[{ translateX: j.dx }, { translateY: j.dy }, { rotate: j.rot * 0.4 }]}
+          >
+            <Rect x={0} y={0} width={width} height={height} color={color} />
+            <Rect x={0} y={0} width={width} height={height} color="rgba(30, 18, 8, 0.22)" style="stroke" strokeWidth={0.6} />
+          </Group>
+        );
+      })}
+    </>
+  );
+}
 
 /** Letter fold in thirds: bottom third up over the middle, then the top third down over both. */
-function TriFold({ front, back, width, height, seed, t }: Layers & { t: SharedValue<number> }) {
+function TriFold({ front, back, under, width, height, seed, t }: Layers & { t: SharedValue<number> }) {
   const [a, b] = foldLines('tri', width, height, seed).ys;
 
   const bottomAngle = useDerivedValue(() => ease(t.value / 0.5) * MAX_ANGLE);
@@ -227,8 +282,8 @@ function TriFold({ front, back, width, height, seed, t }: Layers & { t: SharedVa
   // group opacity does not apply to drawPicture without a layer.
   const EMPTY = Skia.XYWHRect(0, 0, 0, 0);
   // Panels overlap the middle by a pixel: antialiased clip edges meeting exactly leave a seam.
-  const bottomRect = Skia.XYWHRect(0, b - 1, width, height - b + 1);
-  const topRect = Skia.XYWHRect(0, 0, width, a + 1);
+  const bottomRect = Skia.XYWHRect(-EDGE, b - 1, width + EDGE * 2, height - b + 1 + EDGE);
+  const topRect = Skia.XYWHRect(-EDGE, -EDGE, width + EDGE * 2, a + 1 + EDGE);
   const bottomFrontClip = useDerivedValue(() => (bottomAngle.value < Math.PI / 2 ? bottomRect : EMPTY));
   const bottomBackClip = useDerivedValue(() => (bottomAngle.value < Math.PI / 2 ? EMPTY : bottomRect));
   const topFrontClip = useDerivedValue(() => (topAngle.value < Math.PI / 2 ? topRect : EMPTY));
@@ -259,10 +314,7 @@ function TriFold({ front, back, width, height, seed, t }: Layers & { t: SharedVa
     return Skia.XYWHRect(0, top, width, bottom - top);
   });
 
-  const middleClip = Skia.XYWHRect(0, a, width, b - a);
-  // Ink seen through the paper from the other side (the flip already mirrors it).
-  const showThrough = Skia.Paint();
-  showThrough.setAlphaf(0.08);
+  const middleClip = Skia.XYWHRect(-EDGE, a, width + EDGE * 2, b - a);
 
   return (
     <Group transform={lift}>
@@ -273,6 +325,7 @@ function TriFold({ front, back, width, height, seed, t }: Layers & { t: SharedVa
 
       {/* middle third: never moves */}
       <Group clip={middleClip}>
+        {under}
         <Picture picture={front} />
         <Rect x={0} y={a} width={width} height={b - a} opacity={middleShadow}>
           <LinearGradient start={vec(0, b)} end={vec(0, a)} colors={['#140c04', 'rgba(20,12,4,0.25)']} />
@@ -282,14 +335,13 @@ function TriFold({ front, back, width, height, seed, t }: Layers & { t: SharedVa
       {/* bottom third, hinged at b */}
       <Group origin={{ x: width / 2, y: b }} transform={bottomTransform}>
         <Group clip={bottomFrontClip}>
+          {under}
           <Picture picture={front} />
           <Rect x={0} y={b} width={width} height={height - b} color="#140c04" opacity={bottomShade} />
         </Group>
         <Group clip={bottomBackClip}>
+          {under}
           <Picture picture={back} />
-          <Group layer={showThrough}>
-            <Picture picture={front} />
-          </Group>
           <Rect x={0} y={b} width={width} height={height - b} color="#fff8ec" opacity={backLight} />
         </Group>
       </Group>
@@ -301,14 +353,13 @@ function TriFold({ front, back, width, height, seed, t }: Layers & { t: SharedVa
       {/* top third, hinged at a */}
       <Group origin={{ x: width / 2, y: a }} transform={topTransform}>
         <Group clip={topFrontClip}>
+          {under}
           <Picture picture={front} />
           <Rect x={0} y={0} width={width} height={a} color="#140c04" opacity={topShade} />
         </Group>
         <Group clip={topBackClip}>
+          {under}
           <Picture picture={back} />
-          <Group layer={showThrough}>
-            <Picture picture={front} />
-          </Group>
         </Group>
       </Group>
     </Group>
@@ -320,7 +371,7 @@ function TriFold({ front, back, width, height, seed, t }: Layers & { t: SharedVa
  * quarter fold: the right half of that two-layer stack swings over the left
  * about the vertical crease at x.
  */
-function HalfFold({ front, back, width, height, seed, h, q }: Layers & { h: SharedValue<number>; q: SharedValue<number> }) {
+function HalfFold({ front, back, under, width, height, seed, h, q }: Layers & { h: SharedValue<number>; q: SharedValue<number> }) {
   const lines = foldLines('quarter', width, height, seed);
   const m = lines.ys[0];
   const x = lines.x!;
@@ -332,14 +383,14 @@ function HalfFold({ front, back, width, height, seed, h, q }: Layers & { h: Shar
   const sideTransform = useDerivedValue<Transforms3d>(() => [{ perspective: PERSPECTIVE }, { rotateY: -sideAngle.value }]);
 
   const EMPTY = Skia.XYWHRect(0, 0, 0, 0);
-  const topRect = Skia.XYWHRect(0, 0, width, m + 1);
+  const topRect = Skia.XYWHRect(-EDGE, -EDGE, width + EDGE * 2, m + 1 + EDGE);
   const topFrontClip = useDerivedValue(() => (topAngle.value < Math.PI / 2 ? topRect : EMPTY));
   const topBackClip = useDerivedValue(() => (topAngle.value < Math.PI / 2 ? EMPTY : topRect));
 
   // The two halves overlap by a pixel: antialiased clip edges meeting exactly leave a seam.
   const left = Skia.XYWHRect(-width, -height, x + width + 1, height * 3);
   const right = Skia.XYWHRect(x, -height, width * 2, height * 3);
-  const rightBack = Skia.XYWHRect(x, m, width - x, height - m);
+  const rightBack = Skia.XYWHRect(x, m, width - x + EDGE, height - m + EDGE);
   const sideFrontClip = useDerivedValue(() => (sideAngle.value < Math.PI / 2 ? right : EMPTY));
   const sideBackClip = useDerivedValue(() => (sideAngle.value < Math.PI / 2 ? EMPTY : rightBack));
 
@@ -362,13 +413,11 @@ function HalfFold({ front, back, width, height, seed, h, q }: Layers & { h: Shar
     return Skia.XYWHRect(0, top, right, height - top);
   });
 
-  const showThrough = Skia.Paint();
-  showThrough.setAlphaf(0.08);
-
   // The half-folded stack: the bottom half, and the top half hinged at m on top of it.
   const stack = (
     <>
-      <Group clip={Skia.XYWHRect(0, m, width, height - m)}>
+      <Group clip={Skia.XYWHRect(-EDGE, m, width + EDGE * 2, height - m + EDGE)}>
+        {under}
         <Picture picture={front} />
         <Rect x={0} y={m} width={width} height={height - m} opacity={bottomShadow}>
           <LinearGradient start={vec(0, m)} end={vec(0, height)} colors={['#140c04', 'rgba(20,12,4,0.25)']} />
@@ -376,14 +425,13 @@ function HalfFold({ front, back, width, height, seed, h, q }: Layers & { h: Shar
       </Group>
       <Group origin={{ x: width / 2, y: m }} transform={topTransform}>
         <Group clip={topFrontClip}>
+          {under}
           <Picture picture={front} />
           <Rect x={0} y={0} width={width} height={m} color="#140c04" opacity={topShade} />
         </Group>
         <Group clip={topBackClip}>
+          {under}
           <Picture picture={back} />
-          <Group layer={showThrough}>
-            <Picture picture={front} />
-          </Group>
         </Group>
       </Group>
     </>
@@ -410,10 +458,8 @@ function HalfFold({ front, back, width, height, seed, h, q }: Layers & { h: Shar
           <Rect x={x} y={m} width={width - x} height={height - m} color="#140c04" opacity={sideShade} />
         </Group>
         <Group clip={sideBackClip}>
+          {under}
           <Picture picture={back} />
-          <Group layer={showThrough}>
-            <Picture picture={front} />
-          </Group>
           <Rect x={x} y={m} width={width - x} height={height - m} color="#fff8ec" opacity={backLight} />
         </Group>
       </Group>

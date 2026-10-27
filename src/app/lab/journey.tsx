@@ -10,20 +10,22 @@ import { EnvelopeCeremony, type EnvelopeLook, type Stage } from '@/letter/Envelo
 import { ENVELOPE_MM, formatForFold } from '@/letter/envelope';
 import { FOLD_KINDS, type FoldKind } from '@/letter/fold';
 import { FoldableLetter } from '@/letter/FoldableLetter';
-import { useLetterPicture, useWithStrokes, type LetterLook } from '@/letter/LetterSheet';
+import { DeskStack } from '@/letter/DeskStack';
+import { useStackPictures, type LetterLook } from '@/letter/LetterSheet';
 import type { MailLetter } from '@/letter/mailboxFromServer';
 import { PostingCeremony } from '@/letter/PostingCeremony';
-import { SAMPLE_LETTER } from '@/letter/samples';
+import { SAMPLE_LETTER, sampleSheets } from '@/letter/samples';
 import { SHEET_RATIO, useSheetSize } from '@/letter/sheet';
-import type { Stroke } from '@/letter/strokes';
-import { WritingDesk, type WritingMode } from '@/letter/WritingDesk';
+import { defaultTwoSided, emptyFace, emptySheet, isEmptySheet, maxSheetsFor, type SheetContent } from '@/letter/stack';
+import type { WritingMode } from '@/letter/WritingDesk';
 import { WAX, type Country, type PaperKind, type WaxKind } from '@/theme/stationery';
 
 /**
  * Lab: the whole journey of one letter, offline. Write it, fold it (the gesture
  * picks the fold), slide it into an envelope sized for that fold and seal it, drop
  * it in the postbox; then skip the weeks and open it in her mailbox.
- * `?step=fold|envelope|post|receive` starts later with a sample letter (QA).
+ * `?step=fold|envelope|post|receive` starts later with a sample letter (QA),
+ * `?sheets=1..4` with a sample stack of that many sheets.
  */
 
 type Step = 'write' | 'fold' | 'envelope' | 'post' | 'receive';
@@ -64,15 +66,16 @@ export default function JourneyLab() {
 
   const [step, setStep] = useState<Step>(startAt);
   const [paper, setPaper] = useState<PaperKind>('grid');
-  const [text, setText] = useState(startAt === 'write' ? '' : SAMPLE_LETTER);
-  const [strokes, setStrokes] = useState<Stroke[]>([]);
+  const sample = (): SheetContent[] =>
+    q.sheets ? sampleSheets(q.sheets) : [{ recto: { text: SAMPLE_LETTER, strokes: [] }, verso: emptyFace(), twoSided: defaultTwoSided('grid') }];
+  const [sheets, setSheets] = useState<SheetContent[]>(() => (startAt === 'write' && !q.sheets ? [emptySheet('grid')] : sample()));
   const [fold, setFold] = useState<FoldKind>(FOLD_KINDS.includes(q.fold as FoldKind) ? (q.fold as FoldKind) : 'tri');
   const [envelope, setEnvelope] = useState<{ paper: PaperKind; wax: WaxKind }>({ paper: 'cream', wax: 'bordeaux' });
   const [from, setFrom] = useState<Country>('fr');
   const writeSize = useSheetSize();
 
   const hand: LetterLook = { paper, ink: 'blueBlack', font: 'badScript', seed };
-  const letter = { text, strokes, strokesWidth: writeSize.width, hand, fold };
+  const letter = { sheets, strokesWidth: writeSize.width, hand, fold };
   const look: EnvelopeLook = {
     paper: envelope.paper,
     liner: 'postal',
@@ -82,8 +85,7 @@ export default function JourneyLab() {
     format: formatForFold(fold),
   };
   const restart = () => {
-    setText('');
-    setStrokes([]);
+    setSheets([emptySheet(paper)]);
     setFold('tri');
     setStep('write');
   };
@@ -96,10 +98,8 @@ export default function JourneyLab() {
           progress={progress}
           hand={hand}
           size={writeSize}
-          text={text}
-          onText={setText}
-          strokes={strokes}
-          onStrokes={setStrokes}
+          sheets={sheets}
+          onSheets={setSheets}
           paper={paper}
           onPaper={setPaper}
           onNext={() => setStep('fold')}
@@ -127,7 +127,7 @@ export default function JourneyLab() {
   }
 }
 
-type Letter = { text: string; strokes: Stroke[]; strokesWidth: number; hand: LetterLook; fold: FoldKind };
+type Letter = { sheets: SheetContent[]; strokesWidth: number; hand: LetterLook; fold: FoldKind };
 
 /** Where you are on the way: the steps done, this one, the ones to come. */
 function Progress({ at }: { at: Step }) {
@@ -148,16 +148,14 @@ function WriteStep(props: {
   progress: React.ReactNode;
   hand: LetterLook;
   size: { width: number; height: number };
-  text: string;
-  onText: (t: string) => void;
-  strokes: Stroke[];
-  onStrokes: (s: Stroke[]) => void;
+  sheets: SheetContent[];
+  onSheets: (s: SheetContent[]) => void;
   paper: PaperKind;
   onPaper: (p: PaperKind) => void;
   onNext: () => void;
 }) {
   const [mode, setMode] = useState<WritingMode>('keyboard');
-  const written = props.text.trim() !== '' || props.strokes.length > 0;
+  const written = !props.sheets.every(isEmptySheet);
   return (
     <Desk title="Письмо" hint="Напиши ей. Перо — для подписи и рисунков">
       {props.progress}
@@ -165,19 +163,16 @@ function WriteStep(props: {
         <Choice options={PAPERS} value={props.paper as 'grid' | 'cotton'} onChange={props.onPaper} />
         <Choice options={MODES} value={mode} onChange={setMode} />
       </View>
-      <WritingDesk
+      <DeskStack
         look={props.hand}
         width={props.size.width}
         height={props.size.height}
         mode={mode}
-        text={props.text}
-        onText={props.onText}
-        strokes={props.strokes}
-        onStrokes={props.onStrokes}
+        sheets={props.sheets}
+        onSheets={props.onSheets}
         placeholder="Моя хорошая, …"
       />
       <View style={styles.actions}>
-        {props.strokes.length > 0 && <Button label="Стереть перо" quiet onPress={() => props.onStrokes([])} />}
         {written && <Button label="Сложить →" onPress={props.onNext} />}
       </View>
     </Desk>
@@ -191,9 +186,9 @@ function FoldStep({ progress, letter, onFolded }: { progress: React.ReactNode; l
   const { needsButtons } = useMotionPrefs();
   // Creases appear once a fold has begun.
   const crease = kind ? 1 : 0;
-  const { picture: inked } = useLetterPicture(letter.text, letter.hand, size.width, size.height, crease, 'all', kind ?? 'tri');
-  const front = useWithStrokes(inked, letter.strokes, letter.strokesWidth, letter.hand, size.width, size.height);
-  const { picture: back } = useLetterPicture('', letter.hand, size.width, size.height, crease, 'paper', kind ?? 'tri');
+  const stack = useStackPictures(letter.sheets, letter.hand, size.width, size.height, crease, kind ?? 'tri', letter.strokesWidth);
+  const { front, back } = stack;
+  const allowQuarter = letter.sheets.length <= maxSheetsFor('quarter');
   const hint = folded
     ? `Сложено ${FOLD_NAMES[folded]}${folded === 'half' ? ' — проведи влево, чтобы ещё раз' : ''}`
     : kind
@@ -206,6 +201,9 @@ function FoldStep({ progress, letter, onFolded }: { progress: React.ReactNode; l
         <FoldableLetter
           front={front}
           back={back}
+          sheets={stack.sheets}
+          edgeColor={stack.edgeColor}
+          allowQuarter={allowQuarter}
           width={size.width}
           height={size.height}
           seed={letter.hand.seed}
@@ -217,7 +215,7 @@ function FoldStep({ progress, letter, onFolded }: { progress: React.ReactNode; l
         {folded && <Button label="В конверт →" onPress={() => onFolded(folded)} />}
         {!folded && needsButtons && (
           <View style={styles.row}>
-            {FOLD_KINDS.map((k) => (
+            {FOLD_KINDS.filter((k) => allowQuarter || k !== 'quarter').map((k) => (
               <Button key={k} label={FOLD_NAMES[k]} onPress={() => onFolded(k)} />
             ))}
           </View>
@@ -248,9 +246,7 @@ function EnvelopeStep(props: {
   // The DL width on screen, chosen so the widest envelope (a C5, 229 mm) still fits.
   const envW = Math.round((Math.min(screenW - 48, 480) * ENVELOPE_MM.DL.w) / ENVELOPE_MM.C5.w);
   const sheet = { width: Math.round(envW * 0.93), height: Math.round(envW * 0.93 * SHEET_RATIO) };
-  const { picture: inked } = useLetterPicture(letter.text, letter.hand, sheet.width, sheet.height, 1, 'all', letter.fold);
-  const front = useWithStrokes(inked, letter.strokes, letter.strokesWidth, letter.hand, sheet.width, sheet.height);
-  const { picture: back } = useLetterPicture('', letter.hand, sheet.width, sheet.height, 1, 'paper', letter.fold);
+  const { front, back, sheets } = useStackPictures(letter.sheets, letter.hand, sheet.width, sheet.height, 1, letter.fold, letter.strokesWidth);
   const [stage, setStage] = useState<Stage>(0);
   return (
     <Desk title={`Конверт ${look.format}`} hint={ENVELOPE_HINTS[stage]} scroll={false}>
@@ -262,7 +258,17 @@ function EnvelopeStep(props: {
         </View>
       )}
       {front && back && (
-        <EnvelopeCeremony letterFront={front} letterBack={back} sheet={sheet} width={envW} look={look} fold={letter.fold} onStage={setStage} />
+        <EnvelopeCeremony
+          letterFront={front}
+          letterBack={back}
+          sheet={sheet}
+          sheets={sheets}
+          foldSeed={letter.hand.seed}
+          width={envW}
+          look={look}
+          fold={letter.fold}
+          onStage={setStage}
+        />
       )}
       <View style={styles.actions}>{stage === 4 && <Button label="На почту →" onPress={props.onNext} />}</View>
     </Desk>
@@ -319,8 +325,10 @@ function ReceiveStep(props: { progress: React.ReactNode; letter: Letter; look: E
   const fromFrance = from === 'fr';
   const mail: MailLetter = {
     seed: look.seed,
-    text: letter.text,
-    strokes: letter.strokes.length ? letter.strokes : undefined,
+    sheetSeed: letter.hand.seed,
+    text: letter.sheets[0].recto.text,
+    strokes: letter.sheets[0].recto.strokes.length ? letter.sheets[0].recto.strokes : undefined,
+    sheets: letter.sheets.filter((s, i) => i === 0 || !isEmptySheet(s)),
     strokesWidth: letter.strokesWidth,
     letterLook: { paper: letter.hand.paper, ink: letter.hand.ink, font: letter.hand.font },
     fold: letter.fold,

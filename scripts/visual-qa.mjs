@@ -23,6 +23,11 @@ const SHOTS = [
   { name: 'jitter-grid', path: '/lab/jitter?seed=20261026&paper=grid' },
   { name: 'jitter-cotton-marck', path: '/lab/jitter?seed=99&paper=cotton&font=marckScript&ink=violet' },
   { name: 'typing', path: '/lab/typing?seed=7' },
+  // several sheets, both sides: a notebook verso (margin on the left, the front showing through) · sheet 2 · halfway over · cotton
+  { name: 'desk-verso', path: '/lab/typing?seed=7&sheets=2&face=1' },
+  { name: 'desk-sheet2', path: '/lab/typing?seed=7&sheets=3&face=2' },
+  { name: 'desk-turn-0.5', path: '/lab/typing?seed=7&sheets=2&turn=0.42' },
+  { name: 'desk-cotton-verso', path: '/lab/typing?seed=7&paper=cotton&sheets=3&face=5' },
   // the whole journey, one frame per step (later steps start with a sample letter)
   { name: 'journey-write', path: '/lab/journey' },
   { name: 'journey-fold', path: '/lab/journey?step=fold' },
@@ -33,6 +38,10 @@ const SHOTS = [
   // half fold (top half down) · quarter fold (then the right half over the left; 0.5 = the half fold)
   ...[0.3, 0.6, 1].map((t) => ({ name: `foldhalf-${t}`, path: `/lab/fold?seed=1407&fold=half&t=${t}` })),
   ...[0.65, 0.8, 1].map((t) => ({ name: `foldquarter-${t}`, path: `/lab/fold?seed=1407&fold=quarter&t=${t}` })),
+  // a stack of three sheets folded together: the last sheet's back outside, the others as edges
+  ...[0.5, 1].map((t) => ({ name: `foldmulti-${t}`, path: `/lab/fold?seed=1407&paper=grid&sheets=3&t=${t}` })),
+  { name: 'foldmulti-half-1', path: '/lab/fold?seed=1407&paper=grid&sheets=3&fold=half&t=1' },
+  ...[0.3, 0.86].map((t) => ({ name: `envmulti-${t}`, path: `/lab/envelope?seed=1407&sheets=4&t=${t}` })),
   // insert 0–.3 · close .3–.5 · pour .5–.7 · press .7–1
   ...[0.15, 0.3, 0.4, 0.6, 0.7, 0.8, 0.86, 1].map((t) => ({ name: `envelope-${t}`, path: `/lab/envelope?seed=1407&t=${t}` })),
   // orient 0–.15 · insert .15–.85 (seal snag ~.45) · drop .85–1
@@ -47,6 +56,11 @@ const SHOTS = [
   ...[0, 0.05, 0.1, 0.18, 0.25, 0.29, 0.41, 0.5, 0.6, 0.7, 0.85, 1].map((t) => ({ name: `mailbox-${t}`, path: `/lab/mailbox?seed=1407&t=${t}` })),
   // opened by breaking the seal: strain · just snapped (crumbs) · crumbs landing · flap half open · open · pulling
   ...[0.345, 0.365, 0.38, 0.42, 0.5, 0.6].map((t) => ({ name: `seal-${t}`, path: `/lab/mailbox?seed=1407&open=seal&t=${t}` })),
+  // reading a letter of three sheets: front · turning over · its back · sliding off to sheet 2 · sheet 3 · its back
+  ...[0, 0.35, 1, 1.3, 3, 4].map((turn) => ({ name: `read-${turn}`, path: `/lab/mailbox?seed=1407&sheets=3&t=1.01&turn=${turn}` })),
+  { name: 'read-fr-quarter', path: '/lab/mailbox?seed=1407&country=fr&sheets=2&fold=quarter&t=1.01&turn=1' },
+  { name: 'mbmulti-0.6', path: '/lab/mailbox?seed=1407&sheets=3&t=0.6' },
+  { name: 'journey-receive-2sheets', path: '/lab/journey?step=receive&sheets=2' },
   // FR mailbox (letters from Russia) · RU mailbox with three letters · an empty box
   { name: 'mbfr-5-closed', path: '/lab/mailbox?seed=1407&country=fr&waiting=5&t=0' },
   { name: 'mbfr-5-open', path: '/lab/mailbox?seed=1407&country=fr&waiting=5&t=0.1' },
