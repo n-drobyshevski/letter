@@ -93,8 +93,9 @@ export type MailboxViewProps = {
   name: string;
   /** Lab/QA: freeze a frame (≤ 0.7 receiving, up to 1 unfolding, above 1 reading at `fixedTurn`). */
   fixedT?: number;
-  /** Lab/QA: where the reader is in the stack of sheets (see ReadingStack). */
+  /** Lab/QA: where the reader is in the stack of sheets (see ReadingStack), and that turn's lean; without it, t > 1 opens a live reader. */
   fixedTurn?: number;
+  fixedTilt?: number;
   openMode?: OpenedBy;
   /** Shown over the closed box before the first letter (the lab's country switch). */
   header?: ReactNode;
@@ -105,7 +106,7 @@ export type MailboxViewProps = {
 };
 
 /** Open the box, take each letter out, open it, unfold, read; then the next one. */
-export function MailboxView({ letters, lang, country, name, fixedT, fixedTurn, openMode = 'slit', header, emptyExtra, onPhase, onOpened }: MailboxViewProps) {
+export function MailboxView({ letters, lang, country, name, fixedT, fixedTurn, fixedTilt, openMode = 'slit', header, emptyExtra, onPhase, onOpened }: MailboxViewProps) {
   const { width: sw, height: sh } = useWindowDimensions();
   const width = Math.min(sw, 480);
   const height = Math.round(Math.min(sh - 190, 640));
@@ -243,7 +244,8 @@ export function MailboxView({ letters, lang, country, name, fixedT, fixedTurn, o
           height={sheet.height}
           fold={fold}
           strokesWidth={letter.strokesWidth}
-          fixedTurn={fixedRead ? (fixedTurn ?? 0) : undefined}
+          fixedTurn={fixedRead ? fixedTurn : undefined}
+          fixedTilt={fixedRead ? fixedTilt : undefined}
           step={step}
           onFace={(i, faces) => setReading({ index: i, faces })}
         />
