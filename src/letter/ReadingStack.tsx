@@ -17,7 +17,7 @@ import { scheduleOnRN } from 'react-native-worklets';
 
 import { feel } from '../lib/haptics';
 import { useDeskKeys } from '../lib/useDeskKeys';
-import { HOME, dragPlacement, sweep, twistPlacement, type Placement } from './deskMove';
+import { HOME, dragPlacement, halfExtent, sweep, twistPlacement, type Placement } from './deskMove';
 import type { FoldKind } from './fold';
 import { gripOf, type Grip } from './grip';
 import { paperEdgeColor, useSheetFaces, type LetterLook, type SheetFaces } from './LetterSheet';
@@ -132,6 +132,19 @@ export function ReadingStack({ sheets, look, width, height, fold, strokesWidth, 
 
   const travel = width * 0.9;
   const room = Math.round(height * 0.12);
+  // On the laptop the letter can be turned to any angle and pushed about: the layout keeps
+  // room for its diagonal, and it stays in that room (never over the hint and the buttons).
+  const half = Math.hypot(width, height) / 2;
+  const spare = web ? Math.ceil(half - height / 2) : 0;
+  const boundsAt = (rot: number) => {
+    'worklet';
+    return { x: width * 0.3, y: Math.max(0, half - halfExtent({ width, height }, rot).y) };
+  };
+  const within = (pl: Placement) => {
+    'worklet';
+    const b = boundsAt(pl.rot);
+    return { ...pl, x: Math.max(-b.x, Math.min(b.x, pl.x)), y: Math.max(-b.y, Math.min(b.y, pl.y)) };
+  };
   const keys = useDeskKeys();
   const moving = useSharedValue(false);
   // A plain mouse drag: neither turn nor move.
@@ -187,7 +200,8 @@ export function ReadingStack({ sheets, look, width, height, fold, strokesWidth, 
     onUpdate: (e) => {
       if (idle.get()) return;
       if (moving.get()) {
-        place.set(dragPlacement(placeAtGrab.get(), grabAt.get(), { x: e.translationX, y: e.translationY }, { width, height }));
+        const start = placeAtGrab.get();
+        place.set(within(dragPlacement(start, grabAt.get(), { x: e.translationX, y: e.translationY }, { width, height }, boundsAt(start.rot))));
         return;
       }
       const raw = grab.get() - e.translationX / travel;
@@ -232,7 +246,7 @@ export function ReadingStack({ sheets, look, width, height, fold, strokesWidth, 
       const by = sweep(sweptFrom.get(), at);
       if (by === 0) return;
       sweptFrom.set(at);
-      place.set(twistPlacement(place.get(), by));
+      place.set(within(twistPlacement(place.get(), by)));
     },
   });
   const gesture = useCompetingGestures(pan, twist);
@@ -254,13 +268,13 @@ export function ReadingStack({ sheets, look, width, height, fold, strokesWidth, 
     },
   );
 
-  if (baked.some((b) => !b)) return <View style={{ width: width + PAD * 2, height: height + PAD * 2 }} />;
+  if (baked.some((b) => !b)) return <View style={{ width: width + PAD * 2, height: height + (PAD + spare) * 2 }} />;
   const ready = baked as SheetFaces[];
   const edge = paperEdgeColor(look.paper);
 
   return (
     // Room above and below for a leaning turn, without moving the layout around it.
-    <Animated.View style={[{ marginVertical: -room }, placed, web && ({ cursor: 'grab' } as object)]}>
+    <Animated.View style={[{ marginVertical: spare - room }, placed, web && ({ cursor: 'grab' } as object)]}>
       <GestureDetector gesture={gesture} touchAction="pan-y" enableContextMenu={!web}>
         <Canvas style={{ width: width + PAD * 2, height: height + (PAD + room) * 2 }}>
           <Group transform={[{ translateX: PAD }, { translateY: PAD + room }]}>

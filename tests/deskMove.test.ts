@@ -8,6 +8,8 @@ import {
   dragPlacement,
   fanOut,
   groupCentre,
+  halfExtent,
+  keepInside,
   moveGroup,
   nextPlacement,
   sheetAt,
@@ -153,4 +155,38 @@ test('sheets picked with Shift + click turn as one round their middle', () => {
   assert.ok(Math.hypot(c2.x - c.x, c2.y - c.y) < 1e-9);
   assert.ok(Math.abs(Math.hypot(turned[2].x - turned[0].x, turned[2].y - turned[0].y) - 200) < 1e-9);
   assert.equal(turned[1], placements[1]);
+});
+
+test('a turned sheet takes a wider box; the desk keeps it between its top and bottom at any angle', () => {
+  const size = { width: 400, height: 560 };
+  assert.deepEqual(halfExtent(size, 0), { x: 200, y: 280 });
+  const q = halfExtent(size, Math.PI / 2);
+  assert.ok(Math.abs(q.x - 280) < 1e-9 && Math.abs(q.y - 200) < 1e-9);
+  const d = halfExtent(size, Math.PI / 4);
+  assert.ok(Math.abs(d.y - ((400 + 560) * Math.SQRT1_2) / 2) < 1e-9);
+  // A desk as tall as the sheet's diagonal: room to move up and down, less as it turns, never below 0.
+  const area = { width: 1100, height: Math.ceil(Math.hypot(400, 560)) + 24 };
+  const straight = deskBounds(size, area, 0).y;
+  const turned = deskBounds(size, area, Math.PI / 5).y;
+  assert.ok(straight > 0 && turned < straight && turned >= 0);
+  for (let r = 0; r < Math.PI; r += 0.05) assert.ok(deskBounds(size, area, r).y >= 0);
+  // The sides still let it hang over.
+  assert.ok(deskBounds(size, area).x > (area.width - size.width) / 2);
+});
+
+test('keepInside brings sheets back within the desk by the least shift, a group as one', () => {
+  const size = { width: 400, height: 560 };
+  const area = { width: 1100, height: 712 };
+  const by = deskBounds(size, area, 0).y;
+  // Too high: back to the bound, nothing else moved.
+  const one = keepInside([{ x: 10, y: -by - 50, rot: 0 }, { x: 0, y: 0, rot: 0 }], [0], size, area);
+  assert.deepEqual([one[0].x, one[0].y], [10, -by]);
+  // Inside already: untouched (the same array).
+  const inside = [{ x: 0, y: 5, rot: 0 }];
+  assert.equal(keepInside(inside, [0], size, area), inside);
+  // A group: one shift for both, their shape kept.
+  const group = keepInside([{ x: -200, y: by + 30, rot: 0 }, { x: 200, y: by - 10, rot: 0 }], [0, 1], size, area);
+  assert.equal(group[0].y, by);
+  assert.equal(group[1].y - group[0].y, -40);
+  assert.equal(group[1].x - group[0].x, 400);
 });

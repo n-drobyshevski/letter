@@ -80,10 +80,61 @@ export function twistPlacement(start: Placement, by: number): Placement {
   return { x: start.x, y: start.y, rot, aim: rot };
 }
 
-/** How far a sheet's centre may go on a desk `area` wide and high: it may hang over the edge a little. */
-export function deskBounds(size: Size, area: Size) {
+/** Half the size of the box a sheet turned by `rot` takes on the desk. */
+export function halfExtent(size: Size, rot: number) {
   'worklet';
-  return { x: Math.max(0, (area.width - size.width) / 2) + size.width * 0.35, y: Math.max(0, (area.height - size.height) / 2) + size.height * 0.25 };
+  const c = Math.abs(Math.cos(rot));
+  const s = Math.abs(Math.sin(rot));
+  return { x: (size.width * c + size.height * s) / 2, y: (size.width * s + size.height * c) / 2 };
+}
+
+/**
+ * How far a sheet's centre may go on a desk `area` wide and high, the sheet turned by `rot`:
+ * over the sides a little (nothing but the desk's margins there), never over its top or
+ * bottom (the page's header, the buttons under the desk), whatever its angle.
+ */
+export function deskBounds(size: Size, area: Size, rot = 0) {
+  'worklet';
+  return {
+    x: Math.max(0, (area.width - size.width) / 2) + size.width * 0.35,
+    y: Math.max(0, area.height / 2 - halfExtent(size, rot).y),
+  };
+}
+
+/**
+ * Sheets brought back within the desk (deskBounds, each at its own angle) by the least
+ * common shift: one sheet alone, sheets picked together keeping their shape. If they can't
+ * all fit, the middle of what each would need.
+ */
+export function keepInside(placements: Placement[], ids: number[], size: Size, area: Size): Placement[] {
+  'worklet';
+  let loX = -Infinity;
+  let hiX = Infinity;
+  let loY = -Infinity;
+  let hiY = Infinity;
+  for (const i of ids) {
+    const pl = placements[i];
+    if (!pl) continue;
+    const b = deskBounds(size, area, pl.rot);
+    loX = Math.max(loX, -b.x - pl.x);
+    hiX = Math.min(hiX, b.x - pl.x);
+    loY = Math.max(loY, -b.y - pl.y);
+    hiY = Math.min(hiY, b.y - pl.y);
+  }
+  const shift = (lo: number, hi: number) => {
+    'worklet';
+    if (lo > hi) return (lo + hi) / 2;
+    return Math.max(lo, Math.min(hi, 0));
+  };
+  const dx = shift(loX, hiX);
+  const dy = shift(loY, hiY);
+  if ((dx === 0 && dy === 0) || !Number.isFinite(dx) || !Number.isFinite(dy)) return placements;
+  const out = placements.slice();
+  for (const i of ids) {
+    const pl = placements[i];
+    if (pl) out[i] = { ...pl, x: pl.x + dx, y: pl.y + dy };
+  }
+  return out;
 }
 
 /**
@@ -151,7 +202,6 @@ export function groupCentre(placements: Placement[], ids: number[]): { x: number
  */
 export function moveGroup(starts: Placement[], ids: number[], d: { x: number; y: number }, size: Size, area: Size): Placement[] {
   'worklet';
-  const b = deskBounds(size, area);
   let loX = -Infinity;
   let hiX = Infinity;
   let loY = -Infinity;
@@ -159,6 +209,7 @@ export function moveGroup(starts: Placement[], ids: number[], d: { x: number; y:
   for (const i of ids) {
     const pl = starts[i];
     if (!pl) continue;
+    const b = deskBounds(size, area, pl.rot);
     loX = Math.max(loX, Math.min(0, -b.x - pl.x));
     hiX = Math.min(hiX, Math.max(0, b.x - pl.x));
     loY = Math.max(loY, Math.min(0, -b.y - pl.y));

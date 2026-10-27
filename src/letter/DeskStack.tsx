@@ -19,7 +19,20 @@ import { feel } from '../lib/haptics';
 import { useDeskKeys } from '../lib/useDeskKeys';
 import { HANDWRITING_FONTS } from '../theme/stationery';
 import { bakeSheetFaces, paperEdgeColor, useGhostOf, useSheetFaces, type LetterLook, type SheetFaces } from './LetterSheet';
-import { HOME, deskBounds, dragPlacement, fanOut, groupCentre, moveGroup, nextPlacement, sheetAt, sweep, twistGroup, type Placement } from './deskMove';
+import {
+  HOME,
+  deskBounds,
+  dragPlacement,
+  fanOut,
+  groupCentre,
+  keepInside,
+  moveGroup,
+  nextPlacement,
+  sheetAt,
+  sweep,
+  twistGroup,
+  type Placement,
+} from './deskMove';
 import { fontSizeFor, paperFor } from './sheet';
 import { useShadow, type ShadowSpec } from './raster';
 import { mirrorPicture } from './showThrough';
@@ -172,7 +185,16 @@ export function DeskStack({ look, width, height, mode, sheets, onSheets, maxShee
   const { width: screenW } = useWindowDimensions();
   const loose = web && MULTI_SHEET && screenW >= LOOSE_MIN_WIDTH;
   const size = { width, height };
-  const area = loose ? { width: Math.max(width, Math.min(screenW - 32, Math.round(width * 2.15))), height: height + 48 } : size;
+  // As tall as a sheet's diagonal (and a little): a sheet at any angle lies between the
+  // page's header and the buttons under the desk, never over them.
+  const area = loose ? { width: Math.max(width, Math.min(screenW - 32, Math.round(width * 2.15))), height: Math.ceil(Math.hypot(width, height)) + 24 } : size;
+  // Either side of the desk, out to the window's edge: sheets may hang over there, drawn whole.
+  const ox = loose ? Math.max(0, Math.floor((screenW - area.width) / 2)) : 0;
+  /** A point of the desk's view (which takes in the margins) on the desk itself. */
+  const deskPoint = (e: { x: number; y: number }) => {
+    'worklet';
+    return { x: e.x - ox, y: e.y };
+  };
 
   // Bottom to top; the top one is `face.sheet`.
   const [order, setOrder] = useState<number[]>(() => [...sheets.keys()].filter((i) => i !== face.sheet).concat(face.sheet));
@@ -493,7 +515,7 @@ export function DeskStack({ look, width, height, mode, sheets, onSheets, maxShee
     activeOffsetX: [-3, 3],
     activeOffsetY: [-3, 3],
     onBegin: (e) => {
-      const i = sheetAt({ x: e.x, y: e.y }, placements.get(), orderNow.get(), size, area);
+      const i = sheetAt(deskPoint(e), placements.get(), orderNow.get(), size, area);
       carried.set(i);
       if (i < 0) return;
       const ids = takenWith(i);
@@ -501,7 +523,7 @@ export function DeskStack({ look, width, height, mode, sheets, onSheets, maxShee
       startsAtGrab.set(placements.get());
       const pl = placements.get()[i];
       placeAtGrab.set(pl);
-      grabAt.set({ x: e.x - area.width / 2 - pl.x, y: e.y - area.height / 2 - pl.y });
+      grabAt.set({ x: e.x - ox - area.width / 2 - pl.x, y: e.y - area.height / 2 - pl.y });
       scheduleOnRN(bringToTop, i, ids);
       scheduleOnRN(setCarrying, true);
     },
@@ -515,8 +537,9 @@ export function DeskStack({ look, width, height, mode, sheets, onSheets, maxShee
         return;
       }
       const next = placements.get().slice();
-      next[i] = dragPlacement(placeAtGrab.get(), grabAt.get(), d, size, deskBounds(size, area));
-      placements.set(next);
+      const start = placeAtGrab.get();
+      next[i] = dragPlacement(start, grabAt.get(), d, size, deskBounds(size, area, start.rot));
+      placements.set(keepInside(next, [i], size, area));
     },
     onFinalize: () => {
       const i = carried.get();
@@ -540,7 +563,7 @@ export function DeskStack({ look, width, height, mode, sheets, onSheets, maxShee
     activeOffsetX: [-3, 3],
     activeOffsetY: [-3, 3],
     onBegin: (e) => {
-      const i = sheetAt({ x: e.x, y: e.y }, placements.get(), orderNow.get(), size, area);
+      const i = sheetAt(deskPoint(e), placements.get(), orderNow.get(), size, area);
       twisted.set(i);
       if (i < 0) return;
       const ids = takenWith(i);
@@ -548,17 +571,19 @@ export function DeskStack({ look, width, height, mode, sheets, onSheets, maxShee
       // Round the middle of the sheets turned (one sheet: its own centre), which turning keeps.
       const c = groupCentre(placements.get(), ids);
       twistCentre.set(c);
-      sweptFrom.set({ x: e.x - area.width / 2 - c.x, y: e.y - area.height / 2 - c.y });
+      sweptFrom.set({ x: e.x - ox - area.width / 2 - c.x, y: e.y - area.height / 2 - c.y });
       scheduleOnRN(bringToTop, i, ids);
     },
     onUpdate: (e) => {
       if (twisted.get() < 0) return;
       const c = twistCentre.get();
-      const at = { x: e.x - area.width / 2 - c.x, y: e.y - area.height / 2 - c.y };
+      const at = { x: e.x - ox - area.width / 2 - c.x, y: e.y - area.height / 2 - c.y };
       const by = sweep(sweptFrom.get(), at);
       if (by === 0) return;
       sweptFrom.set(at);
-      placements.set(twistGroup(placements.get(), twistedWith.get(), c, by));
+      // Turned near the top or the bottom, it is nudged in: it never lies over the page's controls.
+      const ids = twistedWith.get();
+      placements.set(keepInside(twistGroup(placements.get(), ids, c, by), ids, size, area));
     },
     onFinalize: () => {
       twisted.set(-1);
@@ -568,7 +593,7 @@ export function DeskStack({ look, width, height, mode, sheets, onSheets, maxShee
   const pick = useTapGesture({
     enabled: loose,
     onActivate: (e) => {
-      const i = sheetAt({ x: e.x, y: e.y }, placements.get(), orderNow.get(), size, area);
+      const i = sheetAt(deskPoint(e), placements.get(), orderNow.get(), size, area);
       if (i >= 0) scheduleOnRN(bringToTop, i);
     },
   });
@@ -576,7 +601,7 @@ export function DeskStack({ look, width, height, mode, sheets, onSheets, maxShee
   const chooser = useTapGesture({
     enabled: loose,
     onActivate: (e) => {
-      scheduleOnRN(toggleChosen, sheetAt({ x: e.x, y: e.y }, placements.get(), orderNow.get(), size, area));
+      scheduleOnRN(toggleChosen, sheetAt(deskPoint(e), placements.get(), orderNow.get(), size, area));
     },
   });
   // A plain click anywhere on the desk (on a sheet, in the writing, on the bare desk) lets the pick go.
@@ -715,10 +740,10 @@ export function DeskStack({ look, width, height, mode, sheets, onSheets, maxShee
       {loose ? (
         // The right button turns sheets anywhere on the desk, over the one you write on too.
         <GestureDetector gesture={deskGestures} enableContextMenu={false}>
-          <View style={{ width: area.width, height: area.height }}>
-            {/* The sheets lying under the top one, where they were put. */}
-            <GestureDetector gesture={pick}>
-              <Canvas style={{ position: 'absolute', left: 0, top: 0, width: area.width, height: area.height }}>
+          <View style={{ width: area.width + ox * 2, height: area.height }}>
+            {/* The sheets lying under the top one, where they were put (over the sides too, drawn whole). */}
+            <View style={[StyleSheet.absoluteFill, styles.through]}>
+              <Canvas style={{ width: area.width + ox * 2, height: area.height }}>
                 {order
                   .filter((i) => i !== face.sheet && underFaces[i])
                   .map((i) => (
@@ -731,13 +756,18 @@ export function DeskStack({ look, width, height, mode, sheets, onSheets, maxShee
                       chosen={chosen.includes(i)}
                       placements={placements}
                       area={area}
+                      inset={ox}
                       width={width}
                       height={height}
                     />
                   ))}
               </Canvas>
+            </View>
+            {/* Clicks on the sheets under the top one (the canvas lets them through). */}
+            <GestureDetector gesture={pick}>
+              <View style={StyleSheet.absoluteFill} />
             </GestureDetector>
-            <Animated.View style={[{ position: 'absolute', left: (area.width - width) / 2, top: (area.height - height) / 2, width, height }, topPlaced]}>
+            <Animated.View style={[{ position: 'absolute', left: ox + (area.width - width) / 2, top: (area.height - height) / 2, width, height }, topPlaced]}>
               {writing}
               {chosen.includes(face.sheet) && <View style={[StyleSheet.absoluteFill, styles.through, styles.chosen]} />}
             </Animated.View>
@@ -808,6 +838,7 @@ function LooseSheet({
   chosen,
   placements,
   area,
+  inset,
   width,
   height,
 }: {
@@ -819,13 +850,15 @@ function LooseSheet({
   chosen: boolean;
   placements: SharedValue<Placement[]>;
   area: { width: number; height: number };
+  /** Where the desk starts in the canvas (which takes in the margins either side). */
+  inset: number;
   width: number;
   height: number;
 }) {
   const transform = useDerivedValue(() => {
     const pl = placements.value[index] ?? HOME;
     return [
-      { translateX: area.width / 2 + pl.x },
+      { translateX: inset + area.width / 2 + pl.x },
       { translateY: area.height / 2 + pl.y },
       { rotate: pl.rot },
       { translateX: -width / 2 },
