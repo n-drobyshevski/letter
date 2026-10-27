@@ -1,7 +1,7 @@
-import { Canvas, Group, Paint, Picture, RadialGradient, Rect, Skia, useFont, vec, type SkPicture, type Transforms3d } from '@shopify/react-native-skia';
+import { Canvas, Group, Paint, Picture, RadialGradient, Rect, Shadow, Skia, useFont, vec, type SkPicture, type Transforms3d } from '@shopify/react-native-skia';
 import { useEffect, useMemo, useState } from 'react';
-import { Keyboard, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
-import { GestureDetector, PointerType, usePanGesture } from 'react-native-gesture-handler';
+import { Keyboard, Platform, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { GestureDetector, PointerType, usePanGesture, useTapGesture } from 'react-native-gesture-handler';
 import Animated, {
   Easing,
   useAnimatedStyle,
@@ -16,10 +16,10 @@ import Animated, {
 import { scheduleOnRN } from 'react-native-worklets';
 
 import { feel } from '../lib/haptics';
-import { useTurnKey } from '../lib/useTurnKey';
+import { useDeskKeys } from '../lib/useDeskKeys';
 import { HANDWRITING_FONTS } from '../theme/stationery';
-import { bakeSheetFaces, paperEdgeColor, useGhostOf, type LetterLook } from './LetterSheet';
-import { HOME, dragPlacement, type Placement } from './deskMove';
+import { bakeSheetFaces, paperEdgeColor, useGhostOf, useSheetFaces, type LetterLook, type SheetFaces } from './LetterSheet';
+import { HOME, deskBounds, dragPlacement, fanOut, nextPlacement, sheetAt, type Placement } from './deskMove';
 import { fontSizeFor, paperFor } from './sheet';
 import { mirrorPicture } from './showThrough';
 import {
@@ -52,10 +52,17 @@ import { WritingDesk, type WritingMode } from './WritingDesk';
  * edge was taken (from the top corner, the top leads), the sheet travels a little
  * with the hand, and a slide to another sheet goes the way it was pushed. Released
  * past halfway (or flicked) it completes, otherwise it falls back.
+ *
+ * On the laptop (a wide web window) the sheets lie loose on the desk instead: a new
+ * sheet goes on top of the others, a little offset, and the earlier ones stay where
+ * they were. You write on the one on top, straightened in front of you. Shift + drag
+ * moves any sheet (and brings it to the top), a click on one brings it to the top,
+ * Ctrl (⌘) + drag on the top sheet's edge turns it over; a plain drag writes or draws.
  */
 
-// The laptop (web): a mouse moves sheets about, Ctrl (⌘) + drag turns them.
 const web = Platform.OS === 'web';
+// Wide enough for sheets to lie side by side: the laptop.
+const LOOSE_MIN_WIDTH = 760;
 
 // The edge strips that take a drag (pt), and the lifted-corner hint at their foot.
 const EDGE = 30;
@@ -71,6 +78,7 @@ type Turn = {
   /** Done once it lands (taking a new sheet). */
   apply?: () => void;
 };
+type Side = FaceRef['side'];
 
 const PERSPECTIVE = 1400;
 const COPY = {
@@ -93,7 +101,8 @@ const COPY = {
   clearPen: 'Стереть перо',
   cornerForward: 'Край листа: потяни влево, чтобы перевернуть',
   cornerBack: 'Край листа: потяни вправо, чтобы вернуться',
-  mouseHint: 'Тяни за край — подвинуть лист · с Ctrl — перевернуть',
+  mouseHint: 'Shift + тяни — подвинуть лист · щёлкни по листу — наверх · Ctrl + тяни за край — перевернуть',
+  mouseHintOne: 'Ctrl + тяни за край — перевернуть',
 };
 
 type Props = {
@@ -135,6 +144,50 @@ export function DeskStack({ look, width, height, mode, sheets, onSheets, maxShee
     [fixedTurn, font],
   );
   const reduceMotion = useReducedMotion();
+
+  // ── The loose desk (laptop): every sheet where it was put, the one on top to write on ──
+  const { width: screenW } = useWindowDimensions();
+  const loose = web && MULTI_SHEET && screenW >= LOOSE_MIN_WIDTH;
+  const size = { width, height };
+  const area = loose ? { width: Math.max(width, Math.min(screenW - 32, Math.round(width * 2.15))), height: height + 48 } : size;
+  // Bottom to top; the top one is `face.sheet`.
+  const [order, setOrder] = useState<number[]>(() => [...sheets.keys()].filter((i) => i !== face.sheet).concat(face.sheet));
+  const orderNow = useSharedValue(order);
+  // Which side is up on each sheet lying under the top one.
+  const [sides, setSides] = useState<Side[]>(() => sheets.map(() => 'recto'));
+  const placements = useSharedValue<Placement[]>(fanOut(sheets.length, size, area, (i) => sheetJitter(look.seed, i + 1).rot * 3));
+  // The top sheet easing back straight in front of you (0 as it lies, 1 straight).
+  const straight = useSharedValue(0);
+  const restack = (next: number[]) => {
+    setOrder(next);
+    orderNow.set(next);
+  };
+  /** Straighten sheet `i` (on top) to write on it. */
+  const straighten = (i: number) => {
+    'worklet';
+    straight.set(0);
+    straight.set(
+      withTiming(1, { duration: 220, easing: Easing.out(Easing.quad) }, (finished) => {
+        if (!finished) return;
+        const next = placements.get().slice();
+        if (next[i]) next[i] = { ...next[i], rot: 0 };
+        placements.set(next);
+        straight.set(0);
+      }),
+    );
+  };
+  /** Sheet `i` to the top of the desk, to write on (the one there now keeps the side it shows). */
+  const bringToTop = (i: number) => {
+    if (i === face.sheet || i < 0 || i >= sheets.length) return;
+    Keyboard.dismiss();
+    setAsk(null);
+    const kept = sides.slice();
+    kept[face.sheet] = face.side;
+    setSides(kept);
+    setFace({ sheet: i, side: sheets[i].twoSided ? (kept[i] ?? 'recto') : 'recto' });
+    restack(order.filter((j) => j !== i).concat(i));
+    straighten(i);
+  };
 
   const p = useSharedValue(fixedTurn ?? 0);
   // The hand's grip on the turn under way (buttons turn square, pushed the plain way).
@@ -196,69 +249,66 @@ export function DeskStack({ look, width, height, mode, sheets, onSheets, maxShee
     if (!here || !there) return null;
     return { kind: 'slide', dir: target.sheet > face.sheet ? 1 : -1, from: here[face.side], to: there[target.side], target, apply };
   };
+  // On the loose desk the edges only turn the sheet over: other sheets are fetched by hand.
   const forward = (): Turn | null =>
-    face.side === 'recto' && sheet.twoSided ? flip() : face.sheet < sheets.length - 1 ? slide({ sheet: face.sheet + 1, side: 'recto' }) : null;
+    face.side === 'recto' && sheet.twoSided ? flip() : !loose && face.sheet < sheets.length - 1 ? slide({ sheet: face.sheet + 1, side: 'recto' }) : null;
   const backward = (): Turn | null => {
     if (face.side === 'verso') return flip();
-    if (face.sheet === 0) return null;
+    if (loose || face.sheet === 0) return null;
     // The page written just before this one: the back of the previous sheet, if it has one.
     const prev = sheets[face.sheet - 1];
     return slide({ sheet: face.sheet - 1, side: prev.twoSided ? 'verso' : 'recto' });
   };
 
   const turnOver = () => play(flip());
-  const goTo = (i: number) => play(slide({ sheet: i, side: 'recto' }));
+  const goTo = (i: number) => (loose ? bringToTop(i) : play(slide({ sheet: i, side: 'recto' })));
   const addSheet = () => {
     const blank = emptySheet(look.paper);
-    play(slide({ sheet: sheets.length, side: 'recto' }, () => onSheets([...sheets, blank]), blank));
+    if (!loose) return play(slide({ sheet: sheets.length, side: 'recto' }, () => onSheets([...sheets, blank]), blank));
+    // Laid on top of the others, a little offset: the earlier sheets stay on the desk.
+    const i = sheets.length;
+    const now = placements.get();
+    placements.set([...now, nextPlacement(now[face.sheet] ?? HOME, size, area, sheetJitter(look.seed, i + 1).rot * 3)]);
+    const kept = sides.slice();
+    kept[face.sheet] = face.side;
+    setSides([...kept, 'recto']);
+    onSheets([...sheets, blank]);
+    setFace({ sheet: i, side: 'recto' });
+    restack([...order, i]);
+    Keyboard.dismiss();
+    straighten(i);
   };
 
   // The sheet's edges: the finger writes p (0 → 1 is the whole turn) and the grip.
-  // With a mouse (the laptop) a plain drag pushes the sheet about the desk instead, and
-  // Ctrl (⌘) + drag turns it; a finger always turns.
+  // With a mouse (the laptop) only Ctrl (⌘) + drag turns; a plain drag there is left alone.
   const travel = width * 0.8;
   const grabY = useSharedValue(0.5);
-  const turnKey = useTurnKey();
-  const moving = useSharedValue(false);
-  const place = useSharedValue<Placement>(HOME);
-  const placeAtGrab = useSharedValue<Placement>(HOME);
-  const grabAt = useSharedValue({ x: 0, y: 0 });
+  const keys = useDeskKeys();
+  const idle = useSharedValue(false);
   const startDrag = (dir: 1 | -1) => begin(dir === 1 ? forward() : backward());
   const edge = (dir: 1 | -1) => ({
     // Not switched off while its own turn is under way: that would cancel the drag.
-    // On the laptop the edges are always there: the sheet can be moved even when it can't turn.
-    enabled: fixedTurn === undefined && (web || (dir === 1 ? canForward : canBackward)),
-    // On the web a mouse moves the sheet any way, so any direction takes hold; a finger
-    // on the phone turns only the edge's own way, and mostly vertical still scrolls the desk.
-    activeOffsetX: web ? ([-6, 6] as [number, number]) : dir === 1 ? -6 : 6,
-    activeOffsetY: web ? ([-6, 6] as [number, number]) : undefined,
-    failOffsetY: web ? undefined : ([-40, 40] as [number, number]),
-    onBegin: (e: { x: number; y: number }) => {
+    enabled: fixedTurn === undefined && (dir === 1 ? canForward : canBackward),
+    // Only the edge's own way; mostly vertical still scrolls the desk.
+    activeOffsetX: dir === 1 ? -6 : 6,
+    failOffsetY: [-40, 40] as [number, number],
+    onBegin: (e: { y: number }) => {
       grabY.set(Math.min(1, Math.max(0, e.y / height)));
-      // Where on the sheet it was taken, from its centre (the strips sit at its edges).
-      grabAt.set({ x: (dir === 1 ? width - EDGE : 0) + e.x - width / 2, y: e.y - height / 2 });
     },
     onActivate: (e: { translationX: number; translationY: number; pointerType: PointerType }) => {
-      moving.set(e.pointerType === PointerType.MOUSE && !turnKey.get());
-      if (moving.get()) {
-        placeAtGrab.set(place.get());
-        return;
-      }
+      idle.set(e.pointerType === PointerType.MOUSE && !keys.turn.get());
+      if (idle.get()) return;
       p.set(0);
       grip.set(gripOf(dir, e.translationX, e.translationY, grabY.get()));
       scheduleOnRN(startDrag, dir);
     },
     onUpdate: (e: { translationX: number; translationY: number }) => {
-      if (moving.get()) {
-        place.set(dragPlacement(placeAtGrab.get(), grabAt.get(), { x: e.translationX, y: e.translationY }, { width, height }));
-        return;
-      }
+      if (idle.get()) return;
       p.set(Math.min(1, Math.max(0, (-dir * e.translationX) / travel)));
       grip.set(gripOf(dir, e.translationX, e.translationY, grabY.get()));
     },
     onDeactivate: (e: { velocityX: number; canceled: boolean }) => {
-      // Let go of a pushed sheet: it stays where it lies.
-      if (moving.get()) return moving.set(false);
+      if (idle.get()) return idle.set(false);
       const v = (-dir * e.velocityX) / travel;
       const commit = !e.canceled && (v > 0.5 || (v > -0.5 && p.get() > 0.5));
       const done = (finished?: boolean) => {
@@ -272,19 +322,83 @@ export function DeskStack({ look, width, height, mode, sheets, onSheets, maxShee
       );
     },
   });
-  const canForward = (face.side === 'recto' && sheet.twoSided) || face.sheet < sheets.length - 1;
-  const canBackward = face.side === 'verso' || face.sheet > 0;
+  const canForward = (face.side === 'recto' && sheet.twoSided) || (!loose && face.sheet < sheets.length - 1);
+  const canBackward = face.side === 'verso' || (!loose && face.sheet > 0);
   const forwardEdge = usePanGesture(edge(1));
   const backEdge = usePanGesture(edge(-1));
-  const placed = useAnimatedStyle(() => ({
-    transform: [{ translateX: place.value.x }, { translateY: place.value.y }, { rotate: `${place.value.rot}rad` }],
-  }));
+
+  // Shift + drag on the loose desk: the sheet under the pointer comes to the top and follows the hand.
+  const [carrying, setCarrying] = useState(false);
+  const carried = useSharedValue(-1);
+  const placeAtGrab = useSharedValue<Placement>(HOME);
+  const grabAt = useSharedValue({ x: 0, y: 0 });
+  const carry = usePanGesture({
+    enabled: loose,
+    activeOffsetX: [-3, 3],
+    activeOffsetY: [-3, 3],
+    onBegin: (e) => {
+      const i = sheetAt({ x: e.x, y: e.y }, placements.get(), orderNow.get(), size, area);
+      carried.set(i);
+      if (i < 0) return;
+      const pl = placements.get()[i];
+      placeAtGrab.set(pl);
+      grabAt.set({ x: e.x - area.width / 2 - pl.x, y: e.y - area.height / 2 - pl.y });
+      scheduleOnRN(bringToTop, i);
+      scheduleOnRN(setCarrying, true);
+    },
+    onUpdate: (e) => {
+      const i = carried.get();
+      if (i < 0) return;
+      const next = placements.get().slice();
+      next[i] = dragPlacement(placeAtGrab.get(), grabAt.get(), { x: e.translationX, y: e.translationY }, size, deskBounds(size, area));
+      placements.set(next);
+    },
+    onFinalize: () => {
+      const i = carried.get();
+      carried.set(-1);
+      scheduleOnRN(setCarrying, false);
+      // Put down in front of you: straightened to write on.
+      if (i >= 0) straighten(i);
+    },
+  });
+  // A click on a sheet lying under the top one brings it up.
+  const pick = useTapGesture({
+    enabled: loose,
+    onActivate: (e) => {
+      const i = sheetAt({ x: e.x, y: e.y }, placements.get(), orderNow.get(), size, area);
+      if (i >= 0) scheduleOnRN(bringToTop, i);
+    },
+  });
+  // The sheets under the top one, baked once each (never the top one: it changes as you write).
+  const under = (i: number) => (loose && i !== face.sheet ? sheets[i] : undefined);
+  const u0 = useSheetFaces(under(0), 0, look, width, height, 0, 'tri', width);
+  const u1 = useSheetFaces(under(1), 1, look, width, height, 0, 'tri', width);
+  const u2 = useSheetFaces(under(2), 2, look, width, height, 0, 'tri', width);
+  const u3 = useSheetFaces(under(3), 3, look, width, height, 0, 'tri', width);
+  const underFaces = [u0, u1, u2, u3];
+  const topPlaced = useAnimatedStyle(() => {
+    const pl = placements.value[face.sheet] ?? HOME;
+    return {
+      transform: [{ translateX: pl.x }, { translateY: pl.y }, { rotate: `${pl.rot * (1 - straight.value)}rad` }],
+    };
+  });
 
   const removeSheet = () => {
-    const next = sheets.filter((_, i) => i !== face.sheet);
+    const gone = face.sheet;
+    const next = sheets.filter((_, i) => i !== gone);
     onSheets(next);
-    setFace({ sheet: Math.max(0, face.sheet - 1), side: 'recto' });
     setAsk(null);
+    if (!loose) return setFace({ sheet: Math.max(0, gone - 1), side: 'recto' });
+    // The others keep their places; the one now on top is written on.
+    const shift = (j: number) => (j > gone ? j - 1 : j);
+    const nextOrder = order.filter((j) => j !== gone).map(shift);
+    const nextSides = sides.filter((_, j) => j !== gone);
+    placements.set(placements.get().filter((_, j) => j !== gone));
+    setSides(nextSides);
+    restack(nextOrder);
+    const top = nextOrder[nextOrder.length - 1] ?? 0;
+    setFace({ sheet: top, side: next[top]?.twoSided ? (nextSides[top] ?? 'recto') : 'recto' });
+    straighten(top);
   };
   const setTwoSided = (on: boolean) => {
     const next = sheets.map((s, i) => (i === face.sheet ? { ...s, twoSided: on, verso: on ? s.verso : emptyFace() } : s));
@@ -302,61 +416,101 @@ export function DeskStack({ look, width, height, mode, sheets, onSheets, maxShee
         ? COPY.overflowMore
         : COPY.overflowLast;
 
+  // The sheet you write on, its edges and its turn.
+  const writing = (
+    <>
+      {/* Hidden while the overlay turns the sheet: no touches either, or ink would land unseen on the new face. */}
+      <View style={{ opacity: turning || fixedTurn !== undefined ? 0 : 1 }} pointerEvents={turning || fixedTurn !== undefined ? 'none' : 'auto'}>
+        <WritingDesk
+          look={look}
+          width={width}
+          height={height}
+          mode={mode}
+          face={face}
+          ghost={ghost}
+          text={current.text}
+          onText={(text) => setCurrent({ text })}
+          strokes={current.strokes}
+          onStrokes={(strokes) => setCurrent({ strokes })}
+          placeholder={face.sheet === 0 && face.side === 'recto' ? placeholder : undefined}
+          overflowNote={overflowNote}
+        />
+      </View>
+      {MULTI_SHEET && fixedTurn === undefined && (
+        <>
+          {canForward && (
+            <>
+              <CornerLift side="right" />
+              <GestureDetector gesture={forwardEdge} touchAction="pan-y">
+                <View style={[styles.edge, { right: 0 }]} accessibilityLabel={COPY.cornerForward} />
+              </GestureDetector>
+            </>
+          )}
+          {canBackward && (
+            <>
+              <CornerLift side="left" />
+              <GestureDetector gesture={backEdge} touchAction="pan-y">
+                <View style={[styles.edge, { left: 0 }]} accessibilityLabel={COPY.cornerBack} />
+              </GestureDetector>
+            </>
+          )}
+        </>
+      )}
+      {(turning || frozen) && (
+        <TurnOverlay
+          from={turning?.from ?? frozen!.recto}
+          to={turning?.to ?? frozen!.verso}
+          kind={turning?.kind ?? 'flip'}
+          dir={turning?.dir ?? 1}
+          grip={grip}
+          fade={reduceMotion}
+          p={p}
+          width={width}
+          height={height}
+        />
+      )}
+    </>
+  );
+
   return (
     <View style={styles.root}>
-      <Animated.View style={[{ width, height }, placed]}>
-        {sheets.length > 1 && <StackEdges count={sheets.length - 1} seed={look.seed} width={width} height={height} paper={look.paper} />}
-        {/* Hidden while the overlay turns the sheet: no touches either, or ink would land unseen on the new face. */}
-        <View style={{ opacity: turning || fixedTurn !== undefined ? 0 : 1 }} pointerEvents={turning || fixedTurn !== undefined ? 'none' : 'auto'}>
-          <WritingDesk
-            look={look}
-            width={width}
-            height={height}
-            mode={mode}
-            face={face}
-            ghost={ghost}
-            text={current.text}
-            onText={(text) => setCurrent({ text })}
-            strokes={current.strokes}
-            onStrokes={(strokes) => setCurrent({ strokes })}
-            placeholder={face.sheet === 0 && face.side === 'recto' ? placeholder : undefined}
-            overflowNote={overflowNote}
-          />
+      {loose ? (
+        <View style={{ width: area.width, height: area.height }}>
+          {/* The sheets lying under the top one, where they were put. */}
+          <GestureDetector gesture={pick}>
+            <Canvas style={{ position: 'absolute', left: 0, top: 0, width: area.width, height: area.height }}>
+              {order
+                .filter((i) => i !== face.sheet && underFaces[i])
+                .map((i) => (
+                  <LooseSheet
+                    key={i}
+                    index={i}
+                    faces={underFaces[i]!}
+                    side={sheets[i]?.twoSided ? (sides[i] ?? 'recto') : 'recto'}
+                    placements={placements}
+                    area={area}
+                    width={width}
+                    height={height}
+                  />
+                ))}
+            </Canvas>
+          </GestureDetector>
+          <Animated.View style={[{ position: 'absolute', left: (area.width - width) / 2, top: (area.height - height) / 2, width, height }, topPlaced]}>
+            {writing}
+          </Animated.View>
+          {/* Shift held: a layer over the desk takes the drag and moves the sheet under the pointer. */}
+          {(keys.moveHeld || carrying) && (
+            <GestureDetector gesture={carry}>
+              <View style={[StyleSheet.absoluteFill, styles.grab]} />
+            </GestureDetector>
+          )}
         </View>
-        {MULTI_SHEET && fixedTurn === undefined && (
-          <>
-            {(canForward || web) && (
-              <>
-                {canForward && <CornerLift side="right" />}
-                <GestureDetector gesture={forwardEdge} touchAction="pan-y">
-                  <View style={[styles.edge, web && styles.grab, { right: 0 }]} accessibilityLabel={COPY.cornerForward} />
-                </GestureDetector>
-              </>
-            )}
-            {(canBackward || web) && (
-              <>
-                {canBackward && <CornerLift side="left" />}
-                <GestureDetector gesture={backEdge} touchAction="pan-y">
-                  <View style={[styles.edge, web && styles.grab, { left: 0 }]} accessibilityLabel={COPY.cornerBack} />
-                </GestureDetector>
-              </>
-            )}
-          </>
-        )}
-        {(turning || frozen) && (
-          <TurnOverlay
-            from={turning?.from ?? frozen!.recto}
-            to={turning?.to ?? frozen!.verso}
-            kind={turning?.kind ?? 'flip'}
-            dir={turning?.dir ?? 1}
-            grip={grip}
-            fade={reduceMotion}
-            p={p}
-            width={width}
-            height={height}
-          />
-        )}
-      </Animated.View>
+      ) : (
+        <View style={{ width, height }}>
+          {sheets.length > 1 && <StackEdges count={sheets.length - 1} seed={look.seed} width={width} height={height} paper={look.paper} />}
+          {writing}
+        </View>
+      )}
 
       <View style={styles.row}>
         {current.strokes.length > 0 && <DeskButton label={COPY.clearPen} onPress={() => setCurrent({ strokes: [] })} />}
@@ -366,7 +520,7 @@ export function DeskStack({ look, width, height, mode, sheets, onSheets, maxShee
           <Text style={styles.where} accessibilityLiveRegion="polite">
             {COPY.sheet(face.sheet, sheets.length, face.side === 'verso')}
           </Text>
-          {web && <Text style={styles.where}>{COPY.mouseHint}</Text>}
+          {loose && <Text style={styles.where}>{sheets.length > 1 ? COPY.mouseHint : COPY.mouseHintOne}</Text>}
           {ask ? (
             <View style={styles.row}>
               <Text style={styles.ask}>{ask === 'remove' ? COPY.sureRemove : COPY.sureBack}</Text>
@@ -382,7 +536,7 @@ export function DeskStack({ look, width, height, mode, sheets, onSheets, maxShee
                 onPress={() => (sheet.twoSided ? (isEmptyFace(sheet.verso) ? setTwoSided(false) : setAsk('back')) : setTwoSided(true))}
               />
               {!last && <DeskButton label={`${COPY.next} ${face.sheet + 2}`} onPress={() => goTo(face.sheet + 1)} />}
-              {last && canAdd && <DeskButton label={COPY.more} strong onPress={addSheet} />}
+              {(loose || last) && canAdd && <DeskButton label={COPY.more} strong onPress={addSheet} />}
               {sheets.length > 1 && (
                 <DeskButton label={COPY.remove} onPress={() => (isEmptySheet(sheet) ? removeSheet() : setAsk('remove'))} />
               )}
@@ -392,6 +546,44 @@ export function DeskStack({ look, width, height, mode, sheets, onSheets, maxShee
         </>
       )}
     </View>
+  );
+}
+
+/** A sheet lying on the loose desk under the top one: the side that is up, where it was put. */
+function LooseSheet({
+  index,
+  faces,
+  side,
+  placements,
+  area,
+  width,
+  height,
+}: {
+  index: number;
+  faces: SheetFaces;
+  side: Side;
+  placements: SharedValue<Placement[]>;
+  area: { width: number; height: number };
+  width: number;
+  height: number;
+}) {
+  const transform = useDerivedValue(() => {
+    const pl = placements.value[index] ?? HOME;
+    return [
+      { translateX: area.width / 2 + pl.x },
+      { translateY: area.height / 2 + pl.y },
+      { rotate: pl.rot },
+      { translateX: -width / 2 },
+      { translateY: -height / 2 },
+    ];
+  });
+  return (
+    <Group transform={transform}>
+      <Rect x={0} y={0} width={width} height={height} color="#000">
+        <Shadow dx={2} dy={5} blur={9} color="rgba(20, 12, 4, 0.32)" shadowOnly />
+      </Rect>
+      <Picture picture={side === 'verso' ? faces.verso : faces.recto} />
+    </Group>
   );
 }
 

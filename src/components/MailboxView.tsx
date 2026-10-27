@@ -47,7 +47,7 @@ export const MAILBOX_COPY = {
     nextSheet: 'Следующий лист',
     prevFace: 'Назад',
     overleaf: 'На обороте ещё есть',
-    mouseHint: 'Тяни — подвинуть письмо · с Ctrl — перевернуть лист',
+    mouseHint: 'Ctrl + тяни — перевернуть лист · Shift + тяни — подвинуть письмо',
     where: (f: FaceRef, n: number) => `Лист ${f.sheet + 1} из ${n}${f.side === 'verso' ? ', оборот' : ''}`,
   },
   fr: {
@@ -77,7 +77,7 @@ export const MAILBOX_COPY = {
     nextSheet: 'Feuille suivante',
     prevFace: 'Retour',
     overleaf: 'La suite au verso',
-    mouseHint: 'Glisse pour déplacer la lettre · avec Ctrl pour tourner la page',
+    mouseHint: 'Ctrl + glisser pour tourner la page · Maj + glisser pour déplacer la lettre',
     where: (f: FaceRef, n: number) => `Feuille ${f.sheet + 1} sur ${n}${f.side === 'verso' ? ', verso' : ''}`,
   },
 };
