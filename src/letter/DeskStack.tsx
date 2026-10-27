@@ -39,6 +39,8 @@ import { mirrorPicture } from './showThrough';
 import {
   MAX_SHEETS,
   MULTI_SHEET,
+  LOOSE_MIN_WIDTH,
+  looseAreaOf,
   clampFace,
   emptyFace,
   emptySheet,
@@ -78,7 +80,6 @@ import { WritingDesk, type WritingMode } from './WritingDesk';
 
 const web = Platform.OS === 'web';
 // Wide enough for sheets to lie side by side: the laptop.
-const LOOSE_MIN_WIDTH = 760;
 
 // The edge strips that take a drag (pt), and the lifted-corner hint at their foot.
 const EDGE = 30;
@@ -200,7 +201,7 @@ export function DeskStack({ look, width, height, mode, sheets, onSheets, maxShee
   const size = { width, height };
   // As tall as a sheet's diagonal (and a little): a sheet at any angle lies between the
   // page's header and the buttons under the desk, never over them.
-  const area = loose ? { width: Math.max(width, Math.min(screenW - 32, Math.round(width * 2.15))), height: Math.ceil(Math.hypot(width, height)) + 24 } : size;
+  const area = loose ? looseAreaOf(width, height, screenW) : size;
   // Either side of the desk, out to the window's edge: sheets may hang over there, drawn whole.
   const ox = loose ? Math.max(0, Math.floor((screenW - area.width) / 2)) : 0;
   /** A point of the desk's view (which takes in the margins) on the desk itself. */

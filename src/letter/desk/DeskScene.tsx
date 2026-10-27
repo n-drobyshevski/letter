@@ -21,6 +21,7 @@ import { scheduleOnRN, scheduleOnUI } from 'react-native-worklets';
 import { useLabParams } from '../../lib/params';
 import { useMotionPrefs } from '../../lib/useMotionPrefs';
 import { DESK, type Country } from '../../theme/stationery';
+import { looseAreaOf } from '../stack';
 import type { Lang } from '../tracking/copy';
 import { Nosing, ApronCanvas } from './ApronCanvas';
 import { CarryLayer, ItemHit, itemMm, useCarry, type Carry, type ItemDest, type ItemHome } from './CarryLayer';
@@ -134,9 +135,11 @@ export function DeskScene({
   const [contentH, setContentH] = useState(0);
   const onSheetLayout = (e: LayoutChangeEvent) => {
     const l = e.nativeEvent.layout;
+    // On the loose desk the slot is the whole loose area, the sheet's home at its middle.
+    const drop = layout.loose ? (looseAreaOf(layout.sheet.width, layout.sheet.height, layout.width).height - layout.sheet.height) / 2 : 0;
     const r = {
       x: Math.round(l.x + (l.width - layout.sheet.width) / 2),
-      y: Math.round(l.y),
+      y: Math.round(l.y + drop),
       width: layout.sheet.width,
       height: layout.sheet.height,
     };

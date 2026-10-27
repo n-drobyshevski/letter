@@ -12,6 +12,7 @@ import {
   type Rect,
   type RestingPlaces,
 } from './types';
+import { LOOSE_MIN_WIDTH, MULTI_SHEET } from '../stack';
 
 /**
  * The desk's geometry (spec §2.2, §2.3, §3.2): phone or laptop, the fixed band, the three fronts,
@@ -97,9 +98,13 @@ function minDepth(drawer: DrawerKey, mode: Mode, far: number): number {
 }
 
 /** The sheet: `useSheetSize()` on a phone; on a laptop capped so the header, the pad above it, the sheet and the band fit the window (§2.3). */
-function sheetSize(mode: Mode, width: number, height: number, top: number, band: number) {
+function sheetSize(mode: Mode, width: number, height: number, top: number, band: number, loose: boolean) {
   const maxHeight = mode === 'laptop' ? height - top - LAPTOP_HEADER - PAD_MARGIN_Y.laptop - LAPTOP_FOOT - band : Infinity;
-  const capped = Number.isFinite(maxHeight) ? Math.floor(Math.max(0, maxHeight) / SQRT2) : Infinity;
+  // Loose sheets (web, wide) sit centred in an area as tall as their diagonal: the sheet's top
+  // drops by half the difference, (√3 − √2)/2·w + 12, and that has to fit too.
+  const capped = Number.isFinite(maxHeight)
+    ? Math.floor(Math.max(0, maxHeight - (loose ? 12 : 0)) / (loose ? (Math.sqrt(3) + SQRT2) / 2 : SQRT2))
+    : Infinity;
   const w = Math.max(160, Math.round(Math.min(width - 32, 520, capped)));
   return { width: w, height: Math.round(w * SQRT2) };
 }
@@ -153,7 +158,8 @@ export function deskLayout(input: DeskLayoutInput): DeskLayout {
     };
   }
 
-  const sheet = sheetSize(mode, width, height, insets.top, bandHeight);
+  const loose = input.loose ?? false;
+  const sheet = sheetSize(mode, width, height, insets.top, bandHeight, loose);
   const pad: PadRule =
     mode === 'phone'
       ? { fullBleed: true, marginX: 0, marginY: PAD_MARGIN_Y.phone, fillets: [8], radius: 3 }
@@ -168,6 +174,7 @@ export function deskLayout(input: DeskLayoutInput): DeskLayout {
 
   return {
     mode,
+    loose,
     width,
     height,
     insets,
@@ -186,14 +193,14 @@ export function deskLayout(input: DeskLayoutInput): DeskLayout {
 export function useDeskLayout(): DeskLayout {
   // Required here, not imported, so node tests can load this module (React Native doesn't parse in node).
   /* eslint-disable @typescript-eslint/no-require-imports */
-  const { useWindowDimensions } = require('react-native') as typeof import('react-native');
+  const { Platform, useWindowDimensions } = require('react-native') as typeof import('react-native');
   const { useSafeAreaInsets } = require('react-native-safe-area-context') as typeof import('react-native-safe-area-context');
   /* eslint-enable @typescript-eslint/no-require-imports */
   const { width, height } = useWindowDimensions();
   const { top, bottom, left, right } = useSafeAreaInsets();
   return useMemo(
-    () => deskLayout({ width, height, insets: { top, bottom, left, right } }),
-    [width, height, top, bottom, left, right],
+    () => deskLayout({ width, height, insets: { top, bottom, left, right }, loose: Platform.OS === 'web' && MULTI_SHEET && width >= LOOSE_MIN_WIDTH }),
+    [width, height, top, bottom, left, right, Platform.OS],
   );
 }
 

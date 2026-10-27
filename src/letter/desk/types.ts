@@ -166,6 +166,8 @@ export type PadRule = {
 
 export type DeskLayout = {
   mode: 'phone' | 'laptop';
+  /** Loose sheets: the slot is DeskStack's loose area, the sheet's home at its centre. */
+  loose: boolean;
   /** Window size and safe-area insets it was computed for. */
   width: number;
   height: number;
@@ -189,6 +191,8 @@ export type DeskLayoutInput = {
   width: number;
   height: number;
   insets: { top: number; bottom: number; left?: number; right?: number };
+  /** The sheets lie loose on the desk (web, wide window: DeskStack's loose desk). */
+  loose?: boolean;
 };
 
 /** Where a resting item lies on the desk top (near scale): its centre, its turn (radians), pt per mm. */

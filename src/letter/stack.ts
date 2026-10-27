@@ -31,6 +31,19 @@ export const maxSheetsFor = (fold: FoldKind | undefined) => (fold === 'quarter' 
  */
 export const MULTI_SHEET = true;
 
+/** Windows at least this wide (web) lay the sheets loose on the desk instead of in a stack. */
+export const LOOSE_MIN_WIDTH = 760;
+
+/**
+ * The loose desk's area for a sheet of this size: as tall as the sheet's diagonal (and a
+ * little), so a sheet at any angle lies between the page's header and its buttons; the top
+ * sheet's home is its centre.
+ */
+export const looseAreaOf = (width: number, height: number, screenW: number) => ({
+  width: Math.max(width, Math.min(screenW - 32, Math.round(width * 2.15))),
+  height: Math.ceil(Math.hypot(width, height)) + 24,
+});
+
 // Paper that is written on both sides by habit: the thin school notebook leaf, the copie double, airmail onion skin (postage).
 const TWO_SIDED: Record<PaperKind, boolean> = { grid: true, cotton: false, seyes: true, airmail: true, cream: false, kraft: false };
 export const defaultTwoSided = (paper: PaperKind) => TWO_SIDED[paper];
