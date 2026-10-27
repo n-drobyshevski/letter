@@ -2,49 +2,113 @@ import { useEffect, useState } from 'react';
 import { Platform } from 'react-native';
 import { useSharedValue, type SharedValue } from 'react-native-reanimated';
 
-type KeyLike = { key: string; ctrlKey: boolean; metaKey: boolean; shiftKey: boolean };
+type El = {
+  tagName?: string;
+  isContentEditable?: boolean;
+  getAttribute?: (name: string) => string | null;
+  value?: string;
+  selectionStart?: number | null;
+  selectionEnd?: number | null;
+};
+type KeyLike = { key: string; code: string; repeat: boolean; ctrlKey: boolean; metaKey: boolean; target: El | null; preventDefault: () => void };
 type Target = {
   addEventListener: (type: string, fn: (e: never) => void, options?: boolean | { capture?: boolean }) => void;
   removeEventListener: (type: string, fn: (e: never) => void, options?: boolean | { capture?: boolean }) => void;
 };
+type Doc = { activeElement: El | null; execCommand: (command: string) => boolean };
+
+const editable = (el: El | null) => !!el && (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT' || !!el.isContentEditable);
+const pressable = (el: El | null) =>
+  !!el && (el.tagName === 'BUTTON' || el.tagName === 'A' || el.getAttribute?.('role') === 'button' || el.getAttribute?.('role') === 'link');
 
 /**
- * The laptop's modifier keys for sheets on the desk: Ctrl (or ⌘ on a Mac) + drag turns a
- * page, Shift + drag moves a sheet; a plain drag writes, draws or selects as usual.
- * Gesture Handler's events carry no modifier keys, so the window's keys and pointer
- * presses are followed here: as shared values (read by gestures) and, for Shift, as
- * state too (the desk lays a move layer over the sheets only while it is held).
- * Always off on native, where a finger turns the page.
+ * The laptop's keys for sheets on the desk: Ctrl (or ⌘ on a Mac) + drag turns a page,
+ * Space + drag moves a sheet; a plain drag writes, draws or selects as usual.
+ * Gesture Handler's events carry no keys, so the window's are followed here: as shared
+ * values (read by gestures) and as state (the desk lays a turn or a move layer over the
+ * sheets only while the key is held). Always off on native, where a finger turns the page.
+ *
+ * Space + drag moves even while you write: the space that the key typed is taken back
+ * when the drag starts (and holding Space never repeats it). Space on a button still
+ * presses it; elsewhere it no longer scrolls the page.
  */
-export function useDeskKeys(): { turn: SharedValue<boolean>; move: SharedValue<boolean>; moveHeld: boolean } {
+export function useDeskKeys(): { turn: SharedValue<boolean>; move: SharedValue<boolean>; moveHeld: boolean; turnHeld: boolean } {
   const turn = useSharedValue(false);
   const move = useSharedValue(false);
   const [moveHeld, setMoveHeld] = useState(false);
+  const [turnHeld, setTurnHeld] = useState(false);
   useEffect(() => {
     if (Platform.OS !== 'web') return;
     const win = (globalThis as unknown as { window?: Target }).window;
-    if (!win) return;
-    // Keys, and presses too (in case a key went down while the tab had no focus).
-    const read = (e: KeyLike) => {
-      turn.set(e.ctrlKey || e.metaKey);
-      move.set(e.shiftKey);
-      setMoveHeld(e.shiftKey);
+    const doc = (globalThis as unknown as { document?: Doc }).document;
+    if (!win || !doc) return;
+    let space = false;
+    // The space just typed into a text field by the Space now held, to take back if a drag starts.
+    let typed: { el: El; at: number } | null = null;
+    const setTurn = (on: boolean) => {
+      turn.set(on);
+      setTurnHeld(on);
+    };
+    const setMove = (on: boolean) => {
+      space = on;
+      move.set(on);
+      setMoveHeld(on);
+    };
+    const down = (e: KeyLike) => {
+      setTurn(e.ctrlKey || e.metaKey);
+      if (e.code !== 'Space') {
+        typed = null;
+        return;
+      }
+      if (pressable(e.target)) return;
+      if (editable(e.target)) {
+        // Held down, it moves sheets: no row of spaces.
+        if (e.repeat) e.preventDefault();
+        else {
+          const el = e.target!;
+          // Where the caret will be once the keydown has typed its space.
+          typed = el.selectionStart === el.selectionEnd && el.selectionStart != null ? { el, at: el.selectionStart + 1 } : null;
+        }
+      } else {
+        // Not a scroll of the page.
+        e.preventDefault();
+      }
+      if (!space) setMove(true);
+    };
+    const up = (e: KeyLike) => {
+      setTurn(e.ctrlKey || e.metaKey);
+      if (e.code !== 'Space') return;
+      if (space && !editable(e.target) && !pressable(e.target)) e.preventDefault();
+      typed = null;
+      setMove(false);
+    };
+    // Presses too: Ctrl may have gone down while the tab had no focus.
+    const press = (e: KeyLike) => {
+      setTurn(e.ctrlKey || e.metaKey);
+      if (!space || !typed) return;
+      const { el, at } = typed;
+      typed = null;
+      // Still focused (the press hasn't blurred it yet), the caret right after that space.
+      if (doc.activeElement === el && el.selectionStart === at && el.selectionEnd === at && el.value?.[at - 1] === ' ') {
+        doc.execCommand('delete');
+      }
     };
     const away = () => {
-      turn.set(false);
-      move.set(false);
-      setMoveHeld(false);
+      typed = null;
+      setTurn(false);
+      setMove(false);
     };
-    win.addEventListener('keydown', read as (e: never) => void);
-    win.addEventListener('keyup', read as (e: never) => void);
-    win.addEventListener('pointerdown', read as (e: never) => void, { capture: true });
+    // Capture: a text field (React Native Web's TextInput) stops its keys from bubbling.
+    win.addEventListener('keydown', down as (e: never) => void, { capture: true });
+    win.addEventListener('keyup', up as (e: never) => void, { capture: true });
+    win.addEventListener('pointerdown', press as (e: never) => void, { capture: true });
     win.addEventListener('blur', away);
     return () => {
-      win.removeEventListener('keydown', read as (e: never) => void);
-      win.removeEventListener('keyup', read as (e: never) => void);
-      win.removeEventListener('pointerdown', read as (e: never) => void, { capture: true });
+      win.removeEventListener('keydown', down as (e: never) => void, { capture: true });
+      win.removeEventListener('keyup', up as (e: never) => void, { capture: true });
+      win.removeEventListener('pointerdown', press as (e: never) => void, { capture: true });
       win.removeEventListener('blur', away);
     };
   }, [turn, move]);
-  return { turn, move, moveHeld };
+  return { turn, move, moveHeld, turnHeld };
 }

@@ -34,7 +34,7 @@ import { sheetJitter, writtenFaces, type FaceRef, type SheetContent } from './st
  * The turn follows the hand as at the desk (grip.ts): its axis leans with the
  * drag's direction and where the sheet was taken, the sheet travels with the
  * hand, and a read sheet slides off (and a previous one comes back) the way it
- * was pushed. On the laptop, with a mouse, Ctrl (⌘) + drag turns it and Shift + drag
+ * was pushed. On the laptop, with a mouse, Ctrl (⌘) + drag turns it and Space + drag
  * pushes the letter about the desk (deskMove.ts); a plain drag does nothing.
  * Every sheet is baked up front (at most four), so nothing bakes mid-gesture.
  */
