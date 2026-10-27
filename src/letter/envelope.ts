@@ -315,8 +315,8 @@ export function recordBulge(g: EnvelopeGeometry, packet: PacketRect, amount: num
     const lip = Skia.Paint();
     lip.setStyle(PaintStyle.Stroke);
     lip.setStrokeWidth(1 + 0.8 * a);
-    lip.setMaskFilter(Skia.MaskFilter.MakeBlur(BlurStyle.Normal, 0.6 + 0.8 * a, true));
-    lip.setColor(Skia.Color(`rgba(255, 252, 244, ${0.5 * a})`));
+    lip.setMaskFilter(Skia.MaskFilter.MakeBlur(BlurStyle.Normal, 1 + 1.2 * a, true));
+    lip.setColor(Skia.Color(`rgba(255, 252, 244, ${0.38 * a})`));
     const near = Skia.PathBuilder.Make()
       .moveTo(0.6, ph - 2)
       .lineTo(0.6, 0.6)
