@@ -57,7 +57,7 @@ before(async () => {
     insert into public.couples (id) values ('00000000-0000-0000-0000-0000000000cc');
     insert into public.profiles (id, couple_id, display_name, city, lat, lon, tz, locale) values
       ('${A}', '00000000-0000-0000-0000-0000000000cc', 'N', 'Paris', 48.8566, 2.3522, 'Europe/Paris', 'fr'),
-      ('${B}', '00000000-0000-0000-0000-0000000000cc', 'M', 'Moscou', 55.7558, 37.6173, 'Europe/Moscow', 'ru');
+      ('${B}', '00000000-0000-0000-0000-0000000000cc', 'M', 'Minsk', 53.9006, 27.559, 'Europe/Minsk', 'ru');
   `);
 });
 
@@ -85,8 +85,8 @@ describe('post rounds (10:00 / 16:00 local, no Sundays)', () => {
   });
 
   test('uses the recipient time zone', async () => {
-    // 07:30 UTC is 10:30 in Moscow → 16:00 MSK = 13:00 UTC
-    assert.equal(await round('2026-10-19T07:30:00Z', 'Europe/Moscow'), '2026-10-19T13:00:00.000Z');
+    // 07:30 UTC is 10:30 in Minsk (UTC+3 all year) → 16:00 there = 13:00 UTC
+    assert.equal(await round('2026-10-19T07:30:00Z', 'Europe/Minsk'), '2026-10-19T13:00:00.000Z');
   });
 });
 
@@ -108,7 +108,7 @@ describe('compute_deliver_at', () => {
   });
 
   test('standard: distance-aware, clamped to 12–72 h, then the next round', async () => {
-    // Paris→Moscow ~2490 km → ~62 h → Wed 23:xx → Thu 10:00 CEST
+    // a long hop, ~2490 km → ~62 h → Wed 23:xx → Thu 10:00 CEST
     assert.equal(await deliver('standard', '2026-10-19T09:00:00+02:00', 2490), '2026-10-22T08:00:00.000Z');
     // short hop → floor of 12 h → Mon 21:00 → Tue 10:00
     assert.equal(await deliver('standard', '2026-10-19T09:00:00+02:00', 5), '2026-10-20T08:00:00.000Z');
