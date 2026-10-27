@@ -16,7 +16,7 @@ import Animated, {
 import { scheduleOnRN } from 'react-native-worklets';
 
 import { feel } from '../lib/haptics';
-import { useTurnKey } from '../lib/useTurnKey';
+import { useDeskKeys } from '../lib/useDeskKeys';
 import { HOME, dragPlacement, type Placement } from './deskMove';
 import type { FoldKind } from './fold';
 import { gripOf, type Grip } from './grip';
@@ -33,8 +33,8 @@ import { sheetJitter, writtenFaces, type FaceRef, type SheetContent } from './st
  * The turn follows the hand as at the desk (grip.ts): its axis leans with the
  * drag's direction and where the sheet was taken, the sheet travels with the
  * hand, and a read sheet slides off (and a previous one comes back) the way it
- * was pushed. On the laptop a plain mouse drag pushes the letter about the desk
- * instead (deskMove.ts), and Ctrl (⌘) + drag turns it.
+ * was pushed. On the laptop, with a mouse, Ctrl (⌘) + drag turns it and Shift + drag
+ * pushes the letter about the desk (deskMove.ts); a plain drag does nothing.
  * Every sheet is baked up front (at most four), so nothing bakes mid-gesture.
  */
 
@@ -122,8 +122,10 @@ export function ReadingStack({ sheets, look, width, height, fold, strokesWidth, 
 
   const travel = width * 0.9;
   const room = Math.round(height * 0.12);
-  const turnKey = useTurnKey();
+  const keys = useDeskKeys();
   const moving = useSharedValue(false);
+  // A plain mouse drag: neither turn nor move.
+  const idle = useSharedValue(false);
   const place = useSharedValue<Placement>(HOME);
   const placeAtGrab = useSharedValue<Placement>(HOME);
   const grabAt = useSharedValue({ x: 0, y: 0 });
@@ -140,7 +142,10 @@ export function ReadingStack({ sheets, look, width, height, fold, strokesWidth, 
       grabAt.set({ x: e.x - PAD - width / 2, y: e.y - PAD - room - height / 2 });
     },
     onActivate: (e) => {
-      moving.set(e.pointerType === PointerType.MOUSE && !turnKey.get());
+      const mouse = e.pointerType === PointerType.MOUSE;
+      moving.set(mouse && keys.move.get());
+      idle.set(mouse && !keys.move.get() && !keys.turn.get());
+      if (idle.get()) return;
       if (moving.get()) {
         placeAtGrab.set(place.get());
         return;
@@ -151,6 +156,7 @@ export function ReadingStack({ sheets, look, width, height, fold, strokesWidth, 
       origin.set(Math.round(turn.get()));
     },
     onUpdate: (e) => {
+      if (idle.get()) return;
       if (moving.get()) {
         place.set(dragPlacement(placeAtGrab.get(), grabAt.get(), { x: e.translationX, y: e.translationY }, { width, height }));
         return;
@@ -165,6 +171,7 @@ export function ReadingStack({ sheets, look, width, height, fold, strokesWidth, 
     },
     onDeactivate: (e) => {
       // A pushed letter stays where it is let go.
+      if (idle.get()) return idle.set(false);
       if (moving.get()) return moving.set(false);
       const s = origin.get();
       // Taken over (the desk scrolled): back to where it was.
