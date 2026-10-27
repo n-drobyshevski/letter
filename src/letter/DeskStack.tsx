@@ -727,6 +727,7 @@ export function DeskStack({ look, width, height, mode, sheets, onSheets, maxShee
           grip={grip}
           fade={reduceMotion}
           free={loose && steep}
+          chosen={chosen.includes(face.sheet)}
           p={p}
           width={width}
           height={height}
@@ -769,7 +770,10 @@ export function DeskStack({ look, width, height, mode, sheets, onSheets, maxShee
             </GestureDetector>
             <Animated.View style={[{ position: 'absolute', left: ox + (area.width - width) / 2, top: (area.height - height) / 2, width, height }, topPlaced]}>
               {writing}
-              {chosen.includes(face.sheet) && <View style={[StyleSheet.absoluteFill, styles.through, styles.chosen]} />}
+              {/* While it turns, the overlay draws the line on the turning sheet. */}
+              {chosen.includes(face.sheet) && !turning && fixedTurn === undefined && (
+                <View style={[StyleSheet.absoluteFill, styles.through, styles.chosen]} />
+              )}
             </Animated.View>
             {/* Shift held: a layer over the desk takes clicks and picks the sheet under the pointer. */}
             {keys.pickHeld && (
@@ -887,6 +891,7 @@ function TurnOverlay({
   grip,
   fade,
   free,
+  chosen,
   p,
   width,
   height,
@@ -900,6 +905,8 @@ function TurnOverlay({
   fade: boolean;
   /** A steep free turn (the loose desk, top over bottom): the sheet spins through every angle on its way over. */
   free: boolean;
+  /** Picked with Shift + click: its line turns with it. */
+  chosen: boolean;
   p: SharedValue<number>;
   width: number;
   height: number;
@@ -964,6 +971,7 @@ function TurnOverlay({
               <Group layer={<Paint opacity={fadeOut} />}>
                 <Picture picture={from} />
               </Group>
+              {chosen && <Rect x={1} y={1} width={width - 2} height={height - 2} color={CHOSEN} style="stroke" strokeWidth={2} />}
             </>
           )}
         </Canvas>
@@ -989,6 +997,7 @@ function TurnOverlay({
                 </Group>
               )}
               <Rect x={0} y={0} width={width} height={height} color="#140c04" opacity={shade} />
+              {chosen && <Rect x={1} y={1} width={width - 2} height={height - 2} color={CHOSEN} style="stroke" strokeWidth={2} />}
             </Group>
           </Group>
         )}
