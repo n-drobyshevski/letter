@@ -16,7 +16,7 @@ import type { MailLetter } from '@/letter/mailboxFromServer';
 import { PostingCeremony } from '@/letter/PostingCeremony';
 import { SAMPLE_LETTER, sampleSheets } from '@/letter/samples';
 import { SHEET_RATIO, useSheetSize } from '@/letter/sheet';
-import { defaultTwoSided, emptyFace, emptySheet, isEmptySheet, maxSheetsFor, type SheetContent } from '@/letter/stack';
+import { defaultTwoSided, emptyFace, emptySheet, isEmptySheet, maxSheetsFor, trimSheets, type SheetContent } from '@/letter/stack';
 import type { WritingMode } from '@/letter/WritingDesk';
 import { WAX, type Country, type PaperKind, type WaxKind } from '@/theme/stationery';
 
@@ -75,7 +75,8 @@ export default function JourneyLab() {
   const writeSize = useSheetSize();
 
   const hand: LetterLook = { paper, ink: 'blueBlack', font: 'badScript', seed };
-  const letter = { sheets, strokesWidth: writeSize.width, hand, fold };
+  // What leaves the desk: the sheets written on (a blank one taken last stays behind).
+  const letter = { sheets: trimSheets(sheets), strokesWidth: writeSize.width, hand, fold };
   const look: EnvelopeLook = {
     paper: envelope.paper,
     liner: 'postal',
@@ -328,7 +329,7 @@ function ReceiveStep(props: { progress: React.ReactNode; letter: Letter; look: E
     sheetSeed: letter.hand.seed,
     text: letter.sheets[0].recto.text,
     strokes: letter.sheets[0].recto.strokes.length ? letter.sheets[0].recto.strokes : undefined,
-    sheets: letter.sheets.filter((s, i) => i === 0 || !isEmptySheet(s)),
+    sheets: letter.sheets,
     strokesWidth: letter.strokesWidth,
     letterLook: { paper: letter.hand.paper, ink: letter.hand.ink, font: letter.hand.font },
     fold: letter.fold,

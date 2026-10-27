@@ -1,4 +1,4 @@
-import { BlendMode, Canvas, Group, Picture, Rect, Shadow, Skia, useFont, type SkImage, type SkPicture } from '@shopify/react-native-skia';
+import { BlendMode, Canvas, Group, Picture, Rect, Shadow, Skia, useFont, type SkFont, type SkImage, type SkPicture } from '@shopify/react-native-skia';
 import { useMemo } from 'react';
 import { StyleSheet, type StyleProp, type ViewStyle } from 'react-native';
 
@@ -82,45 +82,60 @@ export function useSheetFaces(
   fold: FoldKind,
   strokesWidth: number | undefined,
 ): SheetFaces | null {
-  const paper = paperFor(look.paper, width);
-  const font = useFont(HANDWRITING_FONTS[look.font].file, fontSizeFor(paper, width));
-  return useMemo(() => {
-    if (!font || !sheet) return null;
-    const size = { width, height };
-    const common = {
-      font,
-      paper,
-      ink: INKS[look.ink].rgb,
-      sheet: size,
-      crease,
-      fold,
-      paperSeed: paperSeed(look.seed, index),
-      foldSeed: look.seed,
-      extraLines: 1,
-    };
-    const inkOf = (side: Side) => {
-      const f: FaceContent = sheet[side];
-      if (isEmptyFace(f) || (side === 'verso' && !sheet.twoSided)) return null;
-      const pic = recordLetter({ ...common, text: f.text, side, seed: inkSeed(look.seed, { sheet: index, side }), layers: 'ink' });
-      return withStrokes(pic, f.strokes, strokesWidth, look, width, height);
-    };
-    const ink = { recto: inkOf('recto'), verso: inkOf('verso') };
-    const bake = (side: Side, other: Side) => {
-      const ghost = bakeGhost(ink[other], size, paper);
-      const base = recordLetter({ ...common, text: '', side, seed: look.seed, layers: 'paper', ghost });
-      const top = ink[side];
-      if (!top) return base;
-      const rec = Skia.PictureRecorder();
-      const canvas = rec.beginRecording(Skia.XYWHRect(0, 0, width, height));
-      canvas.drawPicture(base);
-      canvas.drawPicture(top);
-      return rec.finishRecordingAsPicture();
-    };
-    const verso = bake('verso', 'recto');
-    return { recto: bake('recto', 'verso'), verso, versoThrough: mirrorPicture(verso, size) };
-    // paper is derived from look.paper + width
+  const font = useFont(HANDWRITING_FONTS[look.font].file, fontSizeFor(paperFor(look.paper, width), width));
+  return useMemo(
+    () => (font && sheet ? bakeSheetFaces(font, sheet, index, look, width, height, crease, fold, strokesWidth) : null),
+    // look matters through its paper, ink and seed (the font is loaded from look.font)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [font, sheet, index, look.paper, look.ink, look.seed, width, height, crease, fold, strokesWidth]);
+    [font, sheet, index, look.paper, look.ink, look.seed, width, height, crease, fold, strokesWidth],
+  );
+}
+
+/** useSheetFaces without the hook, for a bake on demand (the desk bakes only when a sheet turns). */
+export function bakeSheetFaces(
+  font: SkFont,
+  sheet: SheetContent,
+  index: number,
+  look: LetterLook,
+  width: number,
+  height: number,
+  crease: number,
+  fold: FoldKind,
+  strokesWidth: number | undefined,
+): SheetFaces {
+  const paper = paperFor(look.paper, width);
+  const size = { width, height };
+  const common = {
+    font,
+    paper,
+    ink: INKS[look.ink].rgb,
+    sheet: size,
+    crease,
+    fold,
+    paperSeed: paperSeed(look.seed, index),
+    foldSeed: look.seed,
+    extraLines: 1,
+  };
+  const inkOf = (side: Side) => {
+    const f: FaceContent = sheet[side];
+    if (isEmptyFace(f) || (side === 'verso' && !sheet.twoSided)) return null;
+    const pic = recordLetter({ ...common, text: f.text, side, seed: inkSeed(look.seed, { sheet: index, side }), layers: 'ink' });
+    return withStrokes(pic, f.strokes, strokesWidth, look, width, height);
+  };
+  const ink = { recto: inkOf('recto'), verso: inkOf('verso') };
+  const bake = (side: Side, other: Side) => {
+    const ghost = bakeGhost(ink[other], size, paper);
+    const base = recordLetter({ ...common, text: '', side, seed: look.seed, layers: 'paper', ghost });
+    const top = ink[side];
+    if (!top) return base;
+    const rec = Skia.PictureRecorder();
+    const canvas = rec.beginRecording(Skia.XYWHRect(0, 0, width, height));
+    canvas.drawPicture(base);
+    canvas.drawPicture(top);
+    return rec.finishRecordingAsPicture();
+  };
+  const verso = bake('verso', 'recto');
+  return { recto: bake('recto', 'verso'), verso, versoThrough: mirrorPicture(verso, size) };
 }
 
 /**

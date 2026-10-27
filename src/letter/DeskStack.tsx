@@ -1,5 +1,5 @@
-import { Canvas, Group, Paint, Picture, Rect, Skia, type SkPicture, type Transforms3d } from '@shopify/react-native-skia';
-import { useEffect, useState } from 'react';
+import { Canvas, Group, Paint, Picture, Rect, Skia, useFont, type SkPicture, type Transforms3d } from '@shopify/react-native-skia';
+import { useEffect, useMemo, useState } from 'react';
 import { Keyboard, Pressable, StyleSheet, Text, View } from 'react-native';
 import {
   Easing,
@@ -14,7 +14,9 @@ import {
 import { scheduleOnRN } from 'react-native-worklets';
 
 import { feel } from '../lib/haptics';
-import { paperEdgeColor, useGhostOf, useSheetFaces, type LetterLook } from './LetterSheet';
+import { HANDWRITING_FONTS } from '../theme/stationery';
+import { bakeSheetFaces, paperEdgeColor, useGhostOf, type LetterLook } from './LetterSheet';
+import { fontSizeFor, paperFor } from './sheet';
 import { mirrorPicture } from './showThrough';
 import {
   MAX_SHEETS,
@@ -87,8 +89,15 @@ export function DeskStack({ look, width, height, mode, sheets, onSheets, maxShee
   const current = faceOf(sheets, face);
   const other: FaceRef = { sheet: face.sheet, side: face.side === 'recto' ? 'verso' : 'recto' };
   const ghost = useGhostOf(faceOf(sheets, other), other, look, width, height, width);
-  // Both faces of this sheet, finished, for the turn overlay.
-  const faces = useSheetFaces(sheet, face.sheet, look, width, height, 0, 'tri', width);
+  // Both faces of this sheet, finished, for the turn overlay: baked when a turn starts, not on every keystroke.
+  const font = useFont(HANDWRITING_FONTS[look.font].file, fontSizeFor(paperFor(look.paper, width), width));
+  const bakeFaces = () => (font ? bakeSheetFaces(font, sheet, face.sheet, look, width, height, 0, 'tri', width) : null);
+  const frozen = useMemo(
+    () => (fixedTurn !== undefined && font ? bakeSheetFaces(font, sheet, face.sheet, look, width, height, 0, 'tri', width) : null),
+    // QA frames only: bake once the font is in
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [fixedTurn, font],
+  );
   const reduceMotion = useReducedMotion();
 
   const p = useSharedValue(fixedTurn ?? 0);
@@ -118,13 +127,14 @@ export function DeskStack({ look, width, height, mode, sheets, onSheets, maxShee
   };
 
   const turnOver = () => {
+    const faces = bakeFaces();
     if (!faces) return;
     const toVerso = face.side === 'recto';
     animate('flip', toVerso ? faces.recto : faces.verso, toVerso ? faces.verso : faces.recto, () => setFace(other));
   };
-  const goTo = (i: number) => animate('slide', faces?.[face.side], undefined, () => setFace({ sheet: i, side: 'recto' }));
+  const goTo = (i: number) => animate('slide', bakeFaces()?.[face.side], undefined, () => setFace({ sheet: i, side: 'recto' }));
   const addSheet = () =>
-    animate('slide', faces?.[face.side], undefined, () => {
+    animate('slide', bakeFaces()?.[face.side], undefined, () => {
       onSheets([...sheets, emptySheet(look.paper)]);
       setFace({ sheet: sheets.length, side: 'recto' });
     });
@@ -154,7 +164,11 @@ export function DeskStack({ look, width, height, mode, sheets, onSheets, maxShee
     <View style={styles.root}>
       <View style={{ width, height }}>
         {sheets.length > 1 && <StackEdges count={sheets.length - 1} seed={look.seed} width={width} height={height} paper={look.paper} />}
-        <View style={{ opacity: turning?.kind === 'flip' || fixedTurn !== undefined ? 0 : 1 }}>
+        {/* Hidden while the overlay turns the sheet: no touches either, or ink would land unseen on the new face. */}
+        <View
+          style={{ opacity: turning?.kind === 'flip' || fixedTurn !== undefined ? 0 : 1 }}
+          pointerEvents={turning?.kind === 'flip' || fixedTurn !== undefined ? 'none' : 'auto'}
+        >
           <WritingDesk
             look={look}
             width={width}
@@ -170,10 +184,10 @@ export function DeskStack({ look, width, height, mode, sheets, onSheets, maxShee
             overflowNote={overflowNote}
           />
         </View>
-        {(turning || (fixedTurn !== undefined && faces)) && (
+        {(turning || frozen) && (
           <TurnOverlay
-            from={turning?.from ?? faces!.recto}
-            to={turning?.to ?? faces!.verso}
+            from={turning?.from ?? frozen!.recto}
+            to={turning?.to ?? frozen!.verso}
             kind={turning?.kind ?? 'flip'}
             fade={reduceMotion}
             p={p}

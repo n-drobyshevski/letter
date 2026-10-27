@@ -40,6 +40,13 @@ export const emptySheet = (paper: PaperKind): SheetContent => ({ recto: emptyFac
 export const isEmptyFace = (f: FaceContent | undefined) => !f || (f.text.trim() === '' && f.strokes.length === 0);
 export const isEmptySheet = (s: SheetContent) => isEmptyFace(s.recto) && isEmptyFace(s.verso);
 
+/** The stack without trailing blank sheets (a sheet taken but never written stays on the desk); at least one. */
+export function trimSheets(sheets: SheetContent[]): SheetContent[] {
+  let n = sheets.length;
+  while (n > 1 && isEmptySheet(sheets[n - 1])) n--;
+  return sheets.slice(0, n);
+}
+
 export const faceOf = (sheets: SheetContent[], ref: FaceRef): FaceContent => sheets[ref.sheet]?.[ref.side] ?? emptyFace();
 export const faceIndex = (ref: FaceRef) => ref.sheet * 2 + (ref.side === 'verso' ? 1 : 0);
 

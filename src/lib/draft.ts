@@ -2,7 +2,7 @@ import { useSyncExternalStore } from 'react';
 
 import type { FoldKind } from '../letter/fold';
 import type { LetterLook } from '../letter/LetterSheet';
-import { isEmptyFace, isEmptySheet, quantizeStroke, type FaceContent, type SheetContent } from '../letter/stack';
+import { isEmptyFace, isEmptySheet, quantizeStroke, trimSheets, type FaceContent, type SheetContent } from '../letter/stack';
 
 /**
  * The letter being written, handed from the desk to the postbox. In memory only for
@@ -48,11 +48,7 @@ export const isEmptyDraft = (d: Draft | null) => !d || d.sheets.every(isEmptyShe
 export const draftFirstText = (d: Draft | null) => d?.sheets.flatMap((s) => [s.recto.text, s.verso.text]).find((t) => t.trim()) ?? '';
 
 /** Written sheets (trailing blank ones are left on the desk). */
-export function writtenSheets(d: Draft): SheetContent[] {
-  let n = d.sheets.length;
-  while (n > 1 && isEmptySheet(d.sheets[n - 1])) n--;
-  return d.sheets.slice(0, n);
-}
+export const writtenSheets = (d: Pick<Draft, 'sheets'>): SheetContent[] => trimSheets(d.sheets);
 
 const wire = (f: FaceContent) => ({ text: f.text, strokes: f.strokes.map(quantizeStroke) });
 

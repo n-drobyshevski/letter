@@ -4,7 +4,7 @@ import { Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-na
 
 import { Choice } from '@/components/Choice';
 import { Desk } from '@/components/Desk';
-import { LAB_HAND, MAILBOX_COPY, MailboxButton, MailboxView } from '@/components/MailboxView';
+import { LAB_HAND, MAILBOX_COPY, MailboxButton, MailboxView, ReadingControls } from '@/components/MailboxView';
 import { SignIn } from '@/components/SignIn';
 import { openLetter, useCouple, useLettersInTransit, useMailbox, useSession, type Couple } from '@/lib/mail';
 import { useLabParams } from '@/lib/params';
@@ -13,6 +13,7 @@ import { formatForFold } from '@/letter/envelope';
 import { FOLD_KINDS, type FoldKind } from '@/letter/fold';
 import { countryOf, sheetsOf, type MailLetter } from '@/letter/mailboxFromServer';
 import { ReadingStack } from '@/letter/ReadingStack';
+import type { FaceRef } from '@/letter/stack';
 import { SAMPLE_LETTER, SAMPLE_LETTER_FR, SHORT_NOTES, sampleSheets } from '@/letter/samples';
 import { SHEET_RATIO } from '@/letter/sheet';
 import { shortDate } from '@/letter/tracking/copy';
@@ -156,16 +157,24 @@ function Reread({ letter, lang, onBack }: { letter: MailLetter; lang: Country; o
   const ew = Math.round(Math.min(Math.min(sw, 480) - 40, 360));
   const sheet = { width: Math.round(ew * 0.93), height: Math.round(ew * 0.93 * SHEET_RATIO) };
   const copy = MAILBOX_COPY[lang];
+  const sheets = sheetsOf(letter);
+  const [reading, setReading] = useState<{ index: number; faces: FaceRef[] }>({ index: 0, faces: [] });
+  const [step, setStep] = useState<{ key: number; dir: 1 | -1 } | undefined>(undefined);
   return (
     <Desk title={copy.title} hint={copy.from(letter.fromLabel.name, letter.fromLabel.city, false)}>
       <ReadingStack
-        sheets={sheetsOf(letter)}
+        sheets={sheets}
         look={{ ...(letter.letterLook ?? LAB_HAND), seed: letter.sheetSeed ?? letter.seed }}
         width={sheet.width}
         height={sheet.height}
         fold={letter.fold ?? 'tri'}
         strokesWidth={letter.strokesWidth}
+        step={step}
+        onFace={(index, faces) => setReading({ index, faces })}
       />
+      {reading.faces.length > 1 && (
+        <ReadingControls copy={copy} reading={reading} sheets={sheets.length} onStep={(dir) => setStep((s) => ({ key: (s?.key ?? 0) + 1, dir }))} />
+      )}
       <MailboxButton label={copy.back} quiet onPress={onBack} />
     </Desk>
   );

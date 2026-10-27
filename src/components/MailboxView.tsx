@@ -268,7 +268,7 @@ export function MailboxView({ letters, lang, country, name, fixedT, fixedTurn, o
 }
 
 /** Under the sheet: where you are in the letter, and the tap alternative to the drag. */
-function ReadingControls({
+export function ReadingControls({
   copy,
   reading,
   sheets,

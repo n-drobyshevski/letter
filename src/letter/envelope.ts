@@ -258,11 +258,12 @@ export function recordFoldedLetter(
   line.setStrokeWidth(1);
   const stack = Skia.XYWHRect(0, 0, stackW, stackH);
 
-  // The sheets inside go round a tighter fold, so at the open edge each one sticks out a hair further.
-  const creep = (edge: number, vertical: boolean) => {
+  // The sheets inside go round a tighter fold, so at the open edge each one sticks out a hair further
+  // (towards `dir`, the side the outer panel leaves uncovered).
+  const creep = (edge: number, vertical: boolean, dir = 1) => {
     for (let k = 1; k < sheets; k++) {
       line.setColor(Skia.Color(`rgba(30, 18, 8, ${0.1 - 0.02 * k})`));
-      const at = edge + 0.7 * k;
+      const at = edge + dir * 0.7 * k;
       if (vertical) c.drawLine(at, 0, at, stackH, line);
       else c.drawLine(0, at, stackW, at, line);
     }
@@ -278,8 +279,18 @@ export function recordFoldedLetter(
     c.restore();
   };
 
+  // Beneath it all, the bottom half's front (seen where the panels above fall short).
+  const bottomFront = () => {
+    c.save();
+    c.clipRect(stack, ClipOp.Intersect, true);
+    c.translate(0, -a);
+    c.drawPicture(front);
+    c.restore();
+  };
+
   if (kind === 'quarter') {
-    topPanelBack(a, stack);
+    bottomFront();
+    topPanelBack(a, Skia.XYWHRect(0, 0, stackW, Math.min(a, stackH)));
     // On top, the bottom half's right quarter, turned over about the vertical crease.
     const left = Math.max(0, 2 * x - W);
     c.save();
@@ -292,7 +303,7 @@ export function recordFoldedLetter(
     if (left > 1) {
       line.setColor(Skia.Color('rgba(30, 18, 8, 0.16)'));
       c.drawLine(left + 0.5, 0, left + 0.5, stackH, line);
-      creep(left, true);
+      creep(left + 0.5, true, -1);
     }
     const upright = recorder.finishRecordingAsPicture();
     const turned = Skia.PictureRecorder();
@@ -304,11 +315,7 @@ export function recordFoldedLetter(
   }
 
   // Beneath the top panel, where it falls short: the bottom third's back (folded up about b), or the bottom half's front.
-  c.save();
-  c.clipRect(stack, ClipOp.Intersect, true);
-  c.translate(0, -a);
-  c.drawPicture(front);
-  c.restore();
+  bottomFront();
   if (kind === 'tri') {
     const reach = Math.max(0, stackH - (H - b));
     c.save();

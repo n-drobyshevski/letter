@@ -4,7 +4,6 @@ import {
   MipmapMode,
   Skia,
   TileMode,
-  drawAsImageFromPicture,
   type SkCanvas,
   type SkImage,
   type SkPicture,
@@ -18,7 +17,8 @@ import type { SheetGeometry } from './paperLayout';
  * It reads mirrored (the sheet was turned like a book page), softened by light
  * scattering in the fibres, and a little warmer and greyer than the ink itself.
  * Baked once into a half-resolution image (the blur hides the pixels) so panels
- * that replay a face every frame never blur anything live.
+ * that replay a face every frame never blur anything live. The bake is on a CPU
+ * surface: a GPU offscreen surface on web is a WebGL context that is never freed.
  */
 
 const SCALE = 0.5;
@@ -36,8 +36,9 @@ export function bakeGhost(ink: SkPicture | null, sheet: SheetGeometry, paper: Pa
   const w = Math.ceil(sheet.width * SCALE);
   const h = Math.ceil(sheet.height * SCALE);
   if (!ink || !(w > 0 && h > 0)) return null;
-  const recorder = Skia.PictureRecorder();
-  const canvas = recorder.beginRecording(Skia.XYWHRect(0, 0, w, h));
+  const surface = Skia.Surface.Make(w, h);
+  if (!surface) return null;
+  const canvas = surface.getCanvas();
   const blur = paper.ghostBlur * (sheet.width / 440) * SCALE;
   const layer = Skia.Paint();
   layer.setImageFilter(Skia.ImageFilter.MakeBlur(blur, blur, TileMode.Decal, null));
@@ -48,7 +49,10 @@ export function bakeGhost(ink: SkPicture | null, sheet: SheetGeometry, paper: Pa
   canvas.scale(-1, 1);
   canvas.drawPicture(ink);
   canvas.restore();
-  return drawAsImageFromPicture(recorder.finishRecordingAsPicture(), { width: w, height: h });
+  surface.flush();
+  const image = surface.makeImageSnapshot();
+  surface.dispose();
+  return image;
 }
 
 /** Multiplies a baked ghost into the paper at the paper's show-through strength. */

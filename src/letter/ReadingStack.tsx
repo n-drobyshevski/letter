@@ -1,8 +1,9 @@
 import { Canvas, Group, Picture, Rect, Shadow, Skia, type Transforms3d } from '@shopify/react-native-skia';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { View } from 'react-native';
 import { GestureDetector, usePanGesture } from 'react-native-gesture-handler';
 import {
+  cancelAnimation,
   useAnimatedReaction,
   useDerivedValue,
   useReducedMotion,
@@ -65,7 +66,9 @@ export function ReadingStack({ sheets, look, width, height, fold, strokesWidth, 
   });
 
   const turn = useSharedValue(fixedTurn ?? 0);
-  const start = useSharedValue(0);
+  // Where the drag took hold of the stack (live), and the face it started from.
+  const grab = useSharedValue(0);
+  const origin = useSharedValue(0);
   const reduceMotion = useReducedMotion();
   const [at, setAt] = useState(Math.round(fixedTurn ?? 0));
 
@@ -91,9 +94,10 @@ export function ReadingStack({ sheets, look, width, height, fold, strokesWidth, 
     );
   };
 
-  // The buttons.
+  // The buttons. A press made before this letter was on the desk is not for it.
+  const stepAtMount = useRef(step?.key);
   useEffect(() => {
-    if (!step || fixedTurn !== undefined) return;
+    if (!step || step.key === stepAtMount.current || fixedTurn !== undefined) return;
     settle(Math.max(0, Math.min(last, Math.round(turn.get()) + step.dir)));
     // only a new key moves the stack
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -104,35 +108,36 @@ export function ReadingStack({ sheets, look, width, height, fold, strokesWidth, 
     enabled: fixedTurn === undefined && last > 0,
     activeOffsetX: [-12, 12],
     failOffsetY: [-10, 10],
-    onBegin: () => {
-      start.set(Math.round(turn.get()));
+    onActivate: () => {
+      // Catch the sheet where it is, even mid-spring.
+      cancelAnimation(turn);
+      grab.set(turn.get());
+      origin.set(Math.round(turn.get()));
     },
     onUpdate: (e) => {
-      const raw = start.get() - e.translationX / travel;
-      // Past the first or last face the paper resists.
-      const lo = Math.max(0, start.get() - 1);
-      const hi = Math.min(last, start.get() + 1);
+      const raw = grab.get() - e.translationX / travel;
+      // One face per gesture; past the first or last face the paper resists.
+      const lo = Math.max(0, origin.get() - 1);
+      const hi = Math.min(last, origin.get() + 1);
       turn.set(raw < lo ? lo - (lo - raw) * 0.25 : raw > hi ? hi + (raw - hi) * 0.25 : raw);
     },
     onDeactivate: (e) => {
+      const s = origin.get();
+      // Taken over (the desk scrolled): back to where it was.
+      if (e.canceled) return settle(s);
       const v = -e.velocityX / travel;
-      const s = start.get();
       const pushed = v > 0.6 ? s + 1 : v < -0.6 ? s - 1 : Math.round(turn.get());
       settle(Math.max(0, Math.min(last, Math.max(s - 1, Math.min(s + 1, pushed)))), v);
     },
-    onFinalize: (e) => {
-      // Taken over (the desk scrolled): back to where it was.
-      if (e.canceled) settle(start.get());
-    },
   });
 
-  // A tick as a sheet's edge passes upright; paper on paper as one slides away.
+  // Halfway between two faces: a tick as a sheet's edge passes upright, paper on paper as one slides away.
   useAnimatedReaction(
-    () => Math.floor(turn.get() * 2),
+    () => Math.round(turn.get()),
     (now, prev) => {
       if (prev === null || now === prev) return;
-      const crossed = Math.floor(Math.max(now, prev) / 2);
-      const isFlip = marks.some((m) => m.hasBack && m.first === crossed);
+      const k = Math.min(now, prev);
+      const isFlip = marks.some((m) => m.hasBack && m.first === k);
       scheduleOnRN(isFlip ? feel.tick : feel.fibre);
     },
   );
