@@ -8,7 +8,7 @@ description: Rules and reference values for rendering paper, ink, handwriting, e
 The illusion breaks on the *first* digital-looking detail. Every rule below exists because its absence reads as "app".
 
 ## Non-negotiables
-- **No pure white, no pure black.** Paper base lives in `PAPERS[*].base` (≈ 0.93–0.97); inks in `INKS` (blue-black `#1f2b4d`, iron-gall `#3b2a22`, violet `#41306e`).
+- **No pure white, no pure black.** Paper base lives in `PAPERS[*].base` (≈ 0.93–0.97); inks in `INKS` (blue-black `#1f2b4d`, iron-gall `#3b2a22`, violet `#41306e`, sapphire `#27468a`).
 - **One light** for the whole desk: `LIGHT_DIR` (top-left, slightly in front). Shadows fall bottom-right; crease shading, panel shading and wax highlights all use it.
 - **Everything seeded.** Randomness comes from `mulberry32(subSeed(letter.seed, '<purpose>'))` (`src/lib/random.ts`). Never `Math.random()` in rendering — both phones must draw the identical sheet.
 - **Bake, then move.** Paper + ink are recorded once into an `SkPicture` (`recordLetter`); animations transform pictures and uniforms, never re-layout text per frame.
@@ -20,15 +20,17 @@ The illusion breaks on the *first* digital-looking detail. Every rule below exis
 - Grain/mottle amplitude stays within 4–8 %; if it is visible at arm's length it is too strong.
 - Russian notebook (`grid`): ~30 cells across, grey-blue rules at ~40 % strength, **red/pink margin on the outer edge** (right on the recto, left on the verso), baselines exactly on grid lines, writing on every second line (`writingArea`).
 - Cotton: warm, no rules, more bleed.
+- Seyès (`seyes`, French copie double, 90 g vélin): heavy pitch `width/15` (= the notebook's line height, so font size and `maxLines` match), fine light-blue lines every quarter pitch, violet heavy lines and verticals every pitch, red margin at 2 pitches (~28 mm) **on the left of every face** (a printed face: `marginSide: 'left'`, `uMarginScreen`, not the recto mirrored). Baselines sit on the heavy lines.
+- Airmail (`airmail`, papier pelure, 35 g): unruled, laid out like cotton, faint cockle (`uCockle`: 2-octave value-noise relief, every pixel within ±3 %; if you can see flat patches it is clipping). Written on both sides.
 
 ## Both sides, several sheets (`src/letter/stack.ts`, `showThrough.ts`)
 - A sheet turns like a book page (about the vertical axis): the top stays up. The verso is the same pulp mirrored (`PAPER_SKSL` `uSide`), creases read as ridges, the margin is on the left.
-- **Show-through** is per paper (`PaperSpec.showThrough`, from opacity): notebook 10 %, cotton 6 %, cream 6 %, kraft 4 %. The other face's ink, mirrored, blurred by `ghostBlur` (≈ 0.2 mm), a little warmer and greyer, multiplied into the *paper* layer (never the ink layer). Never crisp. A blank other side means no ghost.
+- **Show-through** is per paper (`PaperSpec.showThrough`, from opacity): notebook 10 %, cotton 6 %, Seyès 7 %, airmail **20 %** (onion skin: the ghost is the point), cream 6 %, kraft 4 %. The other face's ink, mirrored, blurred by `ghostBlur` (≈ 0.2 mm), a little warmer and greyer, multiplied into the *paper* layer (never the ink layer). Never crisp. A blank other side means no ghost.
 - Faces are baked once (`useSheetFaces`): paper + ghost + ink + strokes. The ghost is a half-resolution image so fold panels never blur live.
 - Seeds: sheet 1's recto keeps the letter seed; every other sheet has its own pulp (`paperSeed`) and every face its own hand (`inkSeed`); creases use the letter seed for the whole stack. The seed travels in the body (`body.seed`): the recipient lays the words out with the desk's seed.
 - A face is written to the desk's last line; every other render lays it out with a line to spare (`extraLines`), so no word is lost at another width.
 - A stack is never aligned: `sheetJitter` (±1.5 px, ±0.5°). Folded together, the sheets under the top one show only as edges (`FoldableLetter sheets`), the packet gets one creep hairline per extra sheet at its open edge.
-- **Bulge** (`recordBulge`, amount from `bulgeFor`): thickness = layers (tri 3, half 2, quarter 4) × sheets × caliper (notebook 0.075 mm, cotton 0.13) × 1.3 for the air in the creases; flat under ~0.7 mm (every one-sheet letter), full by ~2.2 mm. The paper goes taut over the packet: a lit lip on its lamp side, shade beyond its far edges, a slight dome, and from half a bulge tension wrinkles from its corners towards the envelope's. Only while the letter is inside: it fades in at the end of the insert and out as the letter is pulled; on the open back it is clipped to the pocket flaps, on the closing flap shown only once it is down.
+- **Bulge** (`recordBulge`, amount from `bulgeFor`): thickness = layers (tri 3, half 2, quarter 4) × sheets × caliper (airmail 0.045 mm, notebook 0.075, Seyès 0.11, cotton 0.13) × 1.3 for the air in the creases; flat under ~0.7 mm (every one-sheet letter), full by ~2.2 mm. The paper goes taut over the packet: a lit lip on its lamp side, shade beyond its far edges, a slight dome, and from half a bulge tension wrinkles from its corners towards the envelope's. Only while the letter is inside: it fades in at the end of the insert and out as the letter is pulled; on the open back it is clipped to the pocket flaps, on the closing flap shown only once it is down.
 
 ## Handwriting (typed)
 - Fonts must cover RU + FR; `tests/fonts.test.ts` enforces it. Allowed: Bad Script, Marck Script (native Russian cursive), Caveat. Never Homemade Apple, Reenie Beanie, La Belle Aurore (Latin only).
@@ -39,6 +41,7 @@ The illusion breaks on the *first* digital-looking detail. Every rule below exis
 ## Hand-drawn
 - `perfect-freehand` via `strokeToPath`; pressure from speed for fingers (`pressureFromSpeed`), real pressure for styluses.
 - Wet ink is darker while drawing, dries to the ink colour; store strokes as `[x, y, p, t]` for replay.
+- Wet colours (`INKS[*].wet`): blue-black `#121a33`, violet `#2c1f50`, sapphire `#1b3168`, and iron gall `#2a303c` — **iron gall goes on blue-grey** and dries brown. Its dry colour stays `#3b2a22` (letters already delivered must not change). The placeholder is the ink at 35 %.
 
 ## Envelope (`src/letter/envelope.ts`)
 - DL proportions (2:1), "wallet" back: side flaps under the bottom flap, closing flap on top.
@@ -92,6 +95,17 @@ The illusion breaks on the *first* digital-looking detail. Every rule below exis
 - Breaking (`sealBreak.ts`): brittle wax splits along the flap's real edge (V lines and rounded tip) where it crosses the wax (jagged random walk scaled to the seal, exact paper edge elsewhere). Draw the same `WaxSeal` twice, clipped to the flap piece and to its inverse (`invertClip`), so the halves match perfectly before they separate. The body half gets a faint lit lip along the break. 3–5 faceted crumbs (1.3–4 pt) fly up and land, and stay where they land (no sliding on); one that would land off the envelope falls on past it and fades. Under the flap, the gum line shows paper fibres torn away on 30–60 % of its length (rough `DiscretePathEffect` strokes, never a regular dash).
 - Iterate on looks in Node with CanvasKit (render the shader to PNG) before wiring it into the app.
 
+## Desk (`src/letter/desk/`, `/lab/desk`)
+- Two depths, no zoom: the desk top (sheet, sous-main, the laptop's resting items) at **near** = `sheet.width / 150` pt/mm; the apron, fronts and drawers at **far** = 0.68 pt/mm on a phone, 1.0 on a laptop. An item grows as it comes onto the desk; the camera only pans.
+- One desk per writer's country (`DESK_PRESETS`): **fr** French-polished walnut, oxblood leather sous-main, gilt fillet (double on a laptop), brass bail pulls; **ru** dark-stained polished oak (half the arch contrast, pores at 0.5×), bottle-green leather, single fillet, brass knobs. The desk seed is per country (`deskSeed`), never per letter.
+- Wood grain (`WOOD_SKSL`, in mm) stays within **8 % L*** (tested); rings and pores fade out where they would alias at the far scale. Vertical faces (apron, fronts, nosing) are lit `uFace = 1`, ~25 % darker. The floor under the apron is a flat gradient `DESK.floor`, no wood.
+- Drawers are **bare oak inside** (`#ad9173`, RU `#b09474`); only the pen tray is felt (`LEATHER_SKSL` felt mode, `#345444`). The pen in use leaves an empty groove (a dust-free outline), the bottle in use an ink ring.
+- Items at real size: A5 paper stacks, C6 envelopes back up, pens 121–160 mm, 40 mm bottles with a flat matte knurled cap (a gentle tone across it, a lit chamfer; never a dome or a centred dot: it reads as an 8-ball), thin clear glass and ink darker toward the walls.
+- Stacked stock never squares up (each turned and shifted its own way) and shows what identifies it in its visible strip: the Seyès sleeve's mouth, the cotton band, airmail's under-sheets peeking out; only the front envelope stands open on its liner, the others lie flap closed. Fine print (liners) fades to its mean tone below ~3 device px a period instead of aliasing.
+- Far reads as far, not small: the drawer interior is graded darker and cooler than the top, under a deeper edge shadow; the laptop's resting items fade while a drawer is open. Glass is clear (Fresnel edges, refraction lines), iron gall in a bottle is its wet blue-grey.
+- **Never a brand**: no maker's name, shape or logo on a bottle, pen, sleeve or stock; stickers are handwritten.
+- Captions and front labels are RN `Text` (crisp, translatable); the hint colour on wood is `#d4c4a8` (≥ 4.5:1, sample it in the screenshot).
+
 ## Imperfection budget (per letter, seeded)
 - Fold lines 1–3 mm off the thirds (`creaseOffsets`), slight skew; letter crooked in the envelope; postmark rotated ±8° with partial strike.
 - Edges: soft contact shadow (`dy 6, blur 10, ~35 %`) plus a tight 1 px shadow.
@@ -102,6 +116,7 @@ The illusion breaks on the *first* digital-looking detail. Every rule below exis
 3. Do all shadows agree with `LIGHT_DIR`?
 4. Is grain visible but not noisy at 100 %?
 5. RU and FR samples both render without fallback glyphs?
+6. Desk: squint at the grain and at the drawers' stagger; nothing pure black or white; captions legible.
 
 ## Envelope formats
 - One per fold (ISO 269): tri-fold → DL 220×110, half (A5) → C5 229×162, quarter (A6, turned sideways) → C6 162×114. `envelopeGeometry(width, seed, format)`; `formatForFold`.

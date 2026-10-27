@@ -5,7 +5,7 @@ import { GestureDetector, usePanGesture } from 'react-native-gesture-handler';
 import { useDerivedValue, useSharedValue, withTiming } from 'react-native-reanimated';
 import { scheduleOnRN } from 'react-native-worklets';
 
-import { HANDWRITING_FONTS, INKS } from '../theme/stationery';
+import { HANDWRITING_FONTS, INKS, type Rgb } from '../theme/stationery';
 import { useLetterPicture, type LetterLook } from './LetterSheet';
 import { writingArea } from './renderLetter';
 import { fontSizeFor, paperFor } from './sheet';
@@ -40,9 +40,11 @@ type Props = {
   ghost?: SkImage | null;
   /** What to say once the face is full. */
   overflowNote?: string;
+  /** The keyboard is on this sheet (focus) or has left it (blur). */
+  onEditing?: (on: boolean) => void;
 };
 
-export function WritingDesk({ look, width, height, mode, text, onText, strokes, onStrokes, placeholder, face, ghost, overflowNote }: Props) {
+export function WritingDesk({ look, width, height, mode, text, onText, strokes, onStrokes, placeholder, face, ghost, overflowNote, onEditing }: Props) {
   const size = { width, height };
   const paper = paperFor(look.paper, width);
   const fontSize = fontSizeFor(paper, width);
@@ -66,10 +68,12 @@ export function WritingDesk({ look, width, height, mode, text, onText, strokes, 
   const inkOpacityDerived = useDerivedValue(() => inkOpacity.value);
   const onFocus = () => {
     setEditing(true);
+    onEditing?.(true);
     inkOpacity.set(withTiming(0, { duration: 120 }));
   };
   const onBlur = () => {
     setEditing(false);
+    onEditing?.(false);
     inkOpacity.set(withTiming(1, { duration: 700 }));
   };
 
@@ -99,6 +103,7 @@ export function WritingDesk({ look, width, height, mode, text, onText, strokes, 
     onFinalize: () => scheduleOnRN(endStroke),
   });
 
+  const ink = INKS[look.ink];
   const penSize = fontSize * 0.16;
   const strokePaths = useMemo(() => strokes.map((s) => strokeToPath(s, penSize)), [strokes, penSize]);
   const livePath = live.length > 1 ? strokeToPath(live, penSize) : null;
@@ -113,10 +118,10 @@ export function WritingDesk({ look, width, height, mode, text, onText, strokes, 
             <Group layer={<Paint opacity={inkOpacityDerived} />}>{inkPic && <Picture picture={inkPic} />}</Group>
             <Group blendMode="multiply" opacity={0.93}>
               {strokePaths.map((p, i) => (
-                <Path key={i} path={p} color={INKS[look.ink].color} />
+                <Path key={i} path={p} color={ink.color} />
               ))}
-              {/* wet ink: darker and glossier until the stroke ends */}
-              {livePath && <Path path={livePath} color="#121a33" />}
+              {/* wet ink: darker and glossier until the stroke ends (iron gall goes on blue-grey) */}
+              {livePath && <Path path={livePath} color={ink.wet} />}
             </Group>
           </Canvas>
         </GestureDetector>
@@ -131,8 +136,8 @@ export function WritingDesk({ look, width, height, mode, text, onText, strokes, 
           autoCorrect
           scrollEnabled={false}
           placeholder={placeholder}
-          placeholderTextColor="rgba(31, 43, 77, 0.35)"
-          selectionColor={INKS[look.ink].color}
+          placeholderTextColor={faded(ink.rgb, 0.35)}
+          selectionColor={ink.color}
           style={[
             styles.input,
             {
@@ -144,7 +149,7 @@ export function WritingDesk({ look, width, height, mode, text, onText, strokes, 
               fontFamily: HANDWRITING_FONTS[look.font].family,
               fontSize,
               lineHeight: area.lineHeight,
-              color: editing ? INKS[look.ink].color : 'transparent',
+              color: editing ? ink.color : 'transparent',
             },
           ]}
         />
@@ -153,6 +158,9 @@ export function WritingDesk({ look, width, height, mode, text, onText, strokes, 
     </>
   );
 }
+
+/** The ink's colour at this alpha (the placeholder: a line not yet written). */
+const faded = ([r, g, b]: Rgb, a: number) => `rgba(${Math.round(r * 255)}, ${Math.round(g * 255)}, ${Math.round(b * 255)}, ${a})`;
 
 const styles = StyleSheet.create({
   input: { position: 'absolute', textAlignVertical: 'top', padding: 0, paddingHorizontal: 0 },

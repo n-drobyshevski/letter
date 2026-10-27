@@ -3,9 +3,11 @@
  * never pure white paper, never pure black ink, one light direction for the whole desk.
  */
 
-export type Rgb = readonly [number, number, number];
+import type { InkKind, PaperKind } from './kinds';
 
-export type PaperKind = 'grid' | 'cotton' | 'cream' | 'kraft';
+export type { InkKind, PaperKind } from './kinds';
+
+export type Rgb = readonly [number, number, number];
 
 export type PaperSpec = {
   kind: PaperKind;
@@ -27,12 +29,21 @@ export type PaperSpec = {
   showThrough: number;
   /** How far light scatters inside the sheet, blurring that ghost (px on a ~440 px sheet, ≈ 0.2 mm). */
   ghostBlur: number;
+  /** Printed ruling: the notebook's square grid, or French Seyès lines. Absent = none (envelopes, plain paper). */
+  ruling?: 'none' | 'grid' | 'seyes';
+  /** Where the margin sits: the outer edge (a notebook, mirrored on the verso) or the left of every face (a printed copie double). */
+  marginSide?: 'outer' | 'left';
+  /** Seyès heavy lines and verticals (the fine lines use gridColor). */
+  heavyColor?: Rgb;
+  /** Cockle: the faint waviness of thin paper, 0..1. */
+  cockle?: number;
 };
 
 export const PAPERS: Record<PaperKind, PaperSpec> = {
   // Школьная тетрадь в клетку: grey-blue 5 mm grid, red/pink margin.
   grid: {
     kind: 'grid',
+    ruling: 'grid',
     showThrough: 0.1,
     ghostBlur: 0.9,
     base: [0.965, 0.955, 0.93],
@@ -53,6 +64,36 @@ export const PAPERS: Record<PaperKind, PaperSpec> = {
     gridColor: [0, 0, 0],
     marginColor: [0, 0, 0],
     bleed: 0.6,
+  },
+  // French copie double, Seyès ruled: light-blue fine lines, violet heavy lines and verticals, a margin on the left of every face.
+  seyes: {
+    kind: 'seyes',
+    ruling: 'seyes',
+    marginSide: 'left',
+    showThrough: 0.07,
+    ghostBlur: 1.0,
+    base: [0.962, 0.955, 0.94],
+    cell: 1, // a non-zero marker: the heavy pitch is set from the sheet width at layout time
+    marginX: 0,
+    gridColor: [0.62, 0.72, 0.86],
+    heavyColor: [0.6, 0.5, 0.76],
+    marginColor: [0.85, 0.32, 0.36],
+    bleed: 0.3,
+    cockle: 0,
+  },
+  // Papier pelure (airmail onion skin, ~35 g): unruled, written on both sides, strong show-through, a faint cockle.
+  airmail: {
+    kind: 'airmail',
+    ruling: 'none',
+    showThrough: 0.2,
+    ghostBlur: 0.6,
+    base: [0.948, 0.944, 0.925],
+    cell: 0,
+    marginX: 0,
+    gridColor: [0, 0, 0],
+    marginColor: [0, 0, 0],
+    bleed: 0.22,
+    cockle: 1,
   },
   // Envelope stock.
   cream: {
@@ -105,12 +146,15 @@ export const WAX_TYPES = {
 } as const;
 export type WaxType = keyof typeof WAX_TYPES;
 
-export type InkKind = 'blueBlack' | 'ironGall' | 'violet';
+/** An ink as it dries (`color`, `rgb`) and as it goes on (`wet`: the stroke being drawn). */
+export type InkSpec = { label: string; color: string; rgb: Rgb; wet: string };
 
-export const INKS: Record<InkKind, { label: string; color: string; rgb: Rgb }> = {
-  blueBlack: { label: 'Сине-чёрные', color: '#1f2b4d', rgb: [0.122, 0.169, 0.302] },
-  ironGall: { label: 'Железо-галловые', color: '#3b2a22', rgb: [0.231, 0.165, 0.133] },
-  violet: { label: 'Фиолетовые', color: '#41306e', rgb: [0.255, 0.188, 0.431] },
+export const INKS: Record<InkKind, InkSpec> = {
+  blueBlack: { label: 'Сине-чёрные', color: '#1f2b4d', rgb: [0.122, 0.169, 0.302], wet: '#121a33' },
+  // Iron gall goes on blue-grey and darkens to brown-black as it oxidises.
+  ironGall: { label: 'Железо-галловые', color: '#3b2a22', rgb: [0.231, 0.165, 0.133], wet: '#2a303c' },
+  violet: { label: 'Фиолетовые', color: '#41306e', rgb: [0.255, 0.188, 0.431], wet: '#2c1f50' },
+  sapphire: { label: 'Синие, сапфир', color: '#27468a', rgb: [0.153, 0.275, 0.541], wet: '#1b3168' },
 };
 
 /** Fonts with full Cyrillic + French coverage (verified glyph-by-glyph, see tests/fonts). */
@@ -196,4 +240,6 @@ export { LIGHT_DIR } from '../letter/paperLayout';
 export const DESK = {
   background: '#2a211b',
   wood: '#3a2c22',
+  /** The floor under the desk's apron: a flat vertical gradient, top to bottom. */
+  floor: ['#17110d', '#0f0b08'] as const,
 };

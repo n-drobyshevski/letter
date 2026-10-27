@@ -5,8 +5,10 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Choice } from '@/components/Choice';
 import { Desk } from '@/components/Desk';
 import { getLastDie, isEmptyDraft, setDraft, setLastDie, useDraft, writtenSheets, type Draft } from '@/lib/draft';
+import { envelopePickPatch } from '@/lib/envelopeStock';
 import { useCouple, useSession } from '@/lib/mail';
 import { useLabParams } from '@/lib/params';
+import { getStationeryPick, setStationeryPick } from '@/lib/stationeryPick';
 import { useMotionPrefs } from '@/lib/useMotionPrefs';
 import { EnvelopeCeremony, useSealingFit, type EnvelopeLook } from '@/letter/EnvelopeCeremony';
 import { ENVELOPE_MM, formatForFold, type EnvelopeFormat } from '@/letter/envelope';
@@ -86,9 +88,10 @@ function LiveSeal({ draft }: { draft: Draft }) {
 
   const kept = draft.envelope;
   const initials = name?.trim().charAt(0).toUpperCase() || (lang === 'fr' ? 'M' : 'Н');
+  // Not sealed yet: the stock last taken from the envelope drawer (or chosen here).
   const [look, setLook] = useState<EnvelopeLook>(() => ({
-    paper: kept?.paper ?? 'cream',
-    liner: kept?.liner ?? 'postal',
+    paper: kept?.paper ?? getStationeryPick().envelope.paper,
+    liner: kept?.liner ?? getStationeryPick().envelope.liner,
     wax: kept?.wax ?? 'bordeaux',
     waxType: kept?.waxType ?? 'brittle',
     initials,
@@ -137,7 +140,12 @@ function LiveSeal({ draft }: { draft: Draft }) {
       envW={envW}
       fold={fold}
       look={{ ...look, initials, format }}
-      onLook={(patch) => setLook((l) => ({ ...l, ...patch }))}
+      onLook={(patch) => {
+        setLook((l) => ({ ...l, ...patch }));
+        // The paper and liner chosen here are the stock for the next envelope too.
+        const stock = envelopePickPatch(patch);
+        if (stock) setStationeryPick(stock);
+      }}
       fixedT={frozen ? 1 : undefined}
       startT={resealing ? 0.5 : undefined}
       onSealed={onSealed}

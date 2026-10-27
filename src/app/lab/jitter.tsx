@@ -7,12 +7,11 @@ import { useLabParams } from '@/lib/params';
 import { LetterSheet, type LetterLook } from '@/letter/LetterSheet';
 import { SAMPLE_LETTER } from '@/letter/samples';
 import { useSheetSize } from '@/letter/sheet';
+import { SHEET_PAPERS, type SheetPaper } from '@/theme/kinds';
 import { HANDWRITING_FONTS, INKS, type FontKey, type InkKind, type PaperKind } from '@/theme/stationery';
 
-const PAPER_OPTIONS = [
-  { key: 'grid', label: 'В клетку' },
-  { key: 'cotton', label: 'Хлопковая' },
-] as const;
+const PAPER_LABELS: Record<SheetPaper, string> = { grid: 'В клетку', cotton: 'Хлопковая', seyes: 'Сейес', airmail: 'Пелюр' };
+const PAPER_OPTIONS = SHEET_PAPERS.map((k) => ({ key: k, label: PAPER_LABELS[k] }));
 const INK_OPTIONS = (Object.keys(INKS) as InkKind[]).map((k) => ({ key: k, label: INKS[k].label }));
 const FONT_OPTIONS = (Object.keys(HANDWRITING_FONTS) as FontKey[]).map((k) => ({ key: k, label: HANDWRITING_FONTS[k].label }));
 

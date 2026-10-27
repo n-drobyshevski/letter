@@ -19,6 +19,7 @@ import {
 import { mulberry32, subSeed, wobble } from '../lib/random';
 import { LINERS, PAPERS, type LinerKind, type PaperKind } from '../theme/stationery';
 import { foldLines, type FoldKind } from './fold';
+import { linerUniforms } from './paperLayout';
 import { paperUniforms } from './renderLetter';
 import { ENVELOPE_MM, FLAP_TIP, TIP_ROUND, tipFraction, type EnvelopeFormat } from './seal';
 import { LINER_SKSL, PAPER_SKSL } from './shaders';
@@ -121,10 +122,9 @@ function paperPaint(kind: PaperKind, g: EnvelopeGeometry, seed: number): SkPaint
   return paint;
 }
 
-function linerPaint(kind: LinerKind, seed: number, shade: number): SkPaint {
-  const l = LINERS[kind];
+function linerPaint(kind: LinerKind, seed: number, shade: number, px: number): SkPaint {
   const paint = Skia.Paint();
-  paint.setShader(effects().liner.makeShader([seed % 997, ...l.base, ...l.pattern, l.scale, shade]));
+  paint.setShader(effects().liner.makeShader(linerUniforms(LINERS[kind], seed, shade, px)));
   return paint;
 }
 
@@ -160,12 +160,16 @@ export type EnvelopeParts = {
   flapInner: SkPicture;
 };
 
-export function recordEnvelope(g: EnvelopeGeometry, paper: PaperKind, liner: LinerKind, seed: number): EnvelopeParts {
+/**
+ * `px`: device pixels per envelope unit across the liner's lines (see LINER_SKSL). The default suits an
+ * envelope drawn near its own size; one drawn much smaller (the drawer's stock) passes its own.
+ */
+export function recordEnvelope(g: EnvelopeGeometry, paper: PaperKind, liner: LinerKind, seed: number, px = 2): EnvelopeParts {
   const { width: w, height: h } = g;
   const rect = Skia.XYWHRect(0, 0, w, h);
 
   const interior = record(w, 0, h, (c) => {
-    c.drawRect(rect, linerPaint(liner, seed, 0.66));
+    c.drawRect(rect, linerPaint(liner, seed, 0.66, px));
     // Deeper inside the pocket is darker.
     const shade = Skia.Paint();
     shade.setShader(
@@ -195,7 +199,7 @@ export function recordEnvelope(g: EnvelopeGeometry, paper: PaperKind, liner: Lin
   });
 
   const flapInner = record(w, 0, h, (c) => {
-    c.drawPath(g.flap, linerPaint(liner, seed + 5, 0.92));
+    c.drawPath(g.flap, linerPaint(liner, seed + 5, 0.92, px));
     // Gum strip along both slanted edges: slightly darker, faintly glossy.
     c.save();
     c.clipPath(g.flap, ClipOp.Intersect, true);

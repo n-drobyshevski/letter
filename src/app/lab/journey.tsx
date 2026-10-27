@@ -6,6 +6,11 @@ import { Desk } from '@/components/Desk';
 import { MailboxView } from '@/components/MailboxView';
 import { useLabParams } from '@/lib/params';
 import { useMotionPrefs } from '@/lib/useMotionPrefs';
+import { DeskScene } from '@/letter/desk/DeskScene';
+import { DESK_COPY } from '@/letter/desk/deskCopy';
+import { useDeskLayout } from '@/letter/desk/layout';
+import { applyPick } from '@/letter/desk/pick';
+import { DRAWERS, deskSeed, type DeskItem, type DrawerKey, type EnvelopeStock } from '@/letter/desk/types';
 import { EnvelopeCeremony, useSealingFit, type EnvelopeLook } from '@/letter/EnvelopeCeremony';
 import { ENVELOPE_MM, formatForFold } from '@/letter/envelope';
 import { FOLD_KINDS, type FoldKind } from '@/letter/fold';
@@ -19,9 +24,10 @@ import { parseDie, type SealDie, type SealPlacement } from '@/letter/seal';
 import { SealButtons } from '@/letter/SealButtons';
 import { useSealControls } from '@/letter/sealCopy';
 import { SHEET_RATIO, useSheetSize } from '@/letter/sheet';
-import { bulgeFor, defaultTwoSided, emptyFace, emptySheet, isEmptySheet, maxSheetsFor, trimSheets, type SheetContent } from '@/letter/stack';
+import { bulgeFor, defaultTwoSided, emptyFace, emptySheet, isEmptySheet, maxSheetsFor, rescaleStrokes, trimSheets, type SheetContent } from '@/letter/stack';
 import type { WritingMode } from '@/letter/WritingDesk';
 import { WAX, WAX_TYPES, type Country, type LinerKind, type PaperKind, type WaxKind, type WaxType } from '@/theme/stationery';
+import type { EnvelopePaper } from '@/theme/kinds';
 
 /**
  * Lab: the whole journey of one letter, offline. Write it, fold it (the gesture
@@ -29,7 +35,8 @@ import { WAX, WAX_TYPES, type Country, type LinerKind, type PaperKind, type WaxK
  * it in the postbox; then skip the weeks and open it in her mailbox.
  * `?step=fold|envelope|post|receive` starts later with a sample letter (QA),
  * `?sheets=1..4` with a sample stack of that many sheets; at the envelope, `?t=`
- * freezes a frame and `?die=` picks the die.
+ * freezes a frame and `?die=` picks the die. The paper, the hand, the ink and the
+ * envelope stock come from the desk's drawers (`?drawer=&dt=` freezes one open).
  */
 
 type Step = 'write' | 'fold' | 'envelope' | 'post' | 'receive';
@@ -41,10 +48,6 @@ const STEPS: { key: Step; label: string }[] = [
   { key: 'receive', label: 'У неё' },
 ];
 
-const PAPERS = [
-  { key: 'grid', label: 'Тетрадь' },
-  { key: 'cotton', label: 'Хлопок' },
-] as const;
 const MODES = [
   { key: 'keyboard', label: 'Клавиатура' },
   { key: 'pen', label: 'Перо' },
@@ -81,7 +84,8 @@ export default function JourneyLab() {
   const seed = q.seed ?? 1407;
 
   const [step, setStep] = useState<Step>(startAt);
-  const [paper, setPaper] = useState<PaperKind>('grid');
+  // What the drawers gave this letter: its paper, hand and ink (the lab's own, not the app's stationery pick).
+  const [pen, setPen] = useState<Omit<LetterLook, 'seed'>>({ paper: 'grid', ink: 'blueBlack', font: 'badScript' });
   const sample = (): SheetContent[] =>
     q.sheets ? sampleSheets(q.sheets) : [{ recto: { text: SAMPLE_LETTER, strokes: [] }, verso: emptyFace(), twoSided: defaultTwoSided('grid') }];
   const [sheets, setSheets] = useState<SheetContent[]>(() => (startAt === 'write' && !q.sheets ? [emptySheet('grid')] : sample()));
@@ -94,9 +98,16 @@ export default function JourneyLab() {
     die: q.die ? parseDie(q.die) : 'monogram',
   }));
   const [from, setFrom] = useState<Country>('fr');
-  const writeSize = useSheetSize();
+  const deskLayout = useDeskLayout();
+  const writeSize = deskLayout.sheet;
+  // Pen strokes are in pixels of the writing sheet, which follows the window: they follow it in the same render.
+  const [drawnAt, setDrawnAt] = useState(writeSize.width);
+  if (drawnAt !== writeSize.width) {
+    setDrawnAt(writeSize.width);
+    setSheets((s) => rescaleStrokes(s, writeSize.width / drawnAt));
+  }
 
-  const hand: LetterLook = { paper, ink: 'blueBlack', font: 'badScript', seed };
+  const hand: LetterLook = { ...pen, seed };
   // What leaves the desk: the sheets written on (a blank one taken last stays behind).
   const letter = { sheets: trimSheets(sheets), strokesWidth: writeSize.width, hand, fold };
   const look: EnvelopeLook = {
@@ -111,12 +122,20 @@ export default function JourneyLab() {
     format: formatForFold(fold),
   };
   const restart = () => {
-    setSheets([emptySheet(paper)]);
+    setSheets([emptySheet(hand.paper)]);
     setFold('tri');
     setEnvelope((e) => ({ ...e, seal: undefined }));
     setStep('write');
   };
   const progress = <Progress at={step} />;
+  // QA: a drawer frozen open (?drawer=&dt=), an item lifted, the keyboard up, Reduce Motion; a seed skips the breath.
+  const deskFixed = {
+    drawer: DRAWERS.includes(q.drawer as DrawerKey) ? (q.drawer as DrawerKey) : undefined,
+    t: q.dt ?? (q.seed !== undefined ? 0 : undefined),
+    item: q.item,
+    kb: q.kb === 1 || undefined,
+    rm: q.rm === 1 || undefined,
+  };
 
   switch (step) {
     case 'write':
@@ -124,11 +143,14 @@ export default function JourneyLab() {
         <WriteStep
           progress={progress}
           hand={hand}
-          size={writeSize}
+          onHand={({ paper, ink, font }) => setPen({ paper, ink, font })}
+          layout={deskLayout}
+          country={from}
           sheets={sheets}
           onSheets={setSheets}
-          paper={paper}
-          onPaper={setPaper}
+          envelope={envelope}
+          onEnvelope={(stock, unseal) => setEnvelope((e) => ({ ...e, ...stock, seal: unseal ? undefined : e.seal }))}
+          fixed={deskFixed}
           onNext={() => setStep('fold')}
         />
       );
@@ -162,7 +184,7 @@ export default function JourneyLab() {
         <PostStep
           progress={progress}
           look={look}
-          bulge={bulgeFor(fold, letter.sheets.length, paper)}
+          bulge={bulgeFor(fold, letter.sheets.length, hand.paper)}
           from={from}
           onFrom={setFrom}
           onNext={() => setStep('receive')}
@@ -193,35 +215,73 @@ function Progress({ at }: { at: Step }) {
 function WriteStep(props: {
   progress: React.ReactNode;
   hand: LetterLook;
-  size: { width: number; height: number };
+  onHand: (look: LetterLook) => void;
+  layout: ReturnType<typeof useDeskLayout>;
+  country: Country;
   sheets: SheetContent[];
   onSheets: (s: SheetContent[]) => void;
-  paper: PaperKind;
-  onPaper: (p: PaperKind) => void;
+  envelope: Sealed;
+  onEnvelope: (stock: EnvelopeStock, unseal: boolean) => void;
+  fixed: React.ComponentProps<typeof DeskScene>['fixed'];
   onNext: () => void;
 }) {
+  const { hand, sheets, layout, country } = props;
   const [mode, setMode] = useState<WritingMode>('keyboard');
-  const written = !props.sheets.every(isEmptySheet);
+  const [editing, setEditing] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [addSheetKey, setAddSheetKey] = useState(0);
+  const written = !sheets.every(isEmptySheet);
+  // The journey's envelope paper is cream or kraft (the sealing step's own choice keeps it so).
+  const stock: EnvelopeStock = { paper: props.envelope.paper as EnvelopePaper, liner: props.envelope.liner };
+  const onPick = (item: DeskItem, confirmed?: boolean) => {
+    const sealed = !!props.envelope.seal;
+    const out = applyPick({ blank: !written, look: hand, sheets, maxSheets: maxSheetsFor(undefined), envelope: stock, sealed }, item, confirmed);
+    if (out.kind !== 'apply') return out;
+    if (out.look) props.onHand(out.look);
+    if (out.sheets) props.onSheets(out.sheets);
+    if (out.addSheet) setAddSheetKey((k) => k + 1);
+    if (out.envelope) props.onEnvelope(out.envelope, !!out.unseal);
+    return out;
+  };
   return (
-    <Desk title="Письмо" hint="Напиши ей. Перо — для подписи и рисунков">
-      {props.progress}
-      <View style={styles.row}>
-        <Choice options={PAPERS} value={props.paper as 'grid' | 'cotton'} onChange={props.onPaper} />
-        <Choice options={MODES} value={mode} onChange={setMode} />
-      </View>
-      <DeskStack
-        look={props.hand}
-        width={props.size.width}
-        height={props.size.height}
-        mode={mode}
-        sheets={props.sheets}
-        onSheets={props.onSheets}
-        placeholder="Моя хорошая, …"
-      />
-      <View style={styles.actions}>
-        {written && <Button label="Сложить →" onPress={props.onNext} />}
-      </View>
-    </Desk>
+    <DeskScene
+      lang="ru"
+      country={country}
+      seed={deskSeed(country)}
+      layout={layout}
+      title="Письмо"
+      hint={DESK_COPY.ru.hint}
+      header={
+        <>
+          {props.progress}
+          <Choice options={MODES} value={mode} onChange={setMode} />
+        </>
+      }
+      sheet={
+        <DeskStack
+          look={hand}
+          width={layout.sheet.width}
+          height={layout.sheet.height}
+          mode={mode}
+          sheets={sheets}
+          onSheets={props.onSheets}
+          placeholder="Моя хорошая, …"
+          onEditing={setEditing}
+          onBusy={setBusy}
+          addSheetKey={addSheetKey}
+          controlsGap={layout.pad.marginY - 6}
+        />
+      }
+      look={hand}
+      envelope={stock}
+      locked={{ paper: written, pen: written, ink: written }}
+      editing={editing}
+      busy={busy}
+      onPick={onPick}
+      fixed={props.fixed}
+    >
+      <View style={styles.actions}>{written && <Button label="Сложить →" onPress={props.onNext} />}</View>
+    </DeskScene>
   );
 }
 

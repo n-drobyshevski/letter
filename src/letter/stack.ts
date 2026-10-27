@@ -2,7 +2,7 @@ import { mulberry32, subSeed, wobble } from '../lib/random';
 import type { PaperKind } from '../theme/stationery';
 import type { FoldKind } from './fold';
 import type { Side } from './paperLayout';
-import type { Stroke } from './strokes';
+import type { Stroke, StrokePoint } from './strokes';
 
 /**
  * A letter is a small stack of sheets, each with a front (recto) and a back (verso).
@@ -31,8 +31,8 @@ export const maxSheetsFor = (fold: FoldKind | undefined) => (fold === 'quarter' 
  */
 export const MULTI_SHEET = true;
 
-// Paper that is written on both sides by habit: the thin school notebook leaf.
-const TWO_SIDED: Record<PaperKind, boolean> = { grid: true, cotton: false, cream: false, kraft: false };
+// Paper that is written on both sides by habit: the thin school notebook leaf, the copie double, airmail onion skin (postage).
+const TWO_SIDED: Record<PaperKind, boolean> = { grid: true, cotton: false, seyes: true, airmail: true, cream: false, kraft: false };
 export const defaultTwoSided = (paper: PaperKind) => TWO_SIDED[paper];
 
 export const emptyFace = (): FaceContent => ({ text: '', strokes: [] });
@@ -49,6 +49,27 @@ export function trimSheets(sheets: SheetContent[]): SheetContent[] {
 
 export const faceOf = (sheets: SheetContent[], ref: FaceRef): FaceContent => sheets[ref.sheet]?.[ref.side] ?? emptyFace();
 export const faceIndex = (ref: FaceRef) => ref.sheet * 2 + (ref.side === 'verso' ? 1 : 0);
+
+/**
+ * A face the stack actually has: the sheet clamped to the stack, and the recto of a sheet that is not
+ * (or no longer) two-sided. The same object when it already is one, so callers can compare.
+ */
+export function clampFace(ref: FaceRef, sheets: SheetContent[]): FaceRef {
+  const sheet = Math.max(0, Math.min(sheets.length - 1, ref.sheet));
+  const side = ref.side === 'verso' && sheets[sheet]?.twoSided ? 'verso' : 'recto';
+  return sheet === ref.sheet && side === ref.side ? ref : { sheet, side };
+}
+
+/**
+ * Pen strokes are in pixels of the sheet they were drawn on: scaled by `k` when the sheet changes
+ * width (a resized window). The same array when there is nothing to scale.
+ */
+export function rescaleStrokes(sheets: SheetContent[], k: number): SheetContent[] {
+  if (k === 1 || !Number.isFinite(k) || k <= 0) return sheets;
+  if (sheets.every((s) => s.recto.strokes.length === 0 && s.verso.strokes.length === 0)) return sheets;
+  const face = (f: FaceContent): FaceContent => ({ ...f, strokes: f.strokes.map((s) => s.map(([x, y, p, t]): StrokePoint => [x * k, y * k, p, t])) });
+  return sheets.map((s) => ({ ...s, recto: face(s.recto), verso: face(s.verso) }));
+}
 
 /** A copy of `sheets` with one face replaced. */
 export function withFace(sheets: SheetContent[], ref: FaceRef, face: FaceContent): SheetContent[] {
@@ -79,8 +100,8 @@ export const inkSeed = (seed: number, ref: FaceRef) => {
   return k === 0 ? seed : subSeed(seed, `face${k}`);
 };
 
-// Thickness of one sheet (mm): thin notebook paper, heavier cotton writing paper.
-const CALIPER_MM: Record<PaperKind, number> = { grid: 0.075, cotton: 0.13, cream: 0.11, kraft: 0.12 };
+// Thickness of one sheet (mm): thin notebook paper, heavier cotton writing paper, 90 g Seyès, 35 g onion skin.
+const CALIPER_MM: Record<PaperKind, number> = { grid: 0.075, cotton: 0.13, seyes: 0.11, airmail: 0.045, cream: 0.11, kraft: 0.12 };
 // Layers of paper per sheet once folded.
 const LAYERS: Record<FoldKind, number> = { tri: 3, half: 2, quarter: 4 };
 

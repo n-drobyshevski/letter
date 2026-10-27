@@ -8,6 +8,7 @@ import { SignIn } from '@/components/SignIn';
 import { MAX_BODY_BYTES, bodyBytes, draftBody, envelopeJson, isEmptyDraft, setDraft, useDraft, writtenSheets, type Draft, type DraftEnvelope } from '@/lib/draft';
 import { postLetter, retrieveLetter, useCouple, useLettersInTransit, useSession, type Couple } from '@/lib/mail';
 import { useLabParams } from '@/lib/params';
+import { getStationeryPick, useStationeryPick, type StationeryPick } from '@/lib/stationeryPick';
 import { supabase } from '@/lib/supabase';
 import { useMotionPrefs } from '@/lib/useMotionPrefs';
 import type { EnvelopeLook } from '@/letter/EnvelopeCeremony';
@@ -167,8 +168,10 @@ function LivePost({ couple, onOffline }: { couple: Couple; onOffline: () => void
   const [autoSeed] = useState(() => Math.floor(Math.random() * 2 ** 31));
   const { needsButtons } = useMotionPrefs();
   // The envelope as sealed at /seal, exactly: its seed, wax, die and where the seal went.
-  // Skipped /seal: today's auto-seal (bordeaux, the monogram, centred on the flap tip).
-  const envelope: DraftEnvelope = draft?.envelope ?? autoEnvelope(me.display_name, lang, autoSeed, draft?.fold);
+  // Skipped /seal: today's auto-seal (bordeaux, the monogram, centred on the flap tip), on the
+  // stock last taken from the envelope drawer.
+  const pick = useStationeryPick();
+  const envelope: DraftEnvelope = draft?.envelope ?? autoEnvelope(me.display_name, lang, autoSeed, draft?.fold, pick.envelope);
   const seed = envelope.seed;
   const look: EnvelopeLook = {
     paper: envelope.paper,
@@ -322,12 +325,18 @@ function LivePost({ couple, onOffline }: { couple: Couple; onOffline: () => void
 }
 
 /** Today's auto-seal, for a letter taken to the post without stopping at /seal. */
-function autoEnvelope(name: string, lang: Lang, seed: number, fold: FoldKind | undefined): DraftEnvelope {
+function autoEnvelope(
+  name: string,
+  lang: Lang,
+  seed: number,
+  fold: FoldKind | undefined,
+  stock: StationeryPick['envelope'] = getStationeryPick().envelope,
+): DraftEnvelope {
   // The envelope fits the fold: DL, C5 or C6.
   const format = formatForFold(fold ?? 'tri');
   return {
-    paper: 'cream',
-    liner: 'postal',
+    paper: stock.paper,
+    liner: stock.liner,
     wax: 'bordeaux',
     waxType: 'brittle',
     die: 'monogram',

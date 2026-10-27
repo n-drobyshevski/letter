@@ -39,4 +39,22 @@ export const feel = {
   peel: () => enabled && Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium),
   /** A mailbox door swinging open. */
   door: () => enabled && Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium),
+  /** Something taken up from a drawer: a stack of paper, a pen, a bottle, an envelope. */
+  lift: () =>
+    enabled &&
+    (android
+      ? Haptics.performAndroidHapticsAsync(Haptics.AndroidHaptics.Drag_Start)
+      : Haptics.selectionAsync()),
+  /** A drawer meeting its stop as it opens. */
+  knock: () =>
+    enabled &&
+    (android
+      ? Haptics.performAndroidHapticsAsync(Haptics.AndroidHaptics.Context_Click)
+      : Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)),
+  /** A drawer pushed shut. */
+  shut: () =>
+    enabled &&
+    (android
+      ? Haptics.performAndroidHapticsAsync(Haptics.AndroidHaptics.Gesture_End)
+      : Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Soft)),
 };

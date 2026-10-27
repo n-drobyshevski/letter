@@ -5,7 +5,8 @@ import type { LetterLook } from './LetterSheet';
 import { parseDie, parseSeal, type SealDie, type SealPlacement } from './seal';
 import { MAX_SHEETS, emptyFace, type FaceContent, type SheetContent } from './stack';
 import type { Stroke } from './strokes';
-import type { Country, FontKey, InkKind, LinerKind, PaperKind, WaxKind, WaxType } from '../theme/stationery';
+import { ENVELOPE_PAPERS, FONT_KEYS, INK_KINDS, LINER_KINDS, PAPER_KINDS, WAX_KINDS } from '../theme/kinds';
+import type { Country, LinerKind, PaperKind, WaxKind, WaxType } from '../theme/stationery';
 
 /**
  * The recipient's mailbox, from what RLS lets them read: envelopes once collected,
@@ -93,17 +94,12 @@ export type MailLetter = {
   openedAt?: string;
 };
 
-// Runtime whitelists (stationery.ts itself loads font files, so it can't be imported here).
-const PAPERS: PaperKind[] = ['grid', 'cotton', 'cream', 'kraft'];
-const ENVELOPE_PAPERS: PaperKind[] = ['cream', 'kraft'];
-const LINER_KINDS: LinerKind[] = ['postal', 'bordeaux', 'forest'];
-const WAXES: WaxKind[] = ['bordeaux', 'forest', 'navy', 'gold'];
-const INKS: InkKind[] = ['blueBlack', 'ironGall', 'violet'];
-const FONTS: FontKey[] = ['badScript', 'marckScript', 'caveat'];
+// Runtime whitelists come from kinds.ts (stationery.ts itself loads font files, so it can't be imported here).
+// A sheet accepts every paper kind, envelope stock included, as it always has: old letters parse the same.
 const FOLDS: FoldKind[] = ['tri', 'half', 'quarter'];
 const FORMATS: EnvelopeFormat[] = ['DL', 'C5', 'C6'];
 const FORMAT_OF: Record<FoldKind, EnvelopeFormat> = { tri: 'DL', half: 'C5', quarter: 'C6' };
-const pick = <T extends string>(v: string | undefined, allowed: T[], fallback: T): T =>
+const pick = <T extends string>(v: string | undefined, allowed: readonly T[], fallback: T): T =>
   allowed.includes(v as T) ? (v as T) : fallback;
 
 const asFace = (v: unknown): FaceContent | null => {
@@ -187,15 +183,15 @@ export function mailboxFromServer(input: {
       sheets: sheets.length > 1 || sheets[0].twoSided ? sheets : undefined,
       strokesWidth: b?.sheet_width,
       letterLook: {
-        paper: pick(b?.paper, PAPERS, 'cotton'),
-        ink: pick(b?.ink, INKS, 'blueBlack'),
-        font: pick(b?.font, FONTS, 'badScript'),
+        paper: pick(b?.paper, PAPER_KINDS, 'cotton'),
+        ink: pick(b?.ink, INK_KINDS, 'blueBlack'),
+        font: pick(b?.font, FONT_KEYS, 'badScript'),
       },
       fold,
       format: pick(env.format, FORMATS, FORMAT_OF[fold]),
       paper: pick(env.paper, ENVELOPE_PAPERS, 'cream'),
       liner: pick(env.liner, LINER_KINDS, 'postal'),
-      wax: pick(env.wax, WAXES, 'bordeaux'),
+      wax: pick(env.wax, WAX_KINDS, 'bordeaux'),
       waxType: env.waxType === 'flexible' ? 'flexible' : 'brittle',
       die: parseDie(env.die),
       seal: parseSeal(env.seal) ?? undefined,

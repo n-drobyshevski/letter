@@ -4,7 +4,7 @@
  * lab screen at fixed seeds / fold progress, on a phone and a laptop viewport.
  * Output: qa-screens/<name>.png — review against .claude/skills/paper-realism.
  *
- *   node scripts/visual-qa.mjs [--only fold]
+ *   node scripts/visual-qa.mjs [--only fold] [--vp phone|laptop]
  */
 import { createServer } from 'node:http';
 import { readFile, mkdir } from 'node:fs/promises';
@@ -22,7 +22,22 @@ const SHOTS = [
   { name: 'home', path: '/' },
   { name: 'jitter-grid', path: '/lab/jitter?seed=20261026&paper=grid' },
   { name: 'jitter-cotton-marck', path: '/lab/jitter?seed=99&paper=cotton&font=marckScript&ink=violet' },
-  { name: 'typing', path: '/lab/typing?seed=7' },
+  { name: 'jitter-seyes', path: '/lab/jitter?seed=20261026&paper=seyes' },
+  { name: 'jitter-airmail', path: '/lab/jitter?seed=20261026&paper=airmail' },
+  // the writing desk (/write): closed · FR walnut · a drawer half out and fully out · the pens · FR envelopes ·
+  // Seyès lifted · Reduce Motion panel · keyboard up (band away) · the new papers and ink on the sheet
+  { name: 'desk-closed', path: '/lab/typing?seed=7', wait: 4000 },
+  { name: 'desk-closed-fr', path: '/lab/typing?seed=7&country=fr', wait: 4000 },
+  ...[0.5, 1].map((dt) => ({ name: `desk-drawer-paper-${dt}`, path: `/lab/typing?seed=7&drawer=paper&dt=${dt}`, wait: 5000 })),
+  { name: 'desk-drawer-pens-1', path: '/lab/typing?seed=7&drawer=pens&dt=1', wait: 5000 },
+  { name: 'desk-drawer-envelopes-1-fr', path: '/lab/typing?seed=7&country=fr&drawer=envelopes&dt=1', wait: 5000 },
+  { name: 'desk-drawer-paper-lift', path: '/lab/typing?seed=7&drawer=paper&dt=1&item=paper.seyes', wait: 5000 },
+  { name: 'desk-drawer-paper-rm', path: '/lab/typing?seed=7&drawer=paper&dt=1&rm=1', wait: 5000 },
+  { name: 'desk-kb', path: '/lab/typing?seed=7&kb=1', wait: 4000 },
+  { name: 'desk-seyes', path: '/lab/typing?seed=7&paper=seyes', wait: 4000 },
+  { name: 'desk-seyes-verso', path: '/lab/typing?seed=7&paper=seyes&sheets=2&face=1', wait: 4000 },
+  { name: 'desk-airmail-verso', path: '/lab/typing?seed=7&paper=airmail&sheets=2&face=1', wait: 4000 },
+  { name: 'desk-sapphire-marck', path: '/lab/typing?seed=7&ink=sapphire&font=marckScript', wait: 4000 },
   // several sheets, both sides: a notebook verso (margin on the left, the front showing through) · sheet 2 · halfway over · cotton
   { name: 'desk-verso', path: '/lab/typing?seed=7&sheets=2&face=1' },
   { name: 'desk-sheet2', path: '/lab/typing?seed=7&sheets=3&face=2' },
@@ -31,7 +46,8 @@ const SHOTS = [
   ...[0.3, 0.7].map((turn) => ({ name: `desk-turn-tilt-${turn}`, path: `/lab/typing?seed=7&sheets=2&turn=${turn}&tilt=-0.4` })),
   { name: 'desk-cotton-verso', path: '/lab/typing?seed=7&paper=cotton&sheets=3&face=5' },
   // the whole journey, one frame per step (later steps start with a sample letter)
-  { name: 'journey-write', path: '/lab/journey' },
+  { name: 'journey-write', path: '/lab/journey?seed=1407', wait: 4000 },
+  { name: 'journey-write-drawer', path: '/lab/journey?seed=1407&drawer=envelopes&dt=1', wait: 5000 },
   { name: 'journey-fold', path: '/lab/journey?step=fold' },
   { name: 'journey-envelope-c5', path: '/lab/journey?step=envelope&fold=half' },
   // the flap shut, the wax poured: the die tray under the envelope, the swallow picked
@@ -39,6 +55,7 @@ const SHOTS = [
   { name: 'journey-post-c6', path: '/lab/journey?step=post&fold=quarter' },
   { name: 'journey-receive-c5', path: '/lab/journey?step=receive&fold=half' },
   ...[0, 0.25, 0.5, 0.75, 1].map((t) => ({ name: `fold-${t}`, path: `/lab/fold?seed=1407&t=${t}` })),
+  { name: 'fold-seyes-1', path: '/lab/fold?seed=1407&paper=seyes&t=1' },
   // half fold (top half down) · quarter fold (then the right half over the left; 0.5 = the half fold)
   ...[0.3, 0.6, 1].map((t) => ({ name: `foldhalf-${t}`, path: `/lab/fold?seed=1407&fold=half&t=${t}` })),
   ...[0.65, 0.8, 1].map((t) => ({ name: `foldquarter-${t}`, path: `/lab/fold?seed=1407&fold=quarter&t=${t}` })),
@@ -103,6 +120,9 @@ const SHOTS = [
   // flexible wax: no transit crack · bending · peeled off whole, film left behind
   ...[0.3, 0.345, 0.42, 0.5].map((t) => ({ name: `flex-${t}`, path: `/lab/mailbox?seed=1407&open=seal&wax=flexible&t=${t}` })),
   { name: 'flex-left-0.42', path: '/lab/mailbox?seed=1407&open=seal&wax=flexible&hold=left&t=0.42' },
+  // the desk's realism board: every item at both scales, the drawers side by side (slow on a software GPU)
+  { name: 'deskboard-ru', path: '/lab/desk?country=ru', wait: 60000 },
+  { name: 'deskboard-fr', path: '/lab/desk?country=fr', wait: 60000 },
 ];
 const VIEWPORTS = [
   { name: 'phone', width: 390, height: 844, deviceScaleFactor: 2 },
@@ -110,6 +130,7 @@ const VIEWPORTS = [
 ];
 
 const only = process.argv.includes('--only') ? process.argv[process.argv.indexOf('--only') + 1] : null;
+const vpOnly = process.argv.includes('--vp') ? process.argv[process.argv.indexOf('--vp') + 1] : null;
 
 const server = createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x');
@@ -127,15 +148,16 @@ const base = `http://localhost:${server.address().port}`;
 await mkdir(OUT, { recursive: true });
 const browser = await chromium.launch();
 const errors = [];
-for (const vp of VIEWPORTS) {
+for (const vp of VIEWPORTS.filter((v) => !vpOnly || v.name === vpOnly)) {
   const page = await browser.newPage({ viewport: { width: vp.width, height: vp.height }, deviceScaleFactor: vp.deviceScaleFactor });
   page.on('pageerror', (e) => errors.push(`${vp.name}: ${e.message}`));
   page.on('console', (m) => m.type() === 'error' && errors.push(`${vp.name} console: ${m.text()}`));
   for (const shot of SHOTS.filter((s) => !only || s.name.startsWith(only))) {
     await page.goto(base + shot.path, { waitUntil: 'networkidle' });
-    await page.waitForTimeout(1200);
+    await page.waitForTimeout(shot.wait ?? 1200);
     const file = join(OUT, `${shot.name}.${vp.name}.png`);
-    await page.screenshot({ path: file, fullPage: true });
+    // A software GPU (CI, cloud containers) can take a while to paint the desk's shaders.
+    await page.screenshot({ path: file, fullPage: true, timeout: 180000 });
     console.log('shot', file);
   }
   await page.close();

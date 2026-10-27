@@ -70,6 +70,16 @@ describe('mailboxFromServer', () => {
     assert.equal(recorded.waiting[0].format, 'C5');
   });
 
+  test('the new papers and ink come through; kinds this build does not know fall back', () => {
+    const contents = (body: object) => [{ letter_id: 'x', body }] as never;
+    const parse = (body: object) => mailboxFromServer({ rows: [row('x', '2026-11-19T13:00:00Z')], contents: contents(body), receipts: [], me, them, now }).waiting[0].letterLook;
+    assert.deepEqual(parse({ text: 'Coucou', paper: 'seyes', ink: 'sapphire', font: 'marckScript' }), { paper: 'seyes', ink: 'sapphire', font: 'marckScript' });
+    assert.deepEqual(parse({ text: 'Привет', paper: 'airmail', ink: 'ironGall', font: 'caveat' }), { paper: 'airmail', ink: 'ironGall', font: 'caveat' });
+    // Old letters parse as they always did, envelope stock as a sheet included.
+    assert.deepEqual(parse({ text: 'Old', paper: 'kraft' }), { paper: 'kraft', ink: 'blueBlack', font: 'badScript' });
+    assert.deepEqual(parse({ text: '?', paper: 'verge', ink: 'emerald', font: 'pencil' }), { paper: 'cotton', ink: 'blueBlack', font: 'badScript' });
+  });
+
   test('an envelope seed that is not an integer falls back to the row seed', () => {
     for (const seed of ['abc', 1.5, null, Number.NaN, { n: 1 }, [3], '11']) {
       const got = mailboxFromServer({

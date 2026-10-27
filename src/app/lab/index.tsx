@@ -6,6 +6,7 @@ import { Desk } from '@/components/Desk';
 const LABS = [
   { href: '/lab/jitter', title: 'Почерк', note: 'Typed text → handwriting: per-word jitter, ink load, bleed (RU + FR)' },
   { href: '/lab/typing', title: 'Письмо', note: 'Write with the keyboard straight onto the paper, then see it "dry" into ink' },
+  { href: '/lab/desk', title: 'Стол', note: 'The writing desk: walnut or oak, the leather sous-main, three drawers pulled out, every item at both scales' },
   { href: '/lab/journey', title: 'Путь письма', note: 'The whole journey, offline: write, fold, envelope and wax, the postbox, then skip the weeks and open it in her mailbox' },
   { href: '/lab/fold', title: 'Сложить', note: 'The gesture picks the fold: up = in three, top edge down = in half, then left = in four' },
   { href: '/lab/envelope', title: 'Конверт', note: 'Slide the letter in, close the flap, pour the wax where you hold, pick a die, press it where you tap' },

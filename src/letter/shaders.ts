@@ -6,7 +6,7 @@
  * one global light direction (uLight), seeded per letter (uSeed).
  */
 
-const NOISE = /* sksl */ `
+export const NOISE = /* sksl */ `
 float hash(float2 p) {
   p = fract(p * float2(123.34, 456.21));
   p += dot(p, p + 45.32);
@@ -53,8 +53,19 @@ uniform float uCrease;
 uniform float2 uLight;
 uniform float2 uCreaseOffset;
 uniform float uFold; // 0 tri-fold, 1 half, 2 quarter (half + a vertical crease)
+uniform float uRuling; // with uCell > 0: 0 the square grid, 1 Seyès (uCell is then the heavy pitch)
+uniform float3 uHeavyColor; // Seyès heavy lines and verticals
+uniform float uMarginScreen; // 1: rules and margin in screen xy (left on every face); 0: on the sheet (mirrored)
+uniform float uCockle; // thin paper's waviness, 0..1
 uniform float uSide; // 0 recto, 1 verso
 ${NOISE}
+// Cockle height: two octaves of value noise only (no fbm, for cost), each turned so the
+// noise lattice doesn't line up with the sheet's edges.
+float cockleH(float2 p) {
+  float2 a = float2(0.8 * p.x - 0.6 * p.y, 0.6 * p.x + 0.8 * p.y);
+  float2 b = float2(0.28 * p.x + 0.96 * p.y, 0.96 * p.x - 0.28 * p.y);
+  return 0.65 * vnoise(a * 0.004) + 0.35 * vnoise(b * 0.009);
+}
 half4 main(float2 xy) {
   // Where this pixel is on the physical sheet (the recto's coordinates).
   float2 s = uSide > 0.5 ? float2(uSize.x - xy.x, xy.y) : xy;
@@ -70,17 +81,38 @@ half4 main(float2 xy) {
   col *= 0.982 + 0.036 * grain;
   col -= 0.03 * smoothstep(0.6, 0.82, fibre);
 
-  if (uCell > 0.0) {
+  // Printed rules: on the sheet (a notebook's margin is on the outer edge, so it mirrors), or
+  // on the screen for a face printed the same way on both sides (Seyès: margin on the left).
+  float2 r = uMarginScreen > 0.5 ? xy : s;
+  if (uCell > 0.0 && uRuling > 0.5) {
+    // Seyès: fine lines every quarter pitch, heavy lines every pitch, verticals every pitch from the margin.
+    float pitch = uCell;
+    float fy = abs(fract(r.y / (pitch * 0.25) + 0.5) - 0.5) * pitch * 0.25;
+    float hy = abs(fract(r.y / pitch + 0.5) - 0.5) * pitch;
+    float vx = r.x > uMarginX ? abs(fract((r.x - uMarginX) / pitch + 0.5) - 0.5) * pitch : 99.0;
+    float fine = 1.0 - smoothstep(0.15, 0.7, fy);
+    float heavy = 1.0 - smoothstep(0.2, 0.9, min(hy, vx));
+    float strike = 0.7 + 0.3 * vnoise(r * 0.07 + uSeed);
+    col = mix(col, uGridColor * col, fine * 0.28 * strike);
+    col = mix(col, uHeavyColor * col, heavy * 0.48 * strike);
+  } else if (uCell > 0.0) {
     float2 g = abs(fract(s / uCell + 0.5) - 0.5) * uCell;
     float lineMask = 1.0 - smoothstep(0.2, 0.9, min(g.x, g.y));
     float strike = 0.7 + 0.3 * vnoise(s * 0.07 + uSeed);
     col = mix(col, uGridColor * col, lineMask * 0.42 * strike);
   }
   if (uMarginX > 0.0) {
-    float d = abs(s.x - uMarginX);
+    float d = abs(r.x - uMarginX);
     float m = 1.0 - smoothstep(0.55, 1.5, d);
-    float strike = 0.75 + 0.25 * vnoise(s * 0.05 + uSeed * 2.0);
+    float strike = 0.75 + 0.25 * vnoise(r * 0.05 + uSeed * 2.0);
     col = mix(col, uMarginColor * col, m * 0.85 * strike);
+  }
+  if (uCockle > 0.0) {
+    // A slow relief lit by the desk light; seen from behind, bumps are dents and x runs the other way.
+    float dx = uSide > 0.5 ? -6.0 : 6.0;
+    float h0 = cockleH(p);
+    float2 g = bend * float2(cockleH(p + float2(dx, 0.0)) - h0, cockleH(p + float2(0.0, 6.0)) - h0);
+    col *= 1.0 + uCockle * clamp(1.3 * dot(g, -uLight), -0.03, 0.03);
   }
 
   // Creases: a valley line plus a lit and a shaded side (a ridge on the verso).
@@ -133,6 +165,10 @@ half4 main(float2 xy) {
 /**
  * Envelope liner: the inside of the envelope, printed with a fine "security"
  * diamond pattern (as on Russian and French post-office envelopes), in shade.
+ * `uPx`: device pixels per local unit across the lines (the smaller axis of the
+ * picture's scale × the pixel ratio × √½). Once the pattern's pitch drops under a
+ * few device pixels (an envelope in a drawer) its lines fade to their mean tone
+ * instead of aliasing into moiré; runtime effects have no fwidth, so the caller says.
  */
 export const LINER_SKSL = /* sksl */ `
 uniform float uSeed;
@@ -140,6 +176,7 @@ uniform float3 uBase;
 uniform float3 uPattern;
 uniform float uScale;
 uniform float uShade;
+uniform float uPx;
 ${NOISE}
 half4 main(float2 xy) {
   float2 p = xy + uSeed;
@@ -147,8 +184,11 @@ half4 main(float2 xy) {
   float b = abs(fract((xy.x - xy.y) / uScale) - 0.5);
   float lines = 1.0 - smoothstep(0.035, 0.11, min(a, b));
   float strike = 0.75 + 0.25 * vnoise(xy * 0.06 + uSeed);
+  // Below ~3 device px a period, the lines become their average share of the pattern's ink.
+  float resolved = smoothstep(2.5, 5.0, uScale * uPx);
+  float m = mix(0.19, lines * 0.85 * strike, resolved);
   float3 col = uBase * (0.975 + 0.05 * fbm(p * 0.006)) * (0.985 + 0.03 * vnoise(p * 0.9));
-  col = mix(col, uPattern, lines * 0.85 * strike);
+  col = mix(col, uPattern, m);
   return half4(half3(col * uShade), 1.0);
 }
 `;

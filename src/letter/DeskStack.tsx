@@ -1,5 +1,5 @@
 import { Canvas, Group, Paint, Picture, RadialGradient, Rect, Skia, useFont, vec, type SkPicture, type Transforms3d } from '@shopify/react-native-skia';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Keyboard, Pressable, StyleSheet, Text, View } from 'react-native';
 import { GestureDetector, usePanGesture } from 'react-native-gesture-handler';
 import {
@@ -22,6 +22,7 @@ import { mirrorPicture } from './showThrough';
 import {
   MAX_SHEETS,
   MULTI_SHEET,
+  clampFace,
   emptyFace,
   emptySheet,
   faceOf,
@@ -104,13 +105,25 @@ type Props = {
   fixedTurn?: number;
   /** Lab/QA: the turn's axis lean for that frozen turn (rad). */
   fixedTilt?: number;
+  /** The keyboard is on the sheet (WritingDesk's focus) or has left it. */
+  onEditing?: (on: boolean) => void;
+  /** A sheet is turning (or sliding) over: true when it starts, false once it lands, or on unmount. */
+  onBusy?: (turning: boolean) => void;
+  /** Bump to lay a new blank sheet (the slide turn of «Ещё лист»); the value at mount does nothing. */
+  addSheetKey?: number;
+  /** Extra room between the sheet and its controls (the writing desk's sous-main runs on below the sheet). */
+  controlsGap?: number;
 };
 
-export function DeskStack({ look, width, height, mode, sheets, onSheets, maxSheets = MAX_SHEETS, placeholder, initialFace = 0, fixedTurn, fixedTilt }: Props) {
-  const [face, setFace] = useState<FaceRef>(() => {
+export function DeskStack({ look, width, height, mode, sheets, onSheets, maxSheets = MAX_SHEETS, placeholder, initialFace = 0, fixedTurn, fixedTilt, onEditing, onBusy, addSheetKey, controlsGap = 0 }: Props) {
+  const [faceState, setFace] = useState<FaceRef>(() => {
     const sheet = Math.min(sheets.length - 1, Math.floor(initialFace / 2));
     return { sheet, side: initialFace % 2 && sheets[sheet]?.twoSided ? 'verso' : 'recto' };
   });
+  // Never a face the stack doesn't have: a re-paper from the drawers can make this sheet one-sided (or
+  // shorten the stack) under us. Shown and kept in the same render, so typing never lands on a hidden verso.
+  const face = clampFace(faceState, sheets);
+  if (face !== faceState) setFace(face);
   const [ask, setAsk] = useState<'remove' | 'back' | null>(null);
   const [turning, setTurning] = useState<Turn | null>(null);
   const sheet = sheets[face.sheet] ?? emptySheet(look.paper);
@@ -206,6 +219,36 @@ export function DeskStack({ look, width, height, mode, sheets, onSheets, maxShee
     play(slide({ sheet: sheets.length, side: 'recto' }, () => onSheets([...sheets, blank]), blank));
   };
 
+  // A turn under way, for the desk around the sheet (its drawers wait).
+  const busy = turning !== null;
+  useEffect(() => {
+    if (!busy) return;
+    onBusy?.(true);
+    return () => onBusy?.(false);
+    // only the start and the end of a turn count
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [busy]);
+
+  // «Ещё лист» from outside (a sheet taken from the drawer): only bumps made while mounted count.
+  // One that comes while a sheet is turning waits for it to land; the slide starts on the next frame.
+  const addSheetHandled = useRef(addSheetKey);
+  useEffect(() => {
+    if (addSheetKey === addSheetHandled.current || busy) return;
+    const frame = requestAnimationFrame(() => {
+      if (target.get()) return; // a drag took the sheet meanwhile: wait for it to land
+      addSheetHandled.current = addSheetKey;
+      if (!MULTI_SHEET || sheets.length >= maxSheets) return;
+      const blank = emptySheet(look.paper);
+      const turn = slide({ sheet: sheets.length, side: 'recto' }, () => onSheets([...sheets, blank]), blank);
+      if (turn) return play(turn);
+      // The hand's font is still loading: no turn to draw, lay the sheet straight away.
+      onSheets([...sheets, blank]);
+      setFace({ sheet: sheets.length, side: 'recto' });
+    });
+    return () => cancelAnimationFrame(frame);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [addSheetKey, busy]);
+
   // The sheet's edges: the finger writes p (0 → 1 is the whole turn) and the grip.
   const travel = width * 0.8;
   const grabY = useSharedValue(0.5);
@@ -261,6 +304,9 @@ export function DeskStack({ look, width, height, mode, sheets, onSheets, maxShee
   };
 
   const last = face.sheet === sheets.length - 1;
+  // A phone's sheet: tighter buttons, so «Перевернуть», «Писать на обороте» and «Ещё лист» share one row
+  // (the controls' height is what decides whether they clear the desk's near edge below).
+  const compact = width < 380;
   const canAdd = MULTI_SHEET && sheets.length < maxSheets;
   const overflowNote =
     face.side === 'recto' && sheet.twoSided
@@ -288,6 +334,7 @@ export function DeskStack({ look, width, height, mode, sheets, onSheets, maxShee
             onStrokes={(strokes) => setCurrent({ strokes })}
             placeholder={face.sheet === 0 && face.side === 'recto' ? placeholder : undefined}
             overflowNote={overflowNote}
+            onEditing={onEditing}
           />
         </View>
         {MULTI_SHEET && fixedTurn === undefined && (
@@ -325,7 +372,7 @@ export function DeskStack({ look, width, height, mode, sheets, onSheets, maxShee
         )}
       </View>
 
-      <View style={styles.row}>
+      <View style={[styles.row, controlsGap > 0 && { marginTop: controlsGap }]}>
         {current.strokes.length > 0 && <DeskButton label={COPY.clearPen} onPress={() => setCurrent({ strokes: [] })} />}
       </View>
       {MULTI_SHEET && (
@@ -341,16 +388,23 @@ export function DeskStack({ look, width, height, mode, sheets, onSheets, maxShee
             </View>
           ) : (
             <View style={styles.row}>
-              {face.sheet > 0 && <DeskButton label={`${COPY.prev} ${face.sheet}`} onPress={() => goTo(face.sheet - 1)} />}
-              {sheet.twoSided && <DeskButton label={face.side === 'recto' ? COPY.turn : COPY.turnBack} strong onPress={turnOver} />}
+              {face.sheet > 0 && <DeskButton label={`${COPY.prev} ${face.sheet}`} compact={compact} onPress={() => goTo(face.sheet - 1)} />}
+              {sheet.twoSided && (
+                <DeskButton label={face.side === 'recto' ? COPY.turn : COPY.turnBack} strong compact={compact} onPress={turnOver} />
+              )}
               <DeskButton
                 label={`${sheet.twoSided ? '☑' : '☐'} ${COPY.twoSided}`}
+                compact={compact}
                 onPress={() => (sheet.twoSided ? (isEmptyFace(sheet.verso) ? setTwoSided(false) : setAsk('back')) : setTwoSided(true))}
               />
-              {!last && <DeskButton label={`${COPY.next} ${face.sheet + 2}`} onPress={() => goTo(face.sheet + 1)} />}
-              {last && canAdd && <DeskButton label={COPY.more} strong onPress={addSheet} />}
+              {!last && <DeskButton label={`${COPY.next} ${face.sheet + 2}`} compact={compact} onPress={() => goTo(face.sheet + 1)} />}
+              {last && canAdd && <DeskButton label={COPY.more} strong compact={compact} onPress={addSheet} />}
               {sheets.length > 1 && (
-                <DeskButton label={COPY.remove} onPress={() => (isEmptySheet(sheet) ? removeSheet() : setAsk('remove'))} />
+                <DeskButton
+                  label={COPY.remove}
+                  compact={compact}
+                  onPress={() => (isEmptySheet(sheet) ? removeSheet() : setAsk('remove'))}
+                />
               )}
             </View>
           )}
@@ -493,9 +547,9 @@ function StackEdges({ count, seed, width, height, paper }: { count: number; seed
   );
 }
 
-function DeskButton({ label, onPress, strong = false }: { label: string; onPress: () => void; strong?: boolean }) {
+function DeskButton({ label, onPress, strong = false, compact = false }: { label: string; onPress: () => void; strong?: boolean; compact?: boolean }) {
   return (
-    <Pressable onPress={onPress} style={strong ? styles.strong : styles.quiet} accessibilityRole="button">
+    <Pressable onPress={onPress} style={[strong ? styles.strong : styles.quiet, compact && (strong ? styles.strongCompact : styles.quietCompact)]} accessibilityRole="button">
       <Text style={strong ? styles.strongText : styles.link}>{label}</Text>
     </Pressable>
   );
@@ -510,5 +564,7 @@ const styles = StyleSheet.create({
   link: { color: '#b9a88f', fontSize: 13, textDecorationLine: 'underline' },
   strong: { minHeight: 40, paddingHorizontal: 14, justifyContent: 'center', borderRadius: 3, backgroundColor: '#efe2cc' },
   strongText: { color: '#2a211b', fontSize: 14 },
+  quietCompact: { paddingHorizontal: 6 },
+  strongCompact: { paddingHorizontal: 10 },
   edge: { position: 'absolute', top: 0, bottom: 0, width: EDGE },
 });
