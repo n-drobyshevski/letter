@@ -56,9 +56,10 @@ import { WritingDesk, type WritingMode } from './WritingDesk';
  *
  * On the laptop (a wide web window) the sheets lie loose on the desk instead: a new
  * sheet goes on top of the others, a little offset, and the earlier ones stay where
- * they were. You write on the one on top, straightened in front of you. Shift + drag
+ * they were. You write on the one on top, straightened in front of you. Space + drag
  * moves any sheet (and brings it to the top), a click on one brings it to the top,
- * Ctrl (⌘) + drag on the top sheet's edge turns it over; a plain drag writes or draws.
+ * Ctrl (⌘) + drag anywhere on the top sheet turns it over (leftward to its back,
+ * rightward to its front again); a plain drag writes or draws.
  */
 
 const web = Platform.OS === 'web';
@@ -106,8 +107,8 @@ const COPY = {
   clearPen: 'Стереть перо',
   cornerForward: 'Край листа: потяни влево, чтобы перевернуть',
   cornerBack: 'Край листа: потяни вправо, чтобы вернуться',
-  mouseHint: 'Shift + тяни — подвинуть лист · щёлкни по листу — наверх · Ctrl + тяни за край — перевернуть',
-  mouseHintOne: 'Ctrl + тяни за край — перевернуть',
+  mouseHint: 'Пробел + тяни — подвинуть лист · щёлкни по листу — наверх · Ctrl + тяни — перевернуть',
+  mouseHintOne: 'Ctrl + тяни — перевернуть',
 };
 
 type Props = {
@@ -319,36 +320,54 @@ export function DeskStack({ look, width, height, mode, sheets, onSheets, maxShee
   };
 
   // The sheet's edges: the finger writes p (0 → 1 is the whole turn) and the grip.
-  // With a mouse (the laptop) only Ctrl (⌘) + drag turns; a plain drag there is left alone.
+  // With a mouse (the laptop) only Ctrl (⌘) + drag turns, and from anywhere on the sheet
+  // (a layer laid over it while Ctrl is held); a plain drag there writes or selects.
   const travel = width * 0.8;
+  const grabX = useSharedValue(0);
   const grabY = useSharedValue(0.5);
   const keys = useDeskKeys();
   const idle = useSharedValue(false);
+  // Which way the turn under way goes (1 forward, -1 back), and which ways this face can turn:
+  // shared values, since the gestures' callbacks were made in an earlier render.
+  const turnDir = useSharedValue<1 | -1>(1);
+  const canForwardNow = useSharedValue(false);
+  const canBackwardNow = useSharedValue(false);
+  // A Ctrl turn taken from the middle of the sheet: its layer stays until the drag ends.
+  const [turningAnywhere, setTurningAnywhere] = useState(false);
   const startDrag = (dir: 1 | -1) => begin(dir === 1 ? forward() : backward());
-  const edge = (dir: 1 | -1) => ({
+  /** A turn by hand: from the right edge (1), the left edge (-1), or anywhere, the way the drag goes (0). */
+  const turnGesture = (fixed: 1 | -1 | 0) => ({
     // Not switched off while its own turn is under way: that would cancel the drag.
-    enabled: fixedTurn === undefined && (dir === 1 ? canForward : canBackward),
-    // Only the edge's own way; mostly vertical still scrolls the desk.
-    activeOffsetX: dir === 1 ? -6 : 6,
+    enabled: fixedTurn === undefined && (fixed === 1 ? canForward : fixed === -1 ? canBackward : canForward || canBackward),
+    // An edge only its own way; mostly vertical still scrolls the desk.
+    activeOffsetX: fixed === 1 ? -6 : fixed === -1 ? 6 : ([-6, 6] as [number, number]),
     failOffsetY: [-40, 40] as [number, number],
-    onBegin: (e: { y: number }) => {
+    onBegin: (e: { x: number; y: number }) => {
+      grabX.set(e.x);
       grabY.set(Math.min(1, Math.max(0, e.y / height)));
     },
-    onActivate: (e: { translationX: number; translationY: number; pointerType: PointerType }) => {
-      idle.set(e.pointerType === PointerType.MOUSE && !keys.turn.get());
+    onActivate: (e: { x: number; translationX: number; translationY: number; pointerType: PointerType }) => {
+      // Dragged left it turns forward (to the back, the next sheet), right it comes back.
+      // (From where it was taken: on the web the activation's translation still reads 0.)
+      const dir: 1 | -1 = fixed !== 0 ? fixed : e.x < grabX.get() ? 1 : -1;
+      const allowed = dir === 1 ? canForwardNow.get() : canBackwardNow.get();
+      idle.set((e.pointerType === PointerType.MOUSE && !keys.turn.get()) || !allowed);
       if (idle.get()) return;
+      turnDir.set(dir);
+      if (fixed === 0) scheduleOnRN(setTurningAnywhere, true);
       p.set(0);
       grip.set(gripOf(dir, e.translationX, e.translationY, grabY.get()));
       scheduleOnRN(startDrag, dir);
     },
     onUpdate: (e: { translationX: number; translationY: number }) => {
       if (idle.get()) return;
+      const dir = turnDir.get();
       p.set(Math.min(1, Math.max(0, (-dir * e.translationX) / travel)));
       grip.set(gripOf(dir, e.translationX, e.translationY, grabY.get()));
     },
     onDeactivate: (e: { velocityX: number; canceled: boolean }) => {
       if (idle.get()) return idle.set(false);
-      const v = (-dir * e.velocityX) / travel;
+      const v = (-turnDir.get() * e.velocityX) / travel;
       const commit = !e.canceled && (v > 0.5 || (v > -0.5 && p.get() > 0.5));
       const done = (finished?: boolean) => {
         'worklet';
@@ -360,13 +379,21 @@ export function DeskStack({ look, width, height, mode, sheets, onSheets, maxShee
           : withSpring(commit ? 1 : 0, { velocity: v, damping: 20, stiffness: 150, mass: 0.9, overshootClamping: true }, done),
       );
     },
+    onFinalize: () => {
+      if (fixed === 0) scheduleOnRN(setTurningAnywhere, false);
+    },
   });
   const canForward = (face.side === 'recto' && sheet.twoSided) || (!loose && face.sheet < sheets.length - 1);
   const canBackward = face.side === 'verso' || (!loose && face.sheet > 0);
-  const forwardEdge = usePanGesture(edge(1));
-  const backEdge = usePanGesture(edge(-1));
+  useEffect(() => {
+    canForwardNow.set(canForward);
+    canBackwardNow.set(canBackward);
+  }, [canForward, canBackward, canForwardNow, canBackwardNow]);
+  const forwardEdge = usePanGesture(turnGesture(1));
+  const backEdge = usePanGesture(turnGesture(-1));
+  const anywhere = usePanGesture(turnGesture(0));
 
-  // Shift + drag on the loose desk: the sheet under the pointer comes to the top and follows the hand.
+  // Space + drag on the loose desk: the sheet under the pointer comes to the top and follows the hand.
   const [carrying, setCarrying] = useState(false);
   const carried = useSharedValue(-1);
   const placeAtGrab = useSharedValue<Placement>(HOME);
@@ -493,6 +520,12 @@ export function DeskStack({ look, width, height, mode, sheets, onSheets, maxShee
           )}
         </>
       )}
+      {/* Ctrl (⌘) held: a layer over the sheet takes the drag and turns it, from anywhere. */}
+      {web && MULTI_SHEET && fixedTurn === undefined && (turningAnywhere || (keys.turnHeld && (canForward || canBackward))) && (
+        <GestureDetector gesture={anywhere}>
+          <View style={[StyleSheet.absoluteFill, styles.grab]} />
+        </GestureDetector>
+      )}
       {/* Mounted for good, empty between turns: on the web a canvas is a WebGL context, slow to make and to lose. */}
       {MULTI_SHEET && (
         <TurnOverlay
@@ -537,7 +570,7 @@ export function DeskStack({ look, width, height, mode, sheets, onSheets, maxShee
           <Animated.View style={[{ position: 'absolute', left: (area.width - width) / 2, top: (area.height - height) / 2, width, height }, topPlaced]}>
             {writing}
           </Animated.View>
-          {/* Shift held: a layer over the desk takes the drag and moves the sheet under the pointer. */}
+          {/* Space held: a layer over the desk takes the drag and moves the sheet under the pointer. */}
           {(keys.moveHeld || carrying) && (
             <GestureDetector gesture={carry}>
               <View style={[StyleSheet.absoluteFill, styles.grab]} />
