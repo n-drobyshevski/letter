@@ -6,8 +6,9 @@ import { HANDWRITING_FONTS, INKS, PAPERS, type FontKey, type InkKind, type Paper
 import { layoutLetter, recordLetter, type Side } from './renderLetter';
 import type { FoldKind } from './fold';
 import { fontSizeFor, paperFor } from './sheet';
+import { flatten } from './raster';
 import { bakeGhost, mirrorPicture } from './showThrough';
-import { inkSeed, isEmptyFace, paperSeed, type FaceContent, type FaceRef, type SheetContent } from './stack';
+import { emptyFace, inkSeed, isEmptyFace, paperSeed, type FaceContent, type FaceRef, type SheetContent } from './stack';
 import { strokeToPath, type Stroke } from './strokes';
 
 export type LetterLook = {
@@ -91,7 +92,50 @@ export function useSheetFaces(
   );
 }
 
-/** useSheetFaces without the hook, for a bake on demand (the desk bakes only when a sheet turns). */
+/**
+ * Bakes, kept with the content they were made from: a face's ink and its ghost on the
+ * other side, a sheet's finished faces. Keyed by the content object (edits make new
+ * ones, and the old bakes go with them) plus everything else they depend on. A turn
+ * then finds its faces ready (the desk bakes them while you pause), and the desk's
+ * show-through is the very ghost the turn baked.
+ */
+const faceBakes = new WeakMap<FaceContent, { key: string; ink: SkPicture | null; ghost?: SkImage | null }>();
+const sheetBakes = new WeakMap<SheetContent, { key: string; faces: SheetFaces }>();
+const bakeKey = (font: SkFont, look: LetterLook, width: number, height: number, ...more: unknown[]) =>
+  [font.getSize(), look.font, look.ink, look.paper, look.seed, width, height, ...more].join('|');
+
+/** One face's ink (text and pen strokes), or null for a blank face. */
+function faceInk(font: SkFont, f: FaceContent, ref: FaceRef, look: LetterLook, width: number, height: number, strokesWidth: number | undefined) {
+  if (isEmptyFace(f)) return { ink: null } as { ink: null; ghost?: SkImage | null };
+  const key = bakeKey(font, look, width, height, ref.sheet, ref.side, strokesWidth);
+  let bake = faceBakes.get(f);
+  if (bake?.key !== key) {
+    const pic = recordLetter({
+      font,
+      paper: paperFor(look.paper, width),
+      ink: INKS[look.ink].rgb,
+      sheet: { width, height },
+      crease: 0,
+      text: f.text,
+      side: ref.side,
+      seed: inkSeed(look.seed, ref),
+      layers: 'ink',
+      extraLines: 1,
+    });
+    bake = { key, ink: withStrokes(pic, f.strokes, strokesWidth, look, width, height) };
+    faceBakes.set(f, bake);
+  }
+  return bake;
+}
+
+/** That face's ink as it shows through to the other side. */
+function faceGhost(font: SkFont, f: FaceContent, ref: FaceRef, look: LetterLook, width: number, height: number, strokesWidth: number | undefined) {
+  const bake = faceInk(font, f, ref, look, width, height, strokesWidth);
+  if (bake.ghost === undefined) bake.ghost = bakeGhost(bake.ink, { width, height }, paperFor(look.paper, width));
+  return bake.ghost;
+}
+
+/** useSheetFaces without the hook, for a bake on demand (the desk bakes only when a sheet turns, or you pause). */
 export function bakeSheetFaces(
   font: SkFont,
   sheet: SheetContent,
@@ -102,40 +146,45 @@ export function bakeSheetFaces(
   crease: number,
   fold: FoldKind,
   strokesWidth: number | undefined,
+  /** Keep the bake with the sheet (false: the caller owns it, and frees it). */
+  keep = true,
 ): SheetFaces {
+  const key = bakeKey(font, look, width, height, index, crease, fold, strokesWidth);
+  const kept = sheetBakes.get(sheet);
+  if (keep && kept?.key === key) return kept.faces;
   const paper = paperFor(look.paper, width);
   const size = { width, height };
-  const common = {
-    font,
-    paper,
-    ink: INKS[look.ink].rgb,
-    sheet: size,
-    crease,
-    fold,
-    paperSeed: paperSeed(look.seed, index),
-    foldSeed: look.seed,
-    extraLines: 1,
-  };
-  const inkOf = (side: Side) => {
-    const f: FaceContent = sheet[side];
-    if (isEmptyFace(f) || (side === 'verso' && !sheet.twoSided)) return null;
-    const pic = recordLetter({ ...common, text: f.text, side, seed: inkSeed(look.seed, { sheet: index, side }), layers: 'ink' });
-    return withStrokes(pic, f.strokes, strokesWidth, look, width, height);
-  };
-  const ink = { recto: inkOf('recto'), verso: inkOf('verso') };
+  const written = (side: Side) => (side === 'verso' && !sheet.twoSided ? emptyFace() : sheet[side]);
   const bake = (side: Side, other: Side) => {
-    const ghost = bakeGhost(ink[other], size, paper);
-    const base = recordLetter({ ...common, text: '', side, seed: look.seed, layers: 'paper', ghost });
-    const top = ink[side];
-    if (!top) return base;
+    const ghost = faceGhost(font, written(other), { sheet: index, side: other }, look, width, height, strokesWidth);
+    const base = recordLetter({
+      font,
+      paper,
+      ink: INKS[look.ink].rgb,
+      sheet: size,
+      crease,
+      fold,
+      paperSeed: paperSeed(look.seed, index),
+      foldSeed: look.seed,
+      text: '',
+      side,
+      seed: look.seed,
+      layers: 'paper',
+      ghost,
+    });
+    const top = faceInk(font, written(side), { sheet: index, side }, look, width, height, strokesWidth).ink;
+    if (!top) return flatten(base, size);
     const rec = Skia.PictureRecorder();
     const canvas = rec.beginRecording(Skia.XYWHRect(0, 0, width, height));
     canvas.drawPicture(base);
     canvas.drawPicture(top);
-    return rec.finishRecordingAsPicture();
+    return flatten(rec.finishRecordingAsPicture(), size);
   };
+  // Flattened into images: a turn draws these every frame (raster.ts).
   const verso = bake('verso', 'recto');
-  return { recto: bake('recto', 'verso'), verso, versoThrough: mirrorPicture(verso, size) };
+  const faces = { recto: bake('recto', 'verso'), verso, versoThrough: mirrorPicture(verso, size) };
+  if (keep) sheetBakes.set(sheet, { key, faces });
+  return faces;
 }
 
 /**
@@ -170,15 +219,13 @@ export function paperEdgeColor(paper: PaperKind) {
 
 /** The other face's ink as it shows through to this one (for the desk, which bakes paper and ink apart). */
 export function useGhostOf(face: FaceContent | undefined, ref: FaceRef, look: LetterLook, width: number, height: number, strokesWidth: number) {
-  const empty = isEmptyFace(face);
-  const { picture } = useLetterPicture(empty ? '' : face!.text, look, width, height, 0, 'ink', 'tri', { face: ref });
-  return useMemo(() => {
-    if (empty || !picture) return null;
-    const ink = withStrokes(picture, face!.strokes, strokesWidth, look, width, height);
-    return bakeGhost(ink, { width, height }, paperFor(look.paper, width));
-    // face.strokes is what matters, not the face object
+  const font = useFont(HANDWRITING_FONTS[look.font].file, fontSizeFor(paperFor(look.paper, width), width));
+  return useMemo(
+    () => (font && face ? faceGhost(font, face, ref, look, width, height, strokesWidth) : null),
+    // look matters through its paper, ink and seed (the font is loaded from look.font)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [empty, picture, face?.strokes, strokesWidth, look.paper, look.ink, width, height]);
+    [font, face, ref.sheet, ref.side, look.paper, look.ink, look.seed, width, height, strokesWidth],
+  );
 }
 
 /**

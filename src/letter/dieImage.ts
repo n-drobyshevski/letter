@@ -2,7 +2,6 @@ import {
   BlurStyle,
   FillType,
   Skia,
-  drawAsImageFromPicture,
   useFont,
   type SkFont,
   type SkImage,
@@ -14,6 +13,7 @@ import { PixelRatio } from 'react-native';
 
 import { HANDWRITING_FONTS } from '../theme/stationery';
 import { recordMonogram } from './envelope';
+import { rasterize } from './raster';
 import { SEAL_BOX, SEAL_DIES, type SealDie } from './sealDies';
 
 /**
@@ -100,7 +100,7 @@ export function useDie(die: SealDie, initials: string, dieR: number) {
     if (!image) {
       const picture = recordDie(die, size, initials, font);
       if (!picture) return null;
-      image = drawAsImageFromPicture(picture, { width: size, height: size });
+      image = rasterize(picture, size, size);
       if (!image) return null;
       dieCache.set(key, image);
     }
