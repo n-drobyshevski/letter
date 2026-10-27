@@ -4,14 +4,19 @@
  * twists it, as paper does under a fingertip. It stays where it is let go (paper has
  * friction). On the laptop's desk every sheet of the letter lies out at once, each
  * where it was put; this also finds the sheet under the pointer and places new ones.
+ * A right-button drag turns a sheet round its centre to any angle, and there it stays.
  * Pure, so it can be tested in node.
  */
 
-/** Where a sheet lies: its centre's offset from its home (px), and its turn (radians). */
-export type Placement = { x: number; y: number; rot: number };
+/**
+ * Where a sheet lies: its centre's offset from its home (px), and its turn (radians).
+ * `aim` is the angle it was turned to by hand (a right-button drag): it settles back there
+ * after a move, where a sheet never turned by hand settles straight.
+ */
+export type Placement = { x: number; y: number; rot: number; aim?: number };
 export const HOME: Placement = { x: 0, y: 0, rot: 0 };
 
-/** How far a lone sheet may wander: a fraction of its size; and the most any sheet turns (~7°). */
+/** How far a lone sheet may wander: a fraction of its size; and the most a pull turns a sheet off its angle (~7°). */
 export const PLACE_LIMIT = { x: 0.3, y: 0.2, rot: 0.12 };
 
 type Size = { width: number; height: number };
@@ -24,7 +29,8 @@ const clamp = (v: number, lim: number) => {
 /**
  * The placement after dragging by `d` from `start`, the sheet taken at `grab`
  * (px from its centre). Off-centre pulls turn it: the torque of the drag about the
- * centre, against the sheet's size (taken by the corner, a pull turns it most).
+ * centre, against the sheet's size (taken by the corner, a pull turns it most), a few
+ * degrees either side of the angle it was turned to by hand.
  * `bounds` is how far its centre may go from home (default: PLACE_LIMIT of the sheet).
  */
 export function dragPlacement(
@@ -37,11 +43,41 @@ export function dragPlacement(
   'worklet';
   const reach = (size.width * size.width + size.height * size.height) / 4;
   const torque = (grab.x * d.y - grab.y * d.x) / reach;
-  return {
+  const aim = start.aim ?? 0;
+  const out: Placement = {
     x: clamp(start.x + d.x, bounds.x),
     y: clamp(start.y + d.y, bounds.y),
-    rot: clamp(start.rot + torque * 0.6, PLACE_LIMIT.rot),
+    rot: aim + clamp(start.rot - aim + torque * 0.6, PLACE_LIMIT.rot),
   };
+  if (start.aim !== undefined) out.aim = start.aim;
+  return out;
+}
+
+/** An angle brought into (-π, π]. */
+export function wrapAngle(a: number) {
+  'worklet';
+  const t = Math.PI * 2;
+  const r = ((((a + Math.PI) % t) + t) % t) - Math.PI;
+  return r === -Math.PI ? Math.PI : r;
+}
+
+/**
+ * How far the hand swept round a centre between two points (each given from that centre):
+ * the signed angle from `a` to `b` (clockwise on screen is positive, as `rot`). Summed over
+ * a drag's steps it follows the hand round and round; next to the centre the angle means
+ * nothing, so a point within `dead` px of it sweeps nothing.
+ */
+export function sweep(a: { x: number; y: number }, b: { x: number; y: number }, dead = 16) {
+  'worklet';
+  if (Math.hypot(a.x, a.y) < dead || Math.hypot(b.x, b.y) < dead) return 0;
+  return Math.atan2(a.x * b.y - a.y * b.x, a.x * b.x + a.y * b.y);
+}
+
+/** A sheet turned by hand (right-button drag) by `by` radians, any angle: it stays there (its aim). */
+export function twistPlacement(start: Placement, by: number): Placement {
+  'worklet';
+  const rot = wrapAngle(start.rot + by);
+  return { x: start.x, y: start.y, rot, aim: rot };
 }
 
 /** How far a sheet's centre may go on a desk `area` wide and high: it may hang over the edge a little. */

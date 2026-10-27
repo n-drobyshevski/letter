@@ -1,7 +1,7 @@
 import { Canvas, Group, Image, Picture, Rect, Skia, type Transforms3d } from '@shopify/react-native-skia';
 import { useEffect, useRef, useState } from 'react';
 import { Platform, View } from 'react-native';
-import { GestureDetector, PointerType, usePanGesture } from 'react-native-gesture-handler';
+import { GestureDetector, MouseButton, PointerType, useCompetingGestures, usePanGesture } from 'react-native-gesture-handler';
 import Animated, {
   cancelAnimation,
   useAnimatedStyle,
@@ -17,7 +17,7 @@ import { scheduleOnRN } from 'react-native-worklets';
 
 import { feel } from '../lib/haptics';
 import { useDeskKeys } from '../lib/useDeskKeys';
-import { HOME, dragPlacement, type Placement } from './deskMove';
+import { HOME, dragPlacement, sweep, twistPlacement, type Placement } from './deskMove';
 import type { FoldKind } from './fold';
 import { gripOf, type Grip } from './grip';
 import { paperEdgeColor, useSheetFaces, type LetterLook, type SheetFaces } from './LetterSheet';
@@ -35,7 +35,8 @@ import { sheetJitter, writtenFaces, type FaceRef, type SheetContent } from './st
  * drag's direction and where the sheet was taken, the sheet travels with the
  * hand, and a read sheet slides off (and a previous one comes back) the way it
  * was pushed. On the laptop, with a mouse, Ctrl (⌘) + drag turns it and Space + drag
- * pushes the letter about the desk (deskMove.ts); a plain drag does nothing.
+ * pushes the letter about the desk (deskMove.ts), the right button turns it round to
+ * any angle; a plain drag does nothing.
  * Every sheet is baked up front (at most four), so nothing bakes mid-gesture.
  */
 
@@ -138,6 +139,21 @@ export function ReadingStack({ sheets, look, width, height, fold, strokesWidth, 
   const place = useSharedValue<Placement>(HOME);
   const placeAtGrab = useSharedValue<Placement>(HOME);
   const grabAt = useSharedValue({ x: 0, y: 0 });
+  // The letter's view, as laid out (canvas size).
+  const viewW = width + PAD * 2;
+  const viewH = height + (PAD + room) * 2;
+  /**
+   * Where a pointer is from the letter's centre, on screen. On the web Gesture Handler gives
+   * x and y from the corner of the view's bounding box, which a turned letter widens: its
+   * centre is the middle of that box. (On the phone the letter is never turned.)
+   */
+  const fromCentre = (e: { x: number; y: number }) => {
+    'worklet';
+    const r = web ? place.get().rot : 0;
+    const c = Math.abs(Math.cos(r));
+    const sn = Math.abs(Math.sin(r));
+    return { x: e.x - (viewW * c + viewH * sn) / 2, y: e.y - (viewW * sn + viewH * c) / 2 };
+  };
   const pan = usePanGesture({
     // On the laptop a single sheet can still be pushed about.
     enabled: fixedTurn === undefined && (web || last > 0),
@@ -147,8 +163,12 @@ export function ReadingStack({ sheets, look, width, height, fold, strokesWidth, 
     activeOffsetY: web ? [-8, 8] : undefined,
     failOffsetY: web ? undefined : [-30, 30],
     onBegin: (e) => {
-      grabY.set(Math.min(1, Math.max(0, (e.y - PAD - room) / height)));
-      grabAt.set({ x: e.x - PAD - width / 2, y: e.y - PAD - room - height / 2 });
+      const at = fromCentre(e);
+      // Down the sheet, in the letter's own frame (a turned letter: undo its turn).
+      const r = web ? place.get().rot : 0;
+      const down = -at.x * Math.sin(r) + at.y * Math.cos(r);
+      grabY.set(Math.min(1, Math.max(0, down / height + 0.5)));
+      grabAt.set(at);
     },
     onActivate: (e) => {
       const mouse = e.pointerType === PointerType.MOUSE;
@@ -191,6 +211,32 @@ export function ReadingStack({ sheets, look, width, height, fold, strokesWidth, 
     },
   });
 
+  // The right button turns the letter round its centre, by the angle the hand sweeps round it
+  // (as on the laptop's desk), to any angle; it stays there.
+  const sweptFrom = useSharedValue({ x: 0, y: 0 });
+  const twistCentre = useSharedValue({ x: 0, y: 0 });
+  const twist = usePanGesture({
+    enabled: web && fixedTurn === undefined,
+    mouseButton: MouseButton.RIGHT,
+    activeOffsetX: [-3, 3],
+    activeOffsetY: [-3, 3],
+    onBegin: (e) => {
+      const at = fromCentre(e);
+      sweptFrom.set(at);
+      // In page coordinates, which a turn of the view doesn't change.
+      twistCentre.set({ x: e.absoluteX - at.x, y: e.absoluteY - at.y });
+    },
+    onUpdate: (e) => {
+      const c = twistCentre.get();
+      const at = { x: e.absoluteX - c.x, y: e.absoluteY - c.y };
+      const by = sweep(sweptFrom.get(), at);
+      if (by === 0) return;
+      sweptFrom.set(at);
+      place.set(twistPlacement(place.get(), by));
+    },
+  });
+  const gesture = useCompetingGestures(pan, twist);
+
   const placed = useAnimatedStyle(() => ({
     transform: [{ translateX: place.value.x }, { translateY: place.value.y }, { rotate: `${place.value.rot}rad` }],
   }));
@@ -215,7 +261,7 @@ export function ReadingStack({ sheets, look, width, height, fold, strokesWidth, 
   return (
     // Room above and below for a leaning turn, without moving the layout around it.
     <Animated.View style={[{ marginVertical: -room }, placed, web && ({ cursor: 'grab' } as object)]}>
-      <GestureDetector gesture={pan} touchAction="pan-y">
+      <GestureDetector gesture={gesture} touchAction="pan-y" enableContextMenu={!web}>
         <Canvas style={{ width: width + PAD * 2, height: height + (PAD + room) * 2 }}>
           <Group transform={[{ translateX: PAD }, { translateY: PAD + room }]}>
             {stackShadow && <Image image={stackShadow.image} {...stackShadow.rect} fit="fill" />}

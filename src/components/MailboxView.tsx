@@ -47,7 +47,7 @@ export const MAILBOX_COPY = {
     nextSheet: 'Следующий лист',
     prevFace: 'Назад',
     overleaf: 'На обороте ещё есть',
-    mouseHint: 'Ctrl + тяни — перевернуть лист · Пробел + тяни — подвинуть письмо',
+    mouseHint: 'Ctrl + тяни — перевернуть лист · Пробел + тяни — подвинуть письмо · правой кнопкой — повернуть',
     where: (f: FaceRef, n: number) => `Лист ${f.sheet + 1} из ${n}${f.side === 'verso' ? ', оборот' : ''}`,
   },
   fr: {

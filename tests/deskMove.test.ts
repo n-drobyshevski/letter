@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { HOME, PLACE_LIMIT, deskBounds, dragPlacement, fanOut, nextPlacement, sheetAt } from '../src/letter/deskMove';
+import { HOME, PLACE_LIMIT, deskBounds, dragPlacement, fanOut, nextPlacement, sheetAt, sweep, twistPlacement, wrapAngle } from '../src/letter/deskMove';
 
 /** A sheet pushed about the desk with the mouse. */
 
@@ -67,4 +67,38 @@ test('sheets already written are fanned out, the last in front; a new one lands 
   const next = nextPlacement(fan[2], size, area, 0.03);
   assert.ok(next.x > fan[2].x && next.y > fan[2].y);
   assert.ok(Math.abs(next.x) <= deskBounds(size, area).x);
+});
+
+test('a right-button drag turns a sheet round its centre to any angle, and it stays there', () => {
+  // A quarter of the way round, clockwise on screen: +π/2.
+  assert.ok(Math.abs(sweep({ x: 100, y: 0 }, { x: 0, y: 100 }) - Math.PI / 2) < 1e-9);
+  assert.ok(Math.abs(sweep({ x: 100, y: 0 }, { x: 0, y: -100 }) + Math.PI / 2) < 1e-9);
+  // Next to the centre the angle means nothing.
+  assert.equal(sweep({ x: 5, y: 0 }, { x: 0, y: 100 }), 0);
+  // Summed over the steps of a drag it follows the hand all the way round.
+  let rot = 0;
+  let prev = { x: 100, y: 0 };
+  for (let k = 1; k <= 36; k++) {
+    const next = { x: 100 * Math.cos((k * Math.PI) / 12), y: 100 * Math.sin((k * Math.PI) / 12) };
+    rot += sweep(prev, next);
+    prev = next;
+  }
+  assert.ok(Math.abs(rot - 3 * Math.PI) < 1e-9);
+  // The placement keeps its angle (wrapped) as its aim, and its place.
+  const turned = twistPlacement({ x: 30, y: -10, rot: 0.1 }, 3);
+  assert.equal(turned.x, 30);
+  assert.equal(turned.y, -10);
+  assert.ok(Math.abs(turned.rot - wrapAngle(3.1)) < 1e-9);
+  assert.equal(turned.aim, turned.rot);
+  assert.ok(turned.rot > -Math.PI && turned.rot <= Math.PI);
+});
+
+test('a sheet turned by hand, then pushed: a pull tilts it a few degrees off its own angle, not back to straight', () => {
+  const size = { width: 380, height: 540 };
+  const turned = twistPlacement(HOME, 0.8);
+  const pushed = dragPlacement(turned, { x: 190, y: 0 }, { x: 0, y: 400 }, size);
+  assert.equal(pushed.aim, turned.aim);
+  assert.ok(pushed.rot > 0.8 && pushed.rot <= 0.8 + PLACE_LIMIT.rot + 1e-9);
+  // Never turned by hand: no aim, as before.
+  assert.equal('aim' in dragPlacement(HOME, { x: 0, y: 0 }, { x: 10, y: 0 }, size), false);
 });
