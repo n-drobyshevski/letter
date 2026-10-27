@@ -35,7 +35,10 @@ let shared: { surface: SkSurface; w: number; h: number } | null = null;
 function surfaceFor(w: number, h: number): SkSurface | null {
   if (!web) return Skia.Surface.MakeOffscreen(w, h);
   if (shared && shared.w >= w && shared.h >= h) return shared.surface;
-  shared?.surface.dispose();
+  if (shared) {
+    shared.surface.flush();
+    shared.surface.dispose();
+  }
   // Grown a step at a time, so sizes close to each other share it.
   const sw = Math.max(w, shared?.w ?? 0, Math.ceil(w / 256) * 256);
   const sh = Math.max(h, shared?.h ?? 0, Math.ceil(h / 256) * 256);
@@ -59,8 +62,14 @@ export function rasterize(picture: SkPicture, w: number, h: number): SkImage | n
     canvas.clipRect(Skia.XYWHRect(0, 0, w, h), ClipOp.Intersect, false);
     canvas.drawPicture(picture);
     canvas.restore();
+    // flush() makes this surface's context the current one; it must stay so for the rest:
+    // CanvasKit runs a GPU object's clean-up in whatever context is current, and one left
+    // for the garbage collector can free textures of a canvas on screen.
     surface.flush();
-    return surface.makeImageSnapshot(Skia.XYWHRect(0, 0, w, h)).makeNonTextureImage();
+    const snapshot = surface.makeImageSnapshot(Skia.XYWHRect(0, 0, w, h));
+    const image = snapshot.makeNonTextureImage();
+    snapshot.dispose();
+    return image;
   } catch {
     // A lost context (evicted, or a GPU reset): start over on a new one next time.
     if (web) shared = null;
