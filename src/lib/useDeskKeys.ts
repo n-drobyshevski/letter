@@ -10,7 +10,16 @@ type El = {
   selectionStart?: number | null;
   selectionEnd?: number | null;
 };
-type KeyLike = { key: string; code: string; repeat: boolean; ctrlKey: boolean; metaKey: boolean; target: El | null; preventDefault: () => void };
+type KeyLike = {
+  key: string;
+  code: string;
+  repeat: boolean;
+  ctrlKey: boolean;
+  metaKey: boolean;
+  target: El | null;
+  preventDefault: () => void;
+  stopPropagation: () => void;
+};
 type Target = {
   addEventListener: (type: string, fn: (e: never) => void, options?: boolean | { capture?: boolean }) => void;
   removeEventListener: (type: string, fn: (e: never) => void, options?: boolean | { capture?: boolean }) => void;
@@ -29,8 +38,9 @@ const pressable = (el: El | null) =>
  * sheets only while the key is held). Always off on native, where a finger turns the page.
  *
  * Space + drag moves even while you write: the space that the key typed is taken back
- * when the drag starts (and holding Space never repeats it). Space on a button still
- * presses it; elsewhere it no longer scrolls the page.
+ * when the drag starts (and holding Space never repeats it). A button you clicked keeps
+ * the focus but not Space: Space + drag still moves (the button isn't pressed). One
+ * reached with Tab is pressed by Space as usual. Space no longer scrolls the page.
  */
 export function useDeskKeys(): { turn: SharedValue<boolean>; move: SharedValue<boolean>; moveHeld: boolean; turnHeld: boolean } {
   const turn = useSharedValue(false);
@@ -45,6 +55,13 @@ export function useDeskKeys(): { turn: SharedValue<boolean>; move: SharedValue<b
     let space = false;
     // The space just typed into a text field by the Space now held, to take back if a drag starts.
     let typed: { el: El; at: number } | null = null;
+    // Whether the focus came from a click (the button keeps it, the hand is on the mouse) or from Tab.
+    let byPointer = false;
+    // A focused button's Space, kept from the button: it moves sheets instead.
+    const keepFromButton = (e: KeyLike) => {
+      e.preventDefault();
+      e.stopPropagation();
+    };
     const setTurn = (on: boolean) => {
       turn.set(on);
       setTurnHeld(on);
@@ -56,12 +73,15 @@ export function useDeskKeys(): { turn: SharedValue<boolean>; move: SharedValue<b
     };
     const down = (e: KeyLike) => {
       setTurn(e.ctrlKey || e.metaKey);
+      if (e.key === 'Tab') byPointer = false;
       if (e.code !== 'Space') {
         typed = null;
         return;
       }
-      if (pressable(e.target)) return;
-      if (editable(e.target)) {
+      if (pressable(e.target)) {
+        if (!byPointer) return;
+        keepFromButton(e);
+      } else if (editable(e.target)) {
         // Held down, it moves sheets: no row of spaces.
         if (e.repeat) e.preventDefault();
         else {
@@ -78,13 +98,16 @@ export function useDeskKeys(): { turn: SharedValue<boolean>; move: SharedValue<b
     const up = (e: KeyLike) => {
       setTurn(e.ctrlKey || e.metaKey);
       if (e.code !== 'Space') return;
-      if (space && !editable(e.target) && !pressable(e.target)) e.preventDefault();
+      if (pressable(e.target)) {
+        if (byPointer) keepFromButton(e);
+      } else if (space && !editable(e.target)) e.preventDefault();
       typed = null;
       setMove(false);
     };
     // Presses too: Ctrl may have gone down while the tab had no focus.
     const press = (e: KeyLike) => {
       setTurn(e.ctrlKey || e.metaKey);
+      byPointer = true;
       if (!space || !typed) return;
       const { el, at } = typed;
       typed = null;
