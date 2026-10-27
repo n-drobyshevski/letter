@@ -4,9 +4,10 @@ import { Desk } from '@/components/Desk';
 import { useLabParams } from '@/lib/params';
 import { FOLD_KINDS, type FoldKind } from '@/letter/fold';
 import { FoldableLetter } from '@/letter/FoldableLetter';
-import { useLetterPicture, type LetterLook } from '@/letter/LetterSheet';
-import { SAMPLE_LETTER } from '@/letter/samples';
+import { useStackPictures, type LetterLook } from '@/letter/LetterSheet';
+import { sampleSheets } from '@/letter/samples';
 import { useSheetSize } from '@/letter/sheet';
+import { maxSheetsFor } from '@/letter/stack';
 import type { PaperKind } from '@/theme/stationery';
 
 const HINT: Record<FoldKind | 'none', string> = {
@@ -18,7 +19,8 @@ const HINT: Record<FoldKind | 'none', string> = {
 
 /**
  * Spike: does a Skia 2.5D fold (rigid hinged panels + lighting) read as paper?
- * The gesture chooses the fold; `?fold=tri|half|quarter&t=` freezes a frame for QA.
+ * The gesture chooses the fold; `?fold=tri|half|quarter&t=` freezes a frame for QA,
+ * `?sheets=2..4` folds a stack (the last sheet's back on the outside).
  */
 export default function FoldLab() {
   const q = useLabParams();
@@ -30,8 +32,9 @@ export default function FoldLab() {
   const look: LetterLook = { paper: (q.paper as PaperKind) ?? 'cotton', ink: 'blueBlack', font: 'badScript', seed: q.seed ?? 1407 };
   // Creases appear once a fold is made (QA frames always show them).
   const crease = frozen || kind ? 1 : 0;
-  const { picture: front } = useLetterPicture(SAMPLE_LETTER, look, size.width, size.height, crease, 'all', kind ?? 'tri');
-  const { picture: back } = useLetterPicture('', look, size.width, size.height, crease, 'paper', kind ?? 'tri');
+  const [sheets] = useState(() => sampleSheets(q.sheets ?? 1));
+  const stack = useStackPictures(sheets, look, size.width, size.height, crease, kind ?? 'tri', size.width);
+  const { front, back } = stack;
 
   return (
     <Desk title="Сложить" hint={HINT[kind ?? 'none']} scroll={false}>
@@ -39,6 +42,9 @@ export default function FoldLab() {
         <FoldableLetter
           front={front}
           back={back}
+          sheets={stack.sheets}
+          edgeColor={stack.edgeColor}
+          allowQuarter={sheets.length <= maxSheetsFor('quarter')}
           width={size.width}
           height={size.height}
           seed={look.seed}

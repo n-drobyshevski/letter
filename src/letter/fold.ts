@@ -1,4 +1,4 @@
-import { creaseOffsets } from './renderLetter';
+import { creaseOffsets } from './paperLayout';
 
 /**
  * How a letter is folded, chosen by the sender's gesture at the desk:

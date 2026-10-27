@@ -13,7 +13,8 @@ const migration = (f: string) => readFileSync(new URL(`../supabase/migrations/${
 const MIGRATIONS = [
   '20261026000001_letters.sql',
   '20261027000003_collection_visibility.sql',
-  '20261029000008_envelope_seal.sql',
+  '20261029000008_letter_sheets.sql',
+  '20261029000009_envelope_seal.sql',
 ].map(migration);
 
 const SUPABASE_STUB = `
@@ -274,5 +275,42 @@ describe('envelope seal (placement and die)', () => {
       from pg_attribute where attrelid = 'public.letters'::regclass and attname = 'envelope'`);
     assert.match(c.c, /seal \(placement v1/);
     assert.match(c.c, /postmark/);
+  });
+});
+
+describe('letter bodies (schema_v 1 and 2)', () => {
+  const check = (body: unknown) => db.query(`select public.check_body($1::jsonb)`, [JSON.stringify(body)]);
+  const face = (text: string) => ({ text, strokes: [[[1, 2, 0.5, 0]]] });
+
+  test('one face (schema_v 1), a longer letter (schema_v 2) and an empty body are accepted', async () => {
+    await check({ text: 'Привет', strokes: [], font: 'badScript', seed: 7 });
+    await check({});
+    await check({ ...face('стр. 1'), schema_v: 2, sheets: [{ verso: face('стр. 2') }, { recto: face('стр. 3') }, { recto: face('4'), verso: face('5') }] });
+    await check({ text: 'одна', schema_v: 2, sheets: [{}] });
+  });
+
+  test('anything else is refused, with a reason', async () => {
+    await assert.rejects(check([1, 2]), /must be an object/);
+    await assert.rejects(check({ text: 42 }), /text must be a string/);
+    await assert.rejects(check({ strokes: 'x' }), /strokes must be a list/);
+    await assert.rejects(check({ sheets: { recto: face('a') } }), /sheets must be a list/);
+    await assert.rejects(check({ sheets: [] }), /1 to 4 sheets/);
+    await assert.rejects(check({ sheets: [{}, { recto: face('a') }, { recto: face('b') }, { recto: face('c') }, { recto: face('d') }] }), /1 to 4 sheets/);
+    await assert.rejects(check({ sheets: [{}, { verso: face('a') }] }), /sheet 2: no front/);
+    await assert.rejects(check({ sheets: [{}, 'page'] }), /sheet 2: not a sheet/);
+    await assert.rejects(check({ sheets: [{ verso: { text: 3 } }] }), /sheet 1 back: text must be a string/);
+    await assert.rejects(check({ text: 'x'.repeat(2_000_001) }), /too large/);
+  });
+
+  test('every way of storing a body is checked; a good v2 letter reaches the recipient whole', async () => {
+    const body = { ...face('Лист 1'), schema_v: 2, sheets: [{ verso: face('Оборот') }, { recto: face('Лист 2') }] };
+    const sent = await as(A, () => one<{ id: string }>(`select id from public.post_letter('express', $1::jsonb, '{}', 3)`, [JSON.stringify(body)]));
+    const stored = await one<{ body: { sheets: unknown[] } }>(`select body from public.letter_contents where letter_id = $1`, [sent.id]);
+    assert.equal(stored.body.sheets.length, 2);
+    await assert.rejects(
+      as(A, () => db.query(`select public.post_letter('express', '{"sheets":[{},{"verso":{}}]}'::jsonb, '{}', 4)`)),
+      /no front/,
+    );
+    await assert.rejects(db.query(`insert into public.letter_contents (letter_id, body) values ($1, '{"text":1}')`, [sent.id]), /text must be a string/);
   });
 });

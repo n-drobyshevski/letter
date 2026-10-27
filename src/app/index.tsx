@@ -4,7 +4,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Desk } from '@/components/Desk';
 import { SignIn } from '@/components/SignIn';
-import { isEmptyDraft, useDraft } from '@/lib/draft';
+import { draftFirstText, isEmptyDraft, useDraft, writtenSheets } from '@/lib/draft';
 import { useCouple, useLettersInTransit, useMailbox, useSession, type Couple } from '@/lib/mail';
 import { supabase } from '@/lib/supabase';
 import { promiseLine } from '@/letter/tracking/fromServer';
@@ -24,6 +24,7 @@ const COPY = {
     to: (name: string) => `для ${name}`,
     noPartner: 'Второй ящик ещё не открыт',
     onDesk: 'Письмо на столе',
+    sheets: (n: number) => `${n} ${n < 5 ? 'листа' : 'листов'}`,
     keepWriting: 'Дописать',
     takeToPost: 'Отнести на почту',
     sealIt: 'Запечатать',
@@ -42,6 +43,7 @@ const COPY = {
     to: (name: string) => `pour ${name}`,
     noPartner: 'L’autre boîte n’est pas encore ouverte',
     onDesk: 'Une lettre sur ton bureau',
+    sheets: (n: number) => `${n} feuilles`,
     keepWriting: 'Continuer',
     takeToPost: 'Poster',
     sealIt: 'Cacheter',
@@ -123,9 +125,12 @@ function HomeDesk({ couple }: { couple: Couple }) {
 
       {!isEmptyDraft(draft) ? (
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>{copy.onDesk}</Text>
+          <Text style={styles.cardTitle}>
+            {copy.onDesk}
+            {writtenSheets(draft!).length > 1 ? ` · ${copy.sheets(writtenSheets(draft!).length)}` : ''}
+          </Text>
           <Text style={styles.excerpt} numberOfLines={2}>
-            {draft!.text.trim() || '✎'}
+            {draftFirstText(draft).trim() || '✎'}
           </Text>
           <View style={styles.actions}>
             <Link href="/write" style={styles.action}>

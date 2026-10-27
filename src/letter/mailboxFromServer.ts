@@ -3,6 +3,7 @@ import type { Address, Postmark } from './envelopeFront';
 import type { FoldKind } from './fold';
 import type { LetterLook } from './LetterSheet';
 import { parseDie, parseSeal, type SealDie, type SealPlacement } from './seal';
+import { MAX_SHEETS, emptyFace, type FaceContent, type SheetContent } from './stack';
 import type { Stroke } from './strokes';
 import type { Country, FontKey, InkKind, LinerKind, PaperKind, WaxKind, WaxType } from '../theme/stationery';
 
@@ -37,7 +38,20 @@ export type MailRow = {
 
 export type ContentRow = {
   letter_id: string;
-  body: { text?: string; strokes?: Stroke[]; sheet_width?: number; font?: string; ink?: string; paper?: string; fold?: string } | null;
+  body: {
+    text?: string;
+    strokes?: Stroke[];
+    sheet_width?: number;
+    font?: string;
+    ink?: string;
+    paper?: string;
+    fold?: string;
+    /** The seed the sender's desk laid the words out with. */
+    seed?: number;
+    /** schema_v 2: the rest of a longer letter (sheets[0] holds only sheet 1's verso). */
+    sheets?: unknown;
+    schema_v?: number;
+  } | null;
 };
 
 export type ReceiptRow = { letter_id: string; opened_at: string };
@@ -47,9 +61,14 @@ export type Person = { id: string; display_name: string; city: string; tz: strin
 export type MailLetter = {
   id?: string;
   seed: number;
+  /** The seed the sheets were written with, when it differs from the envelope's. */
+  sheetSeed?: number;
+  /** Sheet 1's recto (also sheets[0].recto). */
   text: string;
   /** Pen strokes (signature, P.S.), in pixels of a sheet strokesWidth wide. */
   strokes?: Stroke[];
+  /** Every sheet, front and back; absent means one sheet holding `text` and `strokes`. */
+  sheets?: SheetContent[];
   strokesWidth?: number;
   letterLook?: Omit<LetterLook, 'seed'>;
   /** How the sender folded it; the recipient unfolds it the same way. */
@@ -86,6 +105,39 @@ const FORMATS: EnvelopeFormat[] = ['DL', 'C5', 'C6'];
 const FORMAT_OF: Record<FoldKind, EnvelopeFormat> = { tri: 'DL', half: 'C5', quarter: 'C6' };
 const pick = <T extends string>(v: string | undefined, allowed: T[], fallback: T): T =>
   allowed.includes(v as T) ? (v as T) : fallback;
+
+const asFace = (v: unknown): FaceContent | null => {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return null;
+  const f = v as { text?: unknown; strokes?: unknown };
+  return {
+    text: typeof f.text === 'string' ? f.text : '',
+    strokes: Array.isArray(f.strokes) ? (f.strokes.filter(Array.isArray) as Stroke[]) : [],
+  };
+};
+
+/**
+ * The sheets of a letter body, schema_v 1 or 2, from whatever the server holds:
+ * never trusts the shape, never more than MAX_SHEETS, always at least sheet 1.
+ */
+export function parseSheets(b: ContentRow['body']): SheetContent[] {
+  const first: FaceContent = {
+    text: typeof b?.text === 'string' ? b.text : '',
+    strokes: Array.isArray(b?.strokes) ? b.strokes.filter(Array.isArray) : [],
+  };
+  const raw = Array.isArray(b?.sheets) ? b.sheets.slice(0, MAX_SHEETS) : [];
+  const sheets: SheetContent[] = [{ recto: first, verso: asFace((raw[0] as { verso?: unknown } | undefined)?.verso) ?? emptyFace(), twoSided: false }];
+  for (const entry of raw.slice(1)) {
+    const recto = asFace((entry as { recto?: unknown } | null)?.recto);
+    if (!recto) continue;
+    sheets.push({ recto, verso: asFace((entry as { verso?: unknown }).verso) ?? emptyFace(), twoSided: false });
+  }
+  for (const sheet of sheets) sheet.twoSided = sheet.verso.text !== '' || sheet.verso.strokes.length > 0;
+  return sheets;
+}
+
+/** A letter's sheets, also for letters built by hand (labs) with only `text` and `strokes`. */
+export const sheetsOf = (l: Pick<MailLetter, 'text' | 'strokes' | 'sheets'>): SheetContent[] =>
+  l.sheets?.length ? l.sheets : [{ recto: { text: l.text, strokes: l.strokes ?? [] }, verso: emptyFace(), twoSided: false }];
 
 /** Which post office a person uses: French boxes in France, the Russian/Belarusian kind otherwise. */
 export const countryOf = (tz: string): Country => (tz === 'Europe/Paris' ? 'fr' : 'ru');
@@ -124,12 +176,15 @@ export function mailboxFromServer(input: {
     const b = body.get(r.id) ?? null;
     const env = r.envelope ?? {};
     const fold = pick(b?.fold, FOLDS, 'tri');
+    const sheets = parseSheets(b);
     return {
       id: r.id,
       // The envelope is client-written jsonb: only a real integer seeds the seal's outline (r.seed is an int column).
       seed: Number.isSafeInteger(env.seed) ? (env.seed as number) : r.seed,
-      text: b?.text ?? '',
-      strokes: b?.strokes?.length ? b.strokes : undefined,
+      sheetSeed: typeof b?.seed === 'number' && Number.isFinite(b.seed) ? b.seed : undefined,
+      text: sheets[0].recto.text,
+      strokes: sheets[0].recto.strokes.length ? sheets[0].recto.strokes : undefined,
+      sheets: sheets.length > 1 || sheets[0].twoSided ? sheets : undefined,
       strokesWidth: b?.sheet_width,
       letterLook: {
         paper: pick(b?.paper, PAPERS, 'cotton'),

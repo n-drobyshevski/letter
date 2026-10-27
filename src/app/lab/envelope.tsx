@@ -4,18 +4,19 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Choice } from '@/components/Choice';
 import { Desk } from '@/components/Desk';
-import { getLastDie, isEmptyDraft, setDraft, setLastDie, useDraft, type Draft } from '@/lib/draft';
+import { getLastDie, isEmptyDraft, setDraft, setLastDie, useDraft, writtenSheets, type Draft } from '@/lib/draft';
 import { useCouple, useSession } from '@/lib/mail';
 import { useLabParams } from '@/lib/params';
 import { useMotionPrefs } from '@/lib/useMotionPrefs';
 import { EnvelopeCeremony, useSealingFit, type EnvelopeLook } from '@/letter/EnvelopeCeremony';
 import { ENVELOPE_MM, formatForFold, type EnvelopeFormat } from '@/letter/envelope';
 import { FOLD_KINDS, type FoldKind } from '@/letter/fold';
-import { useLetterPicture, useWithStrokes, type LetterLook } from '@/letter/LetterSheet';
-import { SAMPLE_LETTER } from '@/letter/samples';
+import { useStackPictures, type LetterLook } from '@/letter/LetterSheet';
+import { sampleSheets } from '@/letter/samples';
 import { parseDie, sealFromParams, type SealDie, type SealPlacement } from '@/letter/seal';
 import { SealButtons } from '@/letter/SealButtons';
 import { SEAL_COPY as COPY, useSealControls } from '@/letter/sealCopy';
+import { bulgeFor } from '@/letter/stack';
 import { SHEET_RATIO } from '@/letter/sheet';
 import type { Lang } from '@/letter/tracking/copy';
 import { LINERS, WAX, WAX_TYPES, type LinerKind, type PaperKind, type WaxKind, type WaxType } from '@/theme/stationery';
@@ -80,9 +81,8 @@ function LiveSeal({ draft }: { draft: Draft }) {
   const format = formatForFold(fold);
   const envW = useEnvelopeWidth(format);
   const sheet = { width: Math.round(envW * 0.93), height: Math.round(envW * 0.93 * SHEET_RATIO) };
-  const { picture: inked } = useLetterPicture(draft.text, draft.look, sheet.width, sheet.height, 1, 'all', fold);
-  const front = useWithStrokes(inked, draft.strokes, draft.sheetWidth, draft.look, sheet.width, sheet.height);
-  const { picture: back } = useLetterPicture('', draft.look, sheet.width, sheet.height, 1, 'paper', fold);
+  const sheets = writtenSheets(draft);
+  const { front, back } = useStackPictures(sheets, draft.look, sheet.width, sheet.height, 1, fold, draft.sheetWidth);
 
   const kept = draft.envelope;
   const initials = name?.trim().charAt(0).toUpperCase() || (lang === 'fr' ? 'M' : 'Н');
@@ -132,6 +132,8 @@ function LiveSeal({ draft }: { draft: Draft }) {
       front={front}
       back={back}
       sheet={sheet}
+      sheets={sheets.length}
+      bulge={bulgeFor(fold, sheets.length, draft.look.paper)}
       envW={envW}
       fold={fold}
       look={{ ...look, initials, format }}
@@ -160,8 +162,9 @@ function EnvelopeLab() {
 
   const seed = q.seed ?? 1407;
   const letterLook: LetterLook = { paper: 'cotton', ink: 'blueBlack', font: 'badScript', seed };
-  const { picture: front } = useLetterPicture(SAMPLE_LETTER, letterLook, sheet.width, sheet.height, 1, 'all', fold);
-  const { picture: back } = useLetterPicture('', letterLook, sheet.width, sheet.height, 1, 'paper', fold);
+  // ?sheets=2..4: a thicker letter goes in.
+  const [sheets] = useState(() => sampleSheets(q.sheets ?? 1));
+  const { front, back } = useStackPictures(sheets, letterLook, sheet.width, sheet.height, 1, fold, sheet.width);
 
   const [lang, setLang] = useState<Lang>(q.country === 'fr' ? 'fr' : 'ru');
   const [look, setLook] = useState<Omit<EnvelopeLook, 'initials' | 'seed' | 'format'>>({
@@ -185,6 +188,8 @@ function EnvelopeLab() {
       front={front}
       back={back}
       sheet={sheet}
+      sheets={sheets.length}
+      bulge={bulgeFor(fold, sheets.length, letterLook.paper)}
       envW={envW}
       fold={fold}
       look={{ ...look, initials: lang === 'fr' ? 'M' : 'Н', seed, format, seal }}
@@ -199,9 +204,11 @@ function Sealing(props: {
   lang: Lang;
   onLang?: (lang: Lang) => void;
   title: string;
-  front: ReturnType<typeof useLetterPicture>['picture'];
-  back: ReturnType<typeof useLetterPicture>['picture'];
+  front: ReturnType<typeof useStackPictures>['front'];
+  back: ReturnType<typeof useStackPictures>['back'];
   sheet: { width: number; height: number };
+  sheets: number;
+  bulge: number;
   envW: number;
   fold: FoldKind;
   look: EnvelopeLook;
@@ -234,6 +241,8 @@ function Sealing(props: {
           letterFront={props.front}
           letterBack={props.back}
           sheet={props.sheet}
+          sheets={props.sheets}
+          bulge={props.bulge}
           width={props.envW}
           look={look}
           fold={props.fold}

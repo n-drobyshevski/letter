@@ -6,7 +6,7 @@ description: How to build the letter "ceremonies" (fold, insert, seal, stamp, po
 # Letter choreography
 
 ## Pattern
-- One ceremony = one `SharedValue` `t ∈ [0, 1]` plus pure worklet functions `t → state` (angles, offsets, opacities). Reference: `src/letter/FoldableLetter.tsx`.
+- One ceremony = one `SharedValue` `t ∈ [0, 1]` plus pure worklet functions `t → state` (angles, offsets, opacities). Reference: `src/letter/FoldableLetter.tsx`. The one exception is reading a stack: `turn ∈ [0, faces − 1]` walks the faces (`ReadingStack`, `?turn=`).
 - The finger writes `t` directly (`usePanGesture` → `t.set(...)`); on release settle with `withSpring(target, { velocity })` so a flick carries through. Never a fixed-duration tween for something the hand started.
 - With React Compiler on, use `.get()/.set()` on shared values in JS-thread code and gesture callbacks.
 - Sub-phases are ranges of `t` with an ease (`t/0.5`, `(t-0.5)/0.5`), so scrubbing backwards always works.
@@ -58,3 +58,6 @@ description: How to build the letter "ceremonies" (fold, insert, seal, stamp, po
 | Pull letter out | drag up | `crease` |
 | Next letter | button after reading | back to the open box (door stage skipped), oldest unopened first; the rest lie underneath |
 | Unfold | `FoldableLetter initialT={1}`, drag down | `crease` per panel |
+| Turn a sheet over at the desk (`DeskStack`) | button «Перевернуть» (the pen owns drags on the sheet); a Skia overlay turns the two baked faces about the vertical axis, the desk underneath is hidden and already on the new face | `tick` as the edge passes upright |
+| Another sheet at the desk | «Ещё лист» / «Лист →»: the written sheet slides aside, the next lies underneath | — |
+| Read a stack (`ReadingStack`) | horizontal drag (`activeOffsetX ±12`, fails on vertical so the desk still scrolls; `touchAction: pan-y`); release springs to the nearest face, at most one per gesture; canceled → back | `tick` on a turn over, `fibre` as a read sheet slides to the back |

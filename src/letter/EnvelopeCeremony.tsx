@@ -6,6 +6,7 @@ import {
   Group,
   Line,
   Path,
+  Paint,
   Picture,
   RadialGradient,
   Rect,
@@ -49,6 +50,8 @@ import {
   ENVELOPE_MM,
   envelopeGeometry,
   formatForFold,
+  pocketPath,
+  recordBulge,
   recordEnvelope,
   recordFoldedLetter,
   type EnvelopeFormat,
@@ -124,9 +127,16 @@ export type EnvelopeLook = {
 };
 
 type Props = {
+  /** The folded letter, as FoldableLetter's front and back (top sheet's recto, last sheet's verso). */
   letterFront: SkPicture;
   letterBack: SkPicture;
   sheet: { width: number; height: number };
+  /** Sheets folded together (a thicker packet). */
+  sheets?: number;
+  /** How much a thick letter rounds the envelope out once it is in (bulgeFor), 0..1. */
+  bulge?: number;
+  /** The letter's own seed, where its creases are (defaults to the envelope's). */
+  foldSeed?: number;
   /** Width of a DL envelope on screen; C5 and C6 keep their real size next to it. */
   width: number;
   look: EnvelopeLook;
@@ -275,6 +285,9 @@ export function EnvelopeCeremony({
   letterFront,
   letterBack,
   sheet,
+  sheets = 1,
+  bulge = 0,
+  foldSeed,
   width,
   look,
   fold = 'tri',
@@ -302,8 +315,8 @@ export function EnvelopeCeremony({
   );
   const parts = useMemo(() => recordEnvelope(g, look.paper, look.liner, look.seed), [g, look.paper, look.liner, look.seed]);
   const letter = useMemo(
-    () => recordFoldedLetter(letterFront, letterBack, sheet, look.seed, fold),
-    [letterFront, letterBack, sheet, look.seed, fold],
+    () => recordFoldedLetter(letterFront, letterBack, sheet, foldSeed ?? look.seed, fold, sheets),
+    [letterFront, letterBack, sheet, foldSeed, look.seed, fold, sheets],
   );
   const fixed = fixedT !== undefined;
   // The stored seal a frozen QA frame shows (keyed by value: callers may rebuild look.seal each render).
@@ -330,6 +343,12 @@ export function EnvelopeCeremony({
   const yStart = -letter.height - 8;
   const yEnd = g.height - letter.height - g.height * 0.045;
   const top = Math.ceil(letter.height + g.flapTip * 0.2 + PAD);
+  // The envelope rounds out over the letter once it is in, and the closed flap over it too.
+  const pocket = useMemo(() => pocketPath(g), [g]);
+  const bulgePic = useMemo(
+    () => recordBulge(g, { x: letterX, y: yEnd, w: letter.width, h: letter.height, rot: restRot }, bulge),
+    [g, letterX, yEnd, letter.width, letter.height, restRot, bulge],
+  );
   const canvasH = top + g.height + PAD * 2;
 
   // Sizes in px: a full pour, the die, the brass around it (hovering it's drawn ×1.55).
@@ -1110,6 +1129,9 @@ export function EnvelopeCeremony({
     ];
   });
 
+  const pocketBulge = useDerivedValue(() => clamp01((insert.get() - 0.8) / 0.2));
+  const flapBulge = useDerivedValue(() => clamp01((close.get() - 0.85) / 0.15) * pocketBulge.get());
+
   // ── flap ──
   const flapAngle = useDerivedValue(() => (1 - easeInOut(close.get())) * FLAP_OPEN);
   const flapTransform = useDerivedValue<Transforms3d>(() => [{ perspective: PERSPECTIVE }, { rotateX: -flapAngle.get() }]);
@@ -1298,6 +1320,11 @@ export function EnvelopeCeremony({
               </Group>
 
               <Picture picture={parts.pocket} />
+              {bulge > 0 && (
+                <Group clip={pocket} layer={<Paint opacity={pocketBulge} />}>
+                  <Picture picture={bulgePic} />
+                </Group>
+              )}
               <Group clip={g.flap}>
                 <Rect x={0} y={0} width={g.width} height={g.height} color="#140c04" opacity={flapCast} />
               </Group>
@@ -1306,6 +1333,11 @@ export function EnvelopeCeremony({
               <Group origin={{ x: g.width / 2, y: 0 }} transform={flapTransform}>
                 <Group clip={outerClip}>
                   <Picture picture={parts.flapOuter} />
+                  {bulge > 0 && (
+                    <Group clip={g.flap} layer={<Paint opacity={flapBulge} />}>
+                      <Picture picture={bulgePic} />
+                    </Group>
+                  )}
                   <Group clip={g.flap}>
                     <Rect x={0} y={0} width={g.width} height={g.flapTip} color="#140c04" opacity={flapShade} />
                   </Group>

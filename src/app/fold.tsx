@@ -3,13 +3,14 @@ import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Desk } from '@/components/Desk';
-import { isEmptyDraft, setDraft, useDraft } from '@/lib/draft';
+import { isEmptyDraft, setDraft, useDraft, writtenSheets } from '@/lib/draft';
 import { useCouple, useSession } from '@/lib/mail';
 import { useMotionPrefs } from '@/lib/useMotionPrefs';
 import type { FoldKind } from '@/letter/fold';
 import { FoldableLetter } from '@/letter/FoldableLetter';
-import { useLetterPicture, useWithStrokes } from '@/letter/LetterSheet';
+import { useStackPictures } from '@/letter/LetterSheet';
 import { useSheetSize } from '@/letter/sheet';
+import { emptySheet, maxSheetsFor } from '@/letter/stack';
 import type { Lang } from '@/letter/tracking/copy';
 
 /** UI copy follows the writer, informal ты/tu. */
@@ -20,6 +21,7 @@ const COPY = {
       none: 'Потяни снизу вверх — сложить втрое · потяни верхний край вниз — пополам',
       tri: 'Втрое, как обычное письмо. Вниз — развернуть',
       half: 'Пополам. Проведи влево — сложить ещё раз, вверх — развернуть',
+      halfThick: 'Пополам. Вчетверо такую стопку не сложить; вверх — развернуть',
       quarter: 'Вчетверо, маленьким квадратиком. Вправо — развернуть',
     },
     empty: 'Сначала напиши письмо',
@@ -33,6 +35,7 @@ const COPY = {
       none: 'Glisse vers le haut : en trois · tire le bord du haut vers le bas : en deux',
       tri: 'En trois, comme une lettre. Vers le bas pour la déplier',
       half: 'En deux. Vers la gauche pour la plier encore, vers le haut pour la déplier',
+      halfThick: 'En deux. Trop de feuilles pour la plier en quatre ; vers le haut pour la déplier',
       quarter: 'En quatre, toute petite. Vers la droite pour la rouvrir',
     },
     empty: 'Écris d’abord ta lettre',
@@ -60,10 +63,11 @@ export default function FoldScreen() {
   const [folded, setFolded] = useState<FoldKind | null>(null);
 
   const look = draft?.look ?? { paper: 'cotton' as const, ink: 'blueBlack' as const, font: 'badScript' as const, seed: 7 };
+  const sheets = draft ? writtenSheets(draft) : [emptySheet(look.paper)];
   // Creases appear once a fold has begun.
-  const { picture: inked } = useLetterPicture(draft?.text ?? '', look, size.width, size.height, kind ? 1 : 0, 'all', kind ?? 'tri');
-  const front = useWithStrokes(inked, draft?.strokes, draft?.sheetWidth, look, size.width, size.height);
-  const { picture: back } = useLetterPicture('', look, size.width, size.height, kind ? 1 : 0, 'paper', kind ?? 'tri');
+  const stack = useStackPictures(sheets, look, size.width, size.height, kind ? 1 : 0, kind ?? 'tri', draft?.sheetWidth);
+  const { front, back } = stack;
+  const allowQuarter = sheets.length <= maxSheetsFor('quarter');
 
   if (isEmptyDraft(draft)) {
     return (
@@ -79,11 +83,14 @@ export default function FoldScreen() {
   const keep = (k: FoldKind) => setDraft({ ...draft!, fold: k, envelope: undefined });
 
   return (
-    <Desk title={copy.title} hint={copy.hint[folded ?? kind ?? 'none']} scroll={false}>
+    <Desk title={copy.title} hint={copy.hint[(folded ?? kind) === 'half' && !allowQuarter ? 'halfThick' : (folded ?? kind ?? 'none')]} scroll={false}>
       {front && back && (
         <FoldableLetter
           front={front}
           back={back}
+          sheets={stack.sheets}
+          edgeColor={stack.edgeColor}
+          allowQuarter={allowQuarter}
           width={size.width}
           height={size.height}
           seed={look.seed}
@@ -103,7 +110,7 @@ export default function FoldScreen() {
         {/* Every gesture has a tap alternative; it leads when Reduce Motion or a screen reader is on. */}
         {!folded && (
           <View style={styles.row}>
-            {(['tri', 'half', 'quarter'] as const).map((k) => (
+            {(allowQuarter ? (['tri', 'half', 'quarter'] as const) : (['tri', 'half'] as const)).map((k) => (
               <Link key={k} href="/seal" asChild>
                 <Pressable onPress={() => keep(k)} style={needsButtons ? styles.tag : styles.quiet} accessibilityRole="button">
                   <Text style={needsButtons ? styles.tagText : styles.quietText}>{copy.buttons[k]}</Text>
