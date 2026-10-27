@@ -1,9 +1,10 @@
 import { Canvas, Group, Picture, Rect, Shadow, Skia, type Transforms3d } from '@shopify/react-native-skia';
 import { useEffect, useRef, useState } from 'react';
-import { View } from 'react-native';
-import { GestureDetector, usePanGesture } from 'react-native-gesture-handler';
-import {
+import { Platform, View } from 'react-native';
+import { GestureDetector, PointerType, usePanGesture } from 'react-native-gesture-handler';
+import Animated, {
   cancelAnimation,
+  useAnimatedStyle,
   useAnimatedReaction,
   useDerivedValue,
   useReducedMotion,
@@ -15,6 +16,8 @@ import {
 import { scheduleOnRN } from 'react-native-worklets';
 
 import { feel } from '../lib/haptics';
+import { useTurnKey } from '../lib/useTurnKey';
+import { HOME, dragPlacement, type Placement } from './deskMove';
 import type { FoldKind } from './fold';
 import { gripOf, type Grip } from './grip';
 import { paperEdgeColor, useSheetFaces, type LetterLook, type SheetFaces } from './LetterSheet';
@@ -30,12 +33,15 @@ import { sheetJitter, writtenFaces, type FaceRef, type SheetContent } from './st
  * The turn follows the hand as at the desk (grip.ts): its axis leans with the
  * drag's direction and where the sheet was taken, the sheet travels with the
  * hand, and a read sheet slides off (and a previous one comes back) the way it
- * was pushed.
+ * was pushed. On the laptop a plain mouse drag pushes the letter about the desk
+ * instead (deskMove.ts), and Ctrl (⌘) + drag turns it.
  * Every sheet is baked up front (at most four), so nothing bakes mid-gesture.
  */
 
 const PERSPECTIVE = 1400;
 const PAD = 24;
+// The laptop (web): a mouse pushes the letter about, Ctrl (⌘) + drag turns it.
+const web = Platform.OS === 'web';
 
 type Props = {
   sheets: SheetContent[];
@@ -116,21 +122,39 @@ export function ReadingStack({ sheets, look, width, height, fold, strokesWidth, 
 
   const travel = width * 0.9;
   const room = Math.round(height * 0.12);
+  const turnKey = useTurnKey();
+  const moving = useSharedValue(false);
+  const place = useSharedValue<Placement>(HOME);
+  const placeAtGrab = useSharedValue<Placement>(HOME);
+  const grabAt = useSharedValue({ x: 0, y: 0 });
   const pan = usePanGesture({
-    enabled: fixedTurn === undefined && last > 0,
-    activeOffsetX: [-12, 12],
-    // A mostly vertical drag still scrolls the desk; one that starts sideways turns, at any angle after.
-    failOffsetY: [-30, 30],
+    // On the laptop a single sheet can still be pushed about.
+    enabled: fixedTurn === undefined && (web || last > 0),
+    // A mouse moves the letter any way; on the phone a mostly vertical drag still scrolls
+    // the desk, and one that starts sideways turns, at any angle after.
+    activeOffsetX: web ? [-8, 8] : [-12, 12],
+    activeOffsetY: web ? [-8, 8] : undefined,
+    failOffsetY: web ? undefined : [-30, 30],
     onBegin: (e) => {
       grabY.set(Math.min(1, Math.max(0, (e.y - PAD - room) / height)));
+      grabAt.set({ x: e.x - PAD - width / 2, y: e.y - PAD - room - height / 2 });
     },
-    onActivate: () => {
+    onActivate: (e) => {
+      moving.set(e.pointerType === PointerType.MOUSE && !turnKey.get());
+      if (moving.get()) {
+        placeAtGrab.set(place.get());
+        return;
+      }
       // Catch the sheet where it is, even mid-spring.
       cancelAnimation(turn);
       grab.set(turn.get());
       origin.set(Math.round(turn.get()));
     },
     onUpdate: (e) => {
+      if (moving.get()) {
+        place.set(dragPlacement(placeAtGrab.get(), grabAt.get(), { x: e.translationX, y: e.translationY }, { width, height }));
+        return;
+      }
       const raw = grab.get() - e.translationX / travel;
       // One face per gesture; past the first or last face the paper resists.
       const lo = Math.max(0, origin.get() - 1);
@@ -140,6 +164,8 @@ export function ReadingStack({ sheets, look, width, height, fold, strokesWidth, 
       if (e.translationX !== 0) grip.set(gripOf(e.translationX < 0 ? 1 : -1, e.translationX, e.translationY, grabY.get()));
     },
     onDeactivate: (e) => {
+      // A pushed letter stays where it is let go.
+      if (moving.get()) return moving.set(false);
       const s = origin.get();
       // Taken over (the desk scrolled): back to where it was.
       if (e.canceled) return settle(s);
@@ -148,6 +174,10 @@ export function ReadingStack({ sheets, look, width, height, fold, strokesWidth, 
       settle(Math.max(0, Math.min(last, Math.max(s - 1, Math.min(s + 1, pushed)))), v);
     },
   });
+
+  const placed = useAnimatedStyle(() => ({
+    transform: [{ translateX: place.value.x }, { translateY: place.value.y }, { rotate: `${place.value.rot}rad` }],
+  }));
 
   // Halfway between two faces: a tick as a sheet's edge passes upright, paper on paper as one slides away;
   // the face under the reader's eyes is the new one from there (not once the spring has quite settled).
@@ -168,7 +198,7 @@ export function ReadingStack({ sheets, look, width, height, fold, strokesWidth, 
 
   return (
     // Room above and below for a leaning turn, without moving the layout around it.
-    <View style={{ marginVertical: -room }}>
+    <Animated.View style={[{ marginVertical: -room }, placed, web && ({ cursor: 'grab' } as object)]}>
       <GestureDetector gesture={pan} touchAction="pan-y">
         <Canvas style={{ width: width + PAD * 2, height: height + (PAD + room) * 2 }}>
           <Group transform={[{ translateX: PAD }, { translateY: PAD + room }]}>
@@ -189,7 +219,7 @@ export function ReadingStack({ sheets, look, width, height, fold, strokesWidth, 
           </Group>
         </Canvas>
       </GestureDetector>
-    </View>
+    </Animated.View>
   );
 }
 

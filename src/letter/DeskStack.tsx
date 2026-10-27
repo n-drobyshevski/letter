@@ -1,9 +1,10 @@
 import { Canvas, Group, Paint, Picture, RadialGradient, Rect, Skia, useFont, vec, type SkPicture, type Transforms3d } from '@shopify/react-native-skia';
 import { useEffect, useMemo, useState } from 'react';
-import { Keyboard, Pressable, StyleSheet, Text, View } from 'react-native';
-import { GestureDetector, usePanGesture } from 'react-native-gesture-handler';
-import {
+import { Keyboard, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { GestureDetector, PointerType, usePanGesture } from 'react-native-gesture-handler';
+import Animated, {
   Easing,
+  useAnimatedStyle,
   useAnimatedReaction,
   useDerivedValue,
   useReducedMotion,
@@ -15,8 +16,10 @@ import {
 import { scheduleOnRN } from 'react-native-worklets';
 
 import { feel } from '../lib/haptics';
+import { useTurnKey } from '../lib/useTurnKey';
 import { HANDWRITING_FONTS } from '../theme/stationery';
 import { bakeSheetFaces, paperEdgeColor, useGhostOf, type LetterLook } from './LetterSheet';
+import { HOME, dragPlacement, type Placement } from './deskMove';
 import { fontSizeFor, paperFor } from './sheet';
 import { mirrorPicture } from './showThrough';
 import {
@@ -50,6 +53,9 @@ import { WritingDesk, type WritingMode } from './WritingDesk';
  * with the hand, and a slide to another sheet goes the way it was pushed. Released
  * past halfway (or flicked) it completes, otherwise it falls back.
  */
+
+// The laptop (web): a mouse moves sheets about, Ctrl (⌘) + drag turns them.
+const web = Platform.OS === 'web';
 
 // The edge strips that take a drag (pt), and the lifted-corner hint at their foot.
 const EDGE = 30;
@@ -87,6 +93,7 @@ const COPY = {
   clearPen: 'Стереть перо',
   cornerForward: 'Край листа: потяни влево, чтобы перевернуть',
   cornerBack: 'Край листа: потяни вправо, чтобы вернуться',
+  mouseHint: 'Тяни за край — подвинуть лист · с Ctrl — перевернуть',
 };
 
 type Props = {
@@ -207,28 +214,51 @@ export function DeskStack({ look, width, height, mode, sheets, onSheets, maxShee
   };
 
   // The sheet's edges: the finger writes p (0 → 1 is the whole turn) and the grip.
+  // With a mouse (the laptop) a plain drag pushes the sheet about the desk instead, and
+  // Ctrl (⌘) + drag turns it; a finger always turns.
   const travel = width * 0.8;
   const grabY = useSharedValue(0.5);
+  const turnKey = useTurnKey();
+  const moving = useSharedValue(false);
+  const place = useSharedValue<Placement>(HOME);
+  const placeAtGrab = useSharedValue<Placement>(HOME);
+  const grabAt = useSharedValue({ x: 0, y: 0 });
   const startDrag = (dir: 1 | -1) => begin(dir === 1 ? forward() : backward());
   const edge = (dir: 1 | -1) => ({
     // Not switched off while its own turn is under way: that would cancel the drag.
-    enabled: fixedTurn === undefined && (dir === 1 ? canForward : canBackward),
-    activeOffsetX: dir === 1 ? -6 : 6,
-    // Mostly vertical still scrolls the desk; anything with a sideways start turns, at any angle after.
-    failOffsetY: [-40, 40] as [number, number],
-    onBegin: (e: { y: number }) => {
+    // On the laptop the edges are always there: the sheet can be moved even when it can't turn.
+    enabled: fixedTurn === undefined && (web || (dir === 1 ? canForward : canBackward)),
+    // On the web a mouse moves the sheet any way, so any direction takes hold; a finger
+    // on the phone turns only the edge's own way, and mostly vertical still scrolls the desk.
+    activeOffsetX: web ? ([-6, 6] as [number, number]) : dir === 1 ? -6 : 6,
+    activeOffsetY: web ? ([-6, 6] as [number, number]) : undefined,
+    failOffsetY: web ? undefined : ([-40, 40] as [number, number]),
+    onBegin: (e: { x: number; y: number }) => {
       grabY.set(Math.min(1, Math.max(0, e.y / height)));
+      // Where on the sheet it was taken, from its centre (the strips sit at its edges).
+      grabAt.set({ x: (dir === 1 ? width - EDGE : 0) + e.x - width / 2, y: e.y - height / 2 });
     },
-    onActivate: (e: { translationX: number; translationY: number }) => {
+    onActivate: (e: { translationX: number; translationY: number; pointerType: PointerType }) => {
+      moving.set(e.pointerType === PointerType.MOUSE && !turnKey.get());
+      if (moving.get()) {
+        placeAtGrab.set(place.get());
+        return;
+      }
       p.set(0);
       grip.set(gripOf(dir, e.translationX, e.translationY, grabY.get()));
       scheduleOnRN(startDrag, dir);
     },
     onUpdate: (e: { translationX: number; translationY: number }) => {
+      if (moving.get()) {
+        place.set(dragPlacement(placeAtGrab.get(), grabAt.get(), { x: e.translationX, y: e.translationY }, { width, height }));
+        return;
+      }
       p.set(Math.min(1, Math.max(0, (-dir * e.translationX) / travel)));
       grip.set(gripOf(dir, e.translationX, e.translationY, grabY.get()));
     },
     onDeactivate: (e: { velocityX: number; canceled: boolean }) => {
+      // Let go of a pushed sheet: it stays where it lies.
+      if (moving.get()) return moving.set(false);
       const v = (-dir * e.velocityX) / travel;
       const commit = !e.canceled && (v > 0.5 || (v > -0.5 && p.get() > 0.5));
       const done = (finished?: boolean) => {
@@ -246,6 +276,9 @@ export function DeskStack({ look, width, height, mode, sheets, onSheets, maxShee
   const canBackward = face.side === 'verso' || face.sheet > 0;
   const forwardEdge = usePanGesture(edge(1));
   const backEdge = usePanGesture(edge(-1));
+  const placed = useAnimatedStyle(() => ({
+    transform: [{ translateX: place.value.x }, { translateY: place.value.y }, { rotate: `${place.value.rot}rad` }],
+  }));
 
   const removeSheet = () => {
     const next = sheets.filter((_, i) => i !== face.sheet);
@@ -271,7 +304,7 @@ export function DeskStack({ look, width, height, mode, sheets, onSheets, maxShee
 
   return (
     <View style={styles.root}>
-      <View style={{ width, height }}>
+      <Animated.View style={[{ width, height }, placed]}>
         {sheets.length > 1 && <StackEdges count={sheets.length - 1} seed={look.seed} width={width} height={height} paper={look.paper} />}
         {/* Hidden while the overlay turns the sheet: no touches either, or ink would land unseen on the new face. */}
         <View style={{ opacity: turning || fixedTurn !== undefined ? 0 : 1 }} pointerEvents={turning || fixedTurn !== undefined ? 'none' : 'auto'}>
@@ -292,19 +325,19 @@ export function DeskStack({ look, width, height, mode, sheets, onSheets, maxShee
         </View>
         {MULTI_SHEET && fixedTurn === undefined && (
           <>
-            {canForward && (
+            {(canForward || web) && (
               <>
-                <CornerLift side="right" />
+                {canForward && <CornerLift side="right" />}
                 <GestureDetector gesture={forwardEdge} touchAction="pan-y">
-                  <View style={[styles.edge, { right: 0 }]} accessibilityLabel={COPY.cornerForward} />
+                  <View style={[styles.edge, web && styles.grab, { right: 0 }]} accessibilityLabel={COPY.cornerForward} />
                 </GestureDetector>
               </>
             )}
-            {canBackward && (
+            {(canBackward || web) && (
               <>
-                <CornerLift side="left" />
+                {canBackward && <CornerLift side="left" />}
                 <GestureDetector gesture={backEdge} touchAction="pan-y">
-                  <View style={[styles.edge, { left: 0 }]} accessibilityLabel={COPY.cornerBack} />
+                  <View style={[styles.edge, web && styles.grab, { left: 0 }]} accessibilityLabel={COPY.cornerBack} />
                 </GestureDetector>
               </>
             )}
@@ -323,7 +356,7 @@ export function DeskStack({ look, width, height, mode, sheets, onSheets, maxShee
             height={height}
           />
         )}
-      </View>
+      </Animated.View>
 
       <View style={styles.row}>
         {current.strokes.length > 0 && <DeskButton label={COPY.clearPen} onPress={() => setCurrent({ strokes: [] })} />}
@@ -333,6 +366,7 @@ export function DeskStack({ look, width, height, mode, sheets, onSheets, maxShee
           <Text style={styles.where} accessibilityLiveRegion="polite">
             {COPY.sheet(face.sheet, sheets.length, face.side === 'verso')}
           </Text>
+          {web && <Text style={styles.where}>{COPY.mouseHint}</Text>}
           {ask ? (
             <View style={styles.row}>
               <Text style={styles.ask}>{ask === 'remove' ? COPY.sureRemove : COPY.sureBack}</Text>
@@ -511,4 +545,6 @@ const styles = StyleSheet.create({
   strong: { minHeight: 40, paddingHorizontal: 14, justifyContent: 'center', borderRadius: 3, backgroundColor: '#efe2cc' },
   strongText: { color: '#2a211b', fontSize: 14 },
   edge: { position: 'absolute', top: 0, bottom: 0, width: EDGE },
+  // react-native-web passes the cursor through.
+  grab: { cursor: 'grab' } as object,
 });
