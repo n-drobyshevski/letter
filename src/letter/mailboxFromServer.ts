@@ -142,13 +142,16 @@ export const sheetsOf = (l: Pick<MailLetter, 'text' | 'strokes' | 'sheets'>): Sh
 /** Which post office a person uses: French boxes in France, the Belarusian kind otherwise (Minsk). */
 export const countryOf = (tz: string): Country => (tz === 'Europe/Paris' ? 'fr' : 'by');
 
-/** The destination country as the sender would write it, or nothing within one country. */
+/**
+ * The destination country as the sender would write it, or nothing within one country.
+ * Abroad from Minsk it goes in Latin letters, as the post asks for an international address.
+ */
 function countryLine(recipientTz: string, senderTz: string): string | undefined {
   if (recipientTz === senderTz) return undefined;
   const writer = countryOf(senderTz);
   const names: Record<string, Record<Country, string>> = {
     'Europe/Minsk': { fr: 'Biélorussie', by: 'Беларусь' },
-    'Europe/Paris': { fr: 'France', by: 'Франция' },
+    'Europe/Paris': { fr: 'France', by: 'France' },
   };
   return names[recipientTz]?.[writer];
 }

@@ -412,7 +412,7 @@ function ReceiveStep(props: { progress: React.ReactNode; letter: Letter; look: E
     initials: look.initials,
     address: fromFrance
       ? { fromName: 'Н.', fromCity: 'Lille', toName: 'М.', toCity: 'Minsk', toCountry: 'Biélorussie' }
-      : { fromName: 'М.', fromCity: 'Минск', toName: 'N.', toCity: 'Lille', toCountry: 'Франция' },
+      : { fromName: 'М.', fromCity: 'Минск', toName: 'N.', toCity: 'Lille', toCountry: 'France' },
     postmark: { city: fromFrance ? 'Lille' : 'Минск', date: new Date().toISOString().slice(0, 10) },
     senderCountry: from,
     fromLabel: fromFrance ? { name: 'Н.', city: 'Lille' } : { name: 'М.', city: 'Минск' },

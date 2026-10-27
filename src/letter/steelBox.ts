@@ -91,7 +91,7 @@ export type PostboxLayout = {
   shortEdgeFirst: boolean;
 };
 
-/** Slot sizes in mm. RU: the 2015 wall box (artlebedev.ru). FR: street box, an estimate. */
+/** Slot sizes in mm. BY: the blue wall box (dimensions after the post-Soviet 2015 design, artlebedev.ru). FR: street box, an estimate. */
 const SLOT_MM = { by: { w: 171, h: 6 }, fr: { w: 250, h: 20 } };
 
 export function postboxLayout(width: number, height: number, country: Country = 'by', envelopeMm = 220): PostboxLayout {
@@ -105,7 +105,7 @@ export function postboxLayout(width: number, height: number, country: Country = 
     country,
     scale,
     slot: { x: (width - w) / 2, y: height * 0.3, w, h: Math.max(mm.h * scale, 8) },
-    // A DL (220 mm) or C5 (229 mm) only fits the RU 171 mm slot short edge first; a C6 (162 mm) goes in long edge first.
+    // A DL (220 mm) or C5 (229 mm) only fits the BY 171 mm slot short edge first; a C6 (162 mm) goes in long edge first.
     shortEdgeFirst: envelopeMm > mm.w,
   };
 }
@@ -319,7 +319,7 @@ function drawFrenchSignage(
 }
 
 // ───────────────────────── mailbox banks ─────────────────────────
-// RU: подъезд bank, light grey, numbered doors with peek holes.
+// BY: Minsk подъезд bank, light grey, numbered doors with peek holes.
 // FR: "batterie" of collective boxes, anthracite, a nameplate and a wide slot.
 
 export type MailboxLayout = {
@@ -331,14 +331,14 @@ export type MailboxLayout = {
   door: { x: number; y: number; w: number; h: number };
   /** The letter slot on the door, in scene coordinates. */
   slot: { x: number; y: number; w: number; h: number };
-  /** RU only. */
+  /** BY only. */
   holes: { x: number; y: number; r: number }[];
   /** FR only: 100 × 22 mm. */
   nameplate: { x: number; y: number; w: number; h: number } | null;
   lock: { x: number; y: number; r: number };
 };
 
-/** Door sizes in mm. RU ~190 × 125 (estimate). FR 260 × 260, slot 235 × 26 (laposte.fr). */
+/** Door sizes in mm. BY ~190 × 125 (estimate). FR 260 × 260, slot 235 × 26 (laposte.fr). */
 const DOOR_MM = { by: { w: 190, h: 125 }, fr: { w: 260, h: 260 } };
 
 export function mailboxLayout(width: number, height: number, country: Country = 'by'): MailboxLayout {
@@ -425,7 +425,7 @@ export function drawDoorFace(
   x: number,
   y: number,
   seed: number,
-  /** RU: flat number. FR: the name on the nameplate. */
+  /** BY: flat number. FR: the name on the nameplate. */
   label: string,
   font: SkFont,
   withHoles: boolean,

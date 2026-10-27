@@ -140,7 +140,7 @@ export const PRINT_FONTS = {
   bold: require('@expo-google-fonts/pt-sans-narrow/700Bold/PTSansNarrow_700Bold.ttf'),
 };
 
-/** Street postboxes (RU 2015 wall box; yellow is the real express/first-class colour). */
+/** Street postboxes on the Minsk side: the blue wall box; yellow marks the express tier (a cue of ours). */
 export const POSTBOX = {
   blue: { face: [0.153, 0.4, 0.773] as Rgb, side: '#1a499f', shade: '#153774' },
   yellow: { face: [1, 0.765, 0.082] as Rgb, side: '#d99a00', shade: '#a87400' },
@@ -183,16 +183,21 @@ export const MAILBOX = {
   wall: [0.72, 0.7, 0.62] as Rgb,
 };
 
-/** Post-office inks and printing. */
+/** Post-office inks and printing (postage.ts draws the stamps and postmarks). */
 export const POSTAL = {
   printedFields: 'rgba(52, 62, 86, 0.75)',
-  postmarkInk: [0.17, 0.13, 0.26] as Rgb,
   stampPaper: '#f3efe4',
-  stampPalettes: [
-    ['#2f5d8a', '#9cc3e0', '#e9c46a', '#3d6b45'],
-    ['#7a2e3b', '#e7b7a3', '#f2d16b', '#4b5d3a'],
-    ['#2c4a3f', '#a7c4a0', '#f0e2b6', '#6d4c3d'],
-  ] as const,
+  /** Belarusian definitive: pale ground, dark printed lettering. */
+  byStampGround: '#f2efe2',
+  byStampText: '#1f2a24',
+  /** The calendar postmark struck by hand in Minsk: violet-blue ink. */
+  handPostmarkInk: [0.2, 0.19, 0.46] as Rgb,
+  /** The blue UPU priority label. */
+  priorityLabel: '#2b5aa6',
+  /** France's «Lettre internationale» stamp. */
+  frInternational: '#5b3c8e',
+  /** French sorting machines print their postmark in black inkjet. */
+  inkjet: 'rgba(22, 22, 26, 0.9)',
 };
 
 /** The single desk light: from the top-left, slightly in front (defined with the Skia-free sheet geometry). */

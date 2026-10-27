@@ -102,13 +102,13 @@ type Props = {
   bulge?: number;
   /** The letter's own seed, where its creases are (defaults to the envelope's). */
   foldSeed?: number;
-  /** RU: the flat number painted on the door. */
+  /** BY: the flat number painted on the door. */
   flat: number;
   /** FR: the name on the nameplate. */
   name?: string;
-  /** The recipient's mailbox: RU подъезд bank or FR batterie. */
+  /** The recipient's mailbox: Minsk подъезд bank or FR batterie. */
   country?: Country;
-  /** The sender's envelope: RU printed fields or FR address block. */
+  /** The sender's envelope: Belarusian printed fields or a French address block (and that post office's postage). */
   senderCountry?: Country;
   /** Letters in the box, this one included (0: empty). Others lie underneath it. */
   waiting?: number;
@@ -596,7 +596,7 @@ export function ReceivingCeremony({
           <Group origin={{ x: door.x, y: door.y + door.h / 2 }} transform={doorTransform}>
             <Group clip={outsideFace}>
               <Picture picture={doorPics.outside} />
-              {/* RU: envelopes show pale through the peek holes — more of them, the fuller the box */}
+              {/* BY: envelopes show pale through the peek holes — more of them, the fuller the box */}
               {waiting > 0 &&
                 L.holes.slice(waiting > 1 ? 0 : 1, waiting > 1 ? 6 : 5).map((h, i) => (
                   <Circle key={i} cx={h.x} cy={h.y} r={h.r * 0.8}>

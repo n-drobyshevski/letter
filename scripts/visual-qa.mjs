@@ -90,7 +90,7 @@ const SHOTS = [
   // a four-sheet letter in her hands: address side · seal side (bulging) · the bulge gone once it is out
   ...[0.25, 0.32, 0.7].map((t) => ({ name: `mbbulge-${t}`, path: `/lab/mailbox?seed=1407&sheets=4&t=${t}` })),
   { name: 'journey-receive-2sheets', path: '/lab/journey?step=receive&sheets=2' },
-  // FR mailbox (letters from Russia) · RU mailbox with three letters · an empty box
+  // FR mailbox (letters from Minsk) · RU mailbox with three letters · an empty box
   { name: 'mbfr-5-closed', path: '/lab/mailbox?seed=1407&country=fr&waiting=5&t=0' },
   { name: 'mbfr-5-open', path: '/lab/mailbox?seed=1407&country=fr&waiting=5&t=0.1' },
   { name: 'mbfr-front', path: '/lab/mailbox?seed=1407&country=fr&t=0.25' },

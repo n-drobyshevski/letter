@@ -83,7 +83,7 @@ function lettersFor(recipient: Country, count: number, seed: number, fixed: bool
       senderCountry: fromFrance ? 'fr' : 'by',
       address: fromFrance
         ? { fromName: 'M.', fromCity: 'Paris', toName: 'N.', toCity: 'Minsk', toCountry: 'Biélorussie' }
-        : { fromName: 'Н.', fromCity: 'Минск', toName: 'М.', toCity: 'Paris, France' },
+        : { fromName: 'Н.', fromCity: 'Минск', toName: 'М.', toCity: 'Paris', toCountry: 'France' },
       postmark: { city: fromFrance ? 'Paris' : 'Минск', date: daysAgo(2 + (count - 1 - i), fixed) },
       fromLabel: fromFrance ? { name: 'М.', city: 'из Парижа' } : { name: 'N.', city: 'de Minsk' },
     };

@@ -23,7 +23,7 @@ import { WaxSeal } from './WaxSeal';
 
 /**
  * Posting: one progress value p ∈ [0, 1].
- *   0.00–0.15  orient: the envelope tilts out of the wall; at a RU box it also turns
+ *   0.00–0.15  orient: the envelope tilts out of the wall; at a BY box it also turns
  *              to portrait (a DL envelope only fits the 171 mm slot short edge first),
  *              at a FR box it goes in long edge first
  *   0.15–0.85  insert: it slides through the slot; the part inside is clipped and
@@ -53,7 +53,7 @@ type Props = {
   height: number;
   look: EnvelopeLook;
   skin: PostboxSkin;
-  /** The sender's post office: RU wall box (short edge first) or FR street box (long edge first). */
+  /** The sender's post office: Minsk wall box (short edge first) or FR street box (long edge first). */
   country?: Country;
   /** Shown handwritten on the collection sticker, e.g. "14:37". */
   collectAt: string;
@@ -104,7 +104,7 @@ export function PostingCeremony({
   const pw = g.width;
   const ph = g.height;
   const { slot } = layout;
-  // Short edge first (RU): the envelope turns a quarter and its left edge leads.
+  // Short edge first (BY): the envelope turns a quarter and its left edge leads.
   // Long edge first (FR): no turn, the top edge (flap side) leads.
   const turn = layout.shortEdgeFirst;
   const across = turn ? ph : pw; // envelope width across the slot
