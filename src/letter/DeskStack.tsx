@@ -1,7 +1,7 @@
 import { Canvas, Group, Image, Paint, Picture, RadialGradient, Rect, Skia, useFont, vec, type SkPicture, type Transforms3d } from '@shopify/react-native-skia';
 import { useEffect, useId, useMemo, useState } from 'react';
 import { Keyboard, Platform, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
-import { GestureDetector, MouseButton, PointerType, usePanGesture, useTapGesture } from 'react-native-gesture-handler';
+import { GestureDetector, MouseButton, PointerType, usePanGesture, useSimultaneousGestures, useTapGesture } from 'react-native-gesture-handler';
 import Animated, {
   Easing,
   useAnimatedStyle,
@@ -19,7 +19,7 @@ import { feel } from '../lib/haptics';
 import { useDeskKeys } from '../lib/useDeskKeys';
 import { HANDWRITING_FONTS } from '../theme/stationery';
 import { bakeSheetFaces, paperEdgeColor, useGhostOf, useSheetFaces, type LetterLook, type SheetFaces } from './LetterSheet';
-import { HOME, deskBounds, dragPlacement, fanOut, nextPlacement, sheetAt, sweep, twistPlacement, type Placement } from './deskMove';
+import { HOME, deskBounds, dragPlacement, fanOut, groupCentre, moveGroup, nextPlacement, sheetAt, sweep, twistGroup, type Placement } from './deskMove';
 import { fontSizeFor, paperFor } from './sheet';
 import { useShadow, type ShadowSpec } from './raster';
 import { mirrorPicture } from './showThrough';
@@ -85,6 +85,8 @@ type Side = FaceRef['side'];
 const PERSPECTIVE = 1400;
 // Each desk's top-sheet bake (see facesOf), by the desk's useId.
 const topBakes = new Map<string, { sheet: SheetContent; index: number; look: string; faces: SheetFaces }>();
+// The line round sheets picked with Shift + click.
+const CHOSEN = 'rgba(214, 170, 92, 0.9)';
 // A loose sheet on the desk (baked once: raster.ts).
 const LOOSE_SHADOW: ShadowSpec[] = [{ dx: 2, dy: 5, blur: 9, color: 'rgba(20, 12, 4, 0.32)' }];
 const COPY = {
@@ -107,7 +109,8 @@ const COPY = {
   clearPen: 'Стереть перо',
   cornerForward: 'Край листа: потяни влево, чтобы перевернуть',
   cornerBack: 'Край листа: потяни вправо, чтобы вернуться',
-  mouseHint: 'Пробел + тяни — подвинуть лист · правой кнопкой — повернуть · щёлкни — наверх · Ctrl + тяни — перевернуть',
+  mouseHint:
+    'Пробел + тяни — подвинуть лист · правой кнопкой — повернуть · щёлкни — наверх · Shift + щёлкни — выбрать несколько · Ctrl + тяни — перевернуть',
   mouseHintOne: 'Правой кнопкой — повернуть · Ctrl + тяни — перевернуть',
 };
 
@@ -198,16 +201,35 @@ export function DeskStack({ look, width, height, mode, sheets, onSheets, maxShee
       }),
     );
   };
-  /** Sheet `i` to the top of the desk, to write on (the one there now keeps the side it shows). */
-  const bringToTop = (i: number) => {
-    if (i === face.sheet || i < 0 || i >= sheets.length) return;
-    Keyboard.dismiss();
-    setAsk(null);
-    const kept = sides.slice();
-    kept[face.sheet] = face.side;
-    setSides(kept);
-    setFace({ sheet: i, side: sheets[i].twoSided ? (kept[i] ?? 'recto') : 'recto' });
-    restack(order.filter((j) => j !== i).concat(i));
+  // Sheets picked with Shift + click, to move or turn as one (Space + drag, the right button).
+  const [chosen, setChosen] = useState<number[]>([]);
+  const chosenNow = useSharedValue<number[]>([]);
+  const choose = (next: number[]) => {
+    setChosen(next);
+    chosenNow.set(next);
+  };
+  /** Shift + click: sheet `i` into the pick, or out of it; on the bare desk, none. */
+  const toggleChosen = (i: number) => {
+    const now = chosenNow.get();
+    choose(i < 0 ? [] : now.includes(i) ? now.filter((j) => j !== i) : [...now, i]);
+  };
+  /**
+   * Sheet `i` to the top of the desk, to write on (the one there now keeps the side it shows).
+   * With `along` (the other sheets picked with it), those come up too, just under it, in their order.
+   */
+  const bringToTop = (i: number, along: number[] = []) => {
+    if (i < 0 || i >= sheets.length) return;
+    const others = along.filter((j) => j !== i);
+    if (i === face.sheet && others.length === 0) return;
+    if (i !== face.sheet) {
+      Keyboard.dismiss();
+      setAsk(null);
+      const kept = sides.slice();
+      kept[face.sheet] = face.side;
+      setSides(kept);
+      setFace({ sheet: i, side: sheets[i].twoSided ? (kept[i] ?? 'recto') : 'recto' });
+    }
+    restack(order.filter((j) => j !== i && !others.includes(j)).concat(order.filter((j) => others.includes(j)), i));
     straighten(i);
   };
 
@@ -318,6 +340,7 @@ export function DeskStack({ look, width, height, mode, sheets, onSheets, maxShee
     const blank = emptySheet(look.paper);
     if (!loose) return play(slide({ sheet: sheets.length, side: 'recto' }, () => onSheets([...sheets, blank]), blank));
     // Laid on top of the others, a little offset: the earlier sheets stay on the desk.
+    choose([]);
     const i = sheets.length;
     const now = placements.get();
     placements.set([...now, nextPlacement(now[face.sheet] ?? HOME, size, area, sheetJitter(look.seed, i + 1).rot * 3)]);
@@ -450,9 +473,19 @@ export function DeskStack({ look, width, height, mode, sheets, onSheets, maxShee
   const backEdge = usePanGesture(turnGesture(-1));
   const anywhere = usePanGesture(turnGesture(0));
 
-  // Space + drag on the loose desk: the sheet under the pointer comes to the top and follows the hand.
+  // The sheets a drag or a turn takes: the one under the pointer, or all those picked with
+  // Shift + click if it is one of them (a worklet: the gestures read the pick as it is now).
+  const takenWith = (i: number) => {
+    'worklet';
+    const picked = chosenNow.get();
+    return picked.length > 1 && picked.includes(i) ? picked : [i];
+  };
+  // Space + drag on the loose desk: the sheet under the pointer comes to the top and follows the
+  // hand; sheets picked together go as one, none turned.
   const [carrying, setCarrying] = useState(false);
   const carried = useSharedValue(-1);
+  const carriedWith = useSharedValue<number[]>([]);
+  const startsAtGrab = useSharedValue<Placement[]>([]);
   const placeAtGrab = useSharedValue<Placement>(HOME);
   const grabAt = useSharedValue({ x: 0, y: 0 });
   const carry = usePanGesture({
@@ -463,17 +496,26 @@ export function DeskStack({ look, width, height, mode, sheets, onSheets, maxShee
       const i = sheetAt({ x: e.x, y: e.y }, placements.get(), orderNow.get(), size, area);
       carried.set(i);
       if (i < 0) return;
+      const ids = takenWith(i);
+      carriedWith.set(ids);
+      startsAtGrab.set(placements.get());
       const pl = placements.get()[i];
       placeAtGrab.set(pl);
       grabAt.set({ x: e.x - area.width / 2 - pl.x, y: e.y - area.height / 2 - pl.y });
-      scheduleOnRN(bringToTop, i);
+      scheduleOnRN(bringToTop, i, ids);
       scheduleOnRN(setCarrying, true);
     },
     onUpdate: (e) => {
       const i = carried.get();
       if (i < 0) return;
+      const d = { x: e.translationX, y: e.translationY };
+      const ids = carriedWith.get();
+      if (ids.length > 1) {
+        placements.set(moveGroup(startsAtGrab.get(), ids, d, size, area));
+        return;
+      }
       const next = placements.get().slice();
-      next[i] = dragPlacement(placeAtGrab.get(), grabAt.get(), { x: e.translationX, y: e.translationY }, size, deskBounds(size, area));
+      next[i] = dragPlacement(placeAtGrab.get(), grabAt.get(), d, size, deskBounds(size, area));
       placements.set(next);
     },
     onFinalize: () => {
@@ -486,8 +528,11 @@ export function DeskStack({ look, width, height, mode, sheets, onSheets, maxShee
   });
   // A right-button drag on the loose desk turns the sheet under the pointer round its centre,
   // to any angle, by how far the hand sweeps round it; it comes to the top, and stays at that
-  // angle (written on as it lies). No context menu on the desk, then.
+  // angle (written on as it lies). Sheets picked together turn as one, round their middle.
+  // No context menu on the desk, then.
   const twisted = useSharedValue(-1);
+  const twistedWith = useSharedValue<number[]>([]);
+  const twistCentre = useSharedValue({ x: 0, y: 0 });
   const sweptFrom = useSharedValue({ x: 0, y: 0 });
   const twist = usePanGesture({
     enabled: loose,
@@ -498,23 +543,22 @@ export function DeskStack({ look, width, height, mode, sheets, onSheets, maxShee
       const i = sheetAt({ x: e.x, y: e.y }, placements.get(), orderNow.get(), size, area);
       twisted.set(i);
       if (i < 0) return;
-      const pl = placements.get()[i];
-      sweptFrom.set({ x: e.x - area.width / 2 - pl.x, y: e.y - area.height / 2 - pl.y });
-      scheduleOnRN(bringToTop, i);
+      const ids = takenWith(i);
+      twistedWith.set(ids);
+      // Round the middle of the sheets turned (one sheet: its own centre), which turning keeps.
+      const c = groupCentre(placements.get(), ids);
+      twistCentre.set(c);
+      sweptFrom.set({ x: e.x - area.width / 2 - c.x, y: e.y - area.height / 2 - c.y });
+      scheduleOnRN(bringToTop, i, ids);
     },
     onUpdate: (e) => {
-      const i = twisted.get();
-      if (i < 0) return;
-      const now = placements.get();
-      const pl = now[i];
-      if (!pl) return;
-      const at = { x: e.x - area.width / 2 - pl.x, y: e.y - area.height / 2 - pl.y };
+      if (twisted.get() < 0) return;
+      const c = twistCentre.get();
+      const at = { x: e.x - area.width / 2 - c.x, y: e.y - area.height / 2 - c.y };
       const by = sweep(sweptFrom.get(), at);
       if (by === 0) return;
       sweptFrom.set(at);
-      const next = now.slice();
-      next[i] = twistPlacement(pl, by);
-      placements.set(next);
+      placements.set(twistGroup(placements.get(), twistedWith.get(), c, by));
     },
     onFinalize: () => {
       twisted.set(-1);
@@ -528,6 +572,34 @@ export function DeskStack({ look, width, height, mode, sheets, onSheets, maxShee
       if (i >= 0) scheduleOnRN(bringToTop, i);
     },
   });
+  // Shift + click: a sheet into the pick or out of it (a layer over the desk while Shift is held).
+  const chooser = useTapGesture({
+    enabled: loose,
+    onActivate: (e) => {
+      scheduleOnRN(toggleChosen, sheetAt({ x: e.x, y: e.y }, placements.get(), orderNow.get(), size, area));
+    },
+  });
+  // A plain click anywhere on the desk (on a sheet, in the writing, on the bare desk) lets the pick go.
+  const letGo = useTapGesture({
+    enabled: loose,
+    onActivate: () => {
+      if (!keys.pick.get() && chosenNow.get().length > 0) scheduleOnRN(choose, []);
+    },
+  });
+  const deskGestures = useSimultaneousGestures(twist, letGo);
+  // Esc lets it go too.
+  useEffect(() => {
+    if (!loose || chosen.length === 0) return;
+    const win = (globalThis as unknown as { window?: { addEventListener: (t: string, f: (e: { key: string }) => void) => void; removeEventListener: (t: string, f: (e: { key: string }) => void) => void } }).window;
+    if (!win) return;
+    const esc = (e: { key: string }) => {
+      if (e.key === 'Escape') choose([]);
+    };
+    win.addEventListener('keydown', esc);
+    return () => win.removeEventListener('keydown', esc);
+    // choose only sets the pick
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loose, chosen.length]);
   // The sheets under the top one, baked once each (never the top one: it changes as you write).
   const under = (i: number) => (loose && i !== face.sheet ? sheets[i] : undefined);
   const u0 = useSheetFaces(under(0), 0, look, width, height, 0, 'tri', width);
@@ -550,6 +622,7 @@ export function DeskStack({ look, width, height, mode, sheets, onSheets, maxShee
     setAsk(null);
     if (!loose) return setFace({ sheet: Math.max(0, gone - 1), side: 'recto' });
     // The others keep their places; the one now on top is written on.
+    choose([]);
     const shift = (j: number) => (j > gone ? j - 1 : j);
     const nextOrder = order.filter((j) => j !== gone).map(shift);
     const nextSides = sides.filter((_, j) => j !== gone);
@@ -641,7 +714,7 @@ export function DeskStack({ look, width, height, mode, sheets, onSheets, maxShee
     <View style={styles.root}>
       {loose ? (
         // The right button turns sheets anywhere on the desk, over the one you write on too.
-        <GestureDetector gesture={twist} enableContextMenu={false}>
+        <GestureDetector gesture={deskGestures} enableContextMenu={false}>
           <View style={{ width: area.width, height: area.height }}>
             {/* The sheets lying under the top one, where they were put. */}
             <GestureDetector gesture={pick}>
@@ -655,6 +728,7 @@ export function DeskStack({ look, width, height, mode, sheets, onSheets, maxShee
                       faces={underFaces[i]!}
                       shadow={looseShadow}
                       side={sheets[i]?.twoSided ? (sides[i] ?? 'recto') : 'recto'}
+                      chosen={chosen.includes(i)}
                       placements={placements}
                       area={area}
                       width={width}
@@ -665,7 +739,14 @@ export function DeskStack({ look, width, height, mode, sheets, onSheets, maxShee
             </GestureDetector>
             <Animated.View style={[{ position: 'absolute', left: (area.width - width) / 2, top: (area.height - height) / 2, width, height }, topPlaced]}>
               {writing}
+              {chosen.includes(face.sheet) && <View style={[StyleSheet.absoluteFill, styles.through, styles.chosen]} />}
             </Animated.View>
+            {/* Shift held: a layer over the desk takes clicks and picks the sheet under the pointer. */}
+            {keys.pickHeld && (
+              <GestureDetector gesture={chooser}>
+                <View style={[StyleSheet.absoluteFill, styles.choosing]} />
+              </GestureDetector>
+            )}
             {/* Space held: a layer over the desk takes the drag and moves the sheet under the pointer. */}
             {(keys.moveHeld || carrying) && (
               <GestureDetector gesture={carry}>
@@ -724,6 +805,7 @@ function LooseSheet({
   faces,
   shadow,
   side,
+  chosen,
   placements,
   area,
   width,
@@ -733,6 +815,8 @@ function LooseSheet({
   faces: SheetFaces;
   shadow: ReturnType<typeof useShadow>;
   side: Side;
+  /** Picked with Shift + click: a thin warm line round it. */
+  chosen: boolean;
   placements: SharedValue<Placement[]>;
   area: { width: number; height: number };
   width: number;
@@ -752,6 +836,7 @@ function LooseSheet({
     <Group transform={transform}>
       {shadow && <Image image={shadow.image} {...shadow.rect} fit="fill" />}
       <Picture picture={side === 'verso' ? faces.verso : faces.recto} />
+      {chosen && <Rect x={1} y={1} width={width - 2} height={height - 2} color={CHOSEN} style="stroke" strokeWidth={2} />}
     </Group>
   );
 }
@@ -931,6 +1016,9 @@ const styles = StyleSheet.create({
   strongText: { color: '#2a211b', fontSize: 14 },
   edge: { position: 'absolute', top: 0, bottom: 0, width: EDGE },
   through: { pointerEvents: 'none' },
+  chosen: { borderWidth: 2, borderColor: CHOSEN },
+  // react-native-web passes the cursor through.
+  choosing: { cursor: 'pointer' } as object,
   // react-native-web passes the cursor through.
   grab: { cursor: 'grab' } as object,
 });

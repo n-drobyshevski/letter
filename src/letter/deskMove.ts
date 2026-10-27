@@ -127,3 +127,69 @@ export function nextPlacement(front: Placement, size: Size, area: Size, rot: num
   const b = deskBounds(size, area);
   return { x: clamp(front.x + 34, b.x), y: clamp(front.y + 22, b.y), rot: clamp(rot, PLACE_LIMIT.rot) };
 }
+
+/** The middle of some sheets' centres (offsets from home), for turning them as one. */
+export function groupCentre(placements: Placement[], ids: number[]): { x: number; y: number } {
+  'worklet';
+  let x = 0;
+  let y = 0;
+  let n = 0;
+  for (const i of ids) {
+    const pl = placements[i];
+    if (!pl) continue;
+    x += pl.x;
+    y += pl.y;
+    n++;
+  }
+  return n ? { x: x / n, y: y / n } : { x: 0, y: 0 };
+}
+
+/**
+ * Several sheets pushed as one (picked with Shift + click): each from where it lay (`starts`)
+ * by the same `d`, none turned, the push held back so none leaves the desk (a sheet already
+ * past the edge only can't go further out).
+ */
+export function moveGroup(starts: Placement[], ids: number[], d: { x: number; y: number }, size: Size, area: Size): Placement[] {
+  'worklet';
+  const b = deskBounds(size, area);
+  let loX = -Infinity;
+  let hiX = Infinity;
+  let loY = -Infinity;
+  let hiY = Infinity;
+  for (const i of ids) {
+    const pl = starts[i];
+    if (!pl) continue;
+    loX = Math.max(loX, Math.min(0, -b.x - pl.x));
+    hiX = Math.min(hiX, Math.max(0, b.x - pl.x));
+    loY = Math.max(loY, Math.min(0, -b.y - pl.y));
+    hiY = Math.min(hiY, Math.max(0, b.y - pl.y));
+  }
+  const dx = Math.max(loX, Math.min(hiX, d.x));
+  const dy = Math.max(loY, Math.min(hiY, d.y));
+  const out = starts.slice();
+  for (const i of ids) {
+    const pl = starts[i];
+    if (pl) out[i] = { ...pl, x: pl.x + dx, y: pl.y + dy };
+  }
+  return out;
+}
+
+/**
+ * Several sheets turned as one by `by` radians round `centre` (an offset from home, as
+ * groupCentre gives): each goes round it and turns as much, and stays at that angle (its aim).
+ */
+export function twistGroup(placements: Placement[], ids: number[], centre: { x: number; y: number }, by: number): Placement[] {
+  'worklet';
+  const c = Math.cos(by);
+  const s = Math.sin(by);
+  const out = placements.slice();
+  for (const i of ids) {
+    const pl = placements[i];
+    if (!pl) continue;
+    const dx = pl.x - centre.x;
+    const dy = pl.y - centre.y;
+    const turned = twistPlacement(pl, by);
+    out[i] = { ...turned, x: centre.x + dx * c - dy * s, y: centre.y + dx * s + dy * c };
+  }
+  return out;
+}

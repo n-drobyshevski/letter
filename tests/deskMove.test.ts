@@ -1,7 +1,21 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { HOME, PLACE_LIMIT, deskBounds, dragPlacement, fanOut, nextPlacement, sheetAt, sweep, twistPlacement, wrapAngle } from '../src/letter/deskMove';
+import {
+  HOME,
+  PLACE_LIMIT,
+  deskBounds,
+  dragPlacement,
+  fanOut,
+  groupCentre,
+  moveGroup,
+  nextPlacement,
+  sheetAt,
+  sweep,
+  twistGroup,
+  twistPlacement,
+  wrapAngle,
+} from '../src/letter/deskMove';
 
 /** A sheet pushed about the desk with the mouse. */
 
@@ -101,4 +115,42 @@ test('a sheet turned by hand, then pushed: a pull tilts it a few degrees off its
   assert.ok(pushed.rot > 0.8 && pushed.rot <= 0.8 + PLACE_LIMIT.rot + 1e-9);
   // Never turned by hand: no aim, as before.
   assert.equal('aim' in dragPlacement(HOME, { x: 0, y: 0 }, { x: 10, y: 0 }, size), false);
+});
+
+test('sheets picked with Shift + click move as one, held back so none leaves the desk', () => {
+  const size = { width: 380, height: 540 };
+  const area = { width: 1000, height: 600 };
+  const b = deskBounds(size, area);
+  const starts = [{ x: -200, y: 0, rot: 0.05 }, { x: 0, y: 10, rot: 0 }, { x: 250, y: -5, rot: -0.04, aim: -0.04 }];
+  const moved = moveGroup(starts, [0, 2], { x: 40, y: 20 }, size, area);
+  assert.deepEqual([moved[0].x, moved[0].y, moved[0].rot], [-160, 20, 0.05]);
+  assert.deepEqual([moved[2].x, moved[2].y, moved[2].rot, moved[2].aim], [290, 15, -0.04, -0.04]);
+  // The one not picked stays.
+  assert.equal(moved[1], starts[1]);
+  // Pushed far right: stopped where the rightmost one reaches the bound, the other as far.
+  const far = moveGroup(starts, [0, 2], { x: 2000, y: 0 }, size, area);
+  assert.equal(far[2].x, b.x);
+  assert.equal(far[0].x - starts[0].x, far[2].x - starts[2].x);
+  // One already past the edge: it may come back, not go further.
+  const out = [{ x: b.x + 30, y: 0, rot: 0 }, { x: 0, y: 0, rot: 0 }];
+  assert.equal(moveGroup(out, [0, 1], { x: 10, y: 0 }, size, area)[0].x, b.x + 30);
+  assert.equal(moveGroup(out, [0, 1], { x: -10, y: 0 }, size, area)[0].x, b.x + 20);
+});
+
+test('sheets picked with Shift + click turn as one round their middle', () => {
+  const placements = [{ x: -100, y: 0, rot: 0 }, { x: 999, y: 999, rot: 0 }, { x: 100, y: 0, rot: 0.2 }];
+  const c = groupCentre(placements, [0, 2]);
+  assert.deepEqual(c, { x: 0, y: 0 });
+  const turned = twistGroup(placements, [0, 2], c, Math.PI / 2);
+  // A quarter turn clockwise on screen: left goes up, right goes down.
+  assert.ok(Math.abs(turned[0].x) < 1e-9 && Math.abs(turned[0].y + 100) < 1e-9);
+  assert.ok(Math.abs(turned[2].x) < 1e-9 && Math.abs(turned[2].y - 100) < 1e-9);
+  // Each turned as much, and kept there.
+  assert.ok(Math.abs(turned[0].rot - Math.PI / 2) < 1e-9 && turned[0].aim === turned[0].rot);
+  assert.ok(Math.abs(turned[2].rot - (0.2 + Math.PI / 2)) < 1e-9);
+  // The middle stays, and so does the distance between them; the one not picked is untouched.
+  const c2 = groupCentre(turned, [0, 2]);
+  assert.ok(Math.hypot(c2.x - c.x, c2.y - c.y) < 1e-9);
+  assert.ok(Math.abs(Math.hypot(turned[2].x - turned[0].x, turned[2].y - turned[0].y) - 200) < 1e-9);
+  assert.equal(turned[1], placements[1]);
 });
