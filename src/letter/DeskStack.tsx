@@ -1,7 +1,7 @@
 import { Canvas, Group, Image, Paint, Picture, RadialGradient, Rect, Skia, useFont, vec, type SkPicture, type Transforms3d } from '@shopify/react-native-skia';
 import { useEffect, useId, useMemo, useState } from 'react';
 import { Keyboard, Platform, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
-import { GestureDetector, PointerType, usePanGesture, useTapGesture } from 'react-native-gesture-handler';
+import { GestureDetector, MouseButton, PointerType, usePanGesture, useTapGesture } from 'react-native-gesture-handler';
 import Animated, {
   Easing,
   useAnimatedStyle,
@@ -19,7 +19,7 @@ import { feel } from '../lib/haptics';
 import { useDeskKeys } from '../lib/useDeskKeys';
 import { HANDWRITING_FONTS } from '../theme/stationery';
 import { bakeSheetFaces, paperEdgeColor, useGhostOf, useSheetFaces, type LetterLook, type SheetFaces } from './LetterSheet';
-import { HOME, deskBounds, dragPlacement, fanOut, nextPlacement, sheetAt, type Placement } from './deskMove';
+import { HOME, deskBounds, dragPlacement, fanOut, nextPlacement, sheetAt, sweep, twistPlacement, type Placement } from './deskMove';
 import { fontSizeFor, paperFor } from './sheet';
 import { useShadow, type ShadowSpec } from './raster';
 import { mirrorPicture } from './showThrough';
@@ -107,8 +107,8 @@ const COPY = {
   clearPen: 'Стереть перо',
   cornerForward: 'Край листа: потяни влево, чтобы перевернуть',
   cornerBack: 'Край листа: потяни вправо, чтобы вернуться',
-  mouseHint: 'Пробел + тяни — подвинуть лист · щёлкни по листу — наверх · Ctrl + тяни — перевернуть',
-  mouseHintOne: 'Ctrl + тяни — перевернуть',
+  mouseHint: 'Пробел + тяни — подвинуть лист · правой кнопкой — повернуть · щёлкни — наверх · Ctrl + тяни — перевернуть',
+  mouseHintOne: 'Правой кнопкой — повернуть · Ctrl + тяни — перевернуть',
 };
 
 type Props = {
@@ -177,13 +177,14 @@ export function DeskStack({ look, width, height, mode, sheets, onSheets, maxShee
   // Which side is up on each sheet lying under the top one.
   const [sides, setSides] = useState<Side[]>(() => sheets.map(() => 'recto'));
   const placements = useSharedValue<Placement[]>(fanOut(sheets.length, size, area, (i) => sheetJitter(look.seed, i + 1).rot * 3));
-  // The top sheet easing back straight in front of you (0 as it lies, 1 straight).
+  // The top sheet settling in front of you (0 as it lies, 1 settled): straight, or at the
+  // angle you turned it to with the right button (its aim).
   const straight = useSharedValue(0);
   const restack = (next: number[]) => {
     setOrder(next);
     orderNow.set(next);
   };
-  /** Straighten sheet `i` (on top) to write on it. */
+  /** Settle sheet `i` (on top) to write on it: straight, or at the angle it was turned to by hand. */
   const straighten = (i: number) => {
     'worklet';
     straight.set(0);
@@ -191,7 +192,7 @@ export function DeskStack({ look, width, height, mode, sheets, onSheets, maxShee
       withTiming(1, { duration: 220, easing: Easing.out(Easing.quad) }, (finished) => {
         if (!finished) return;
         const next = placements.get().slice();
-        if (next[i]) next[i] = { ...next[i], rot: 0 };
+        if (next[i]) next[i] = { ...next[i], rot: next[i].aim ?? 0 };
         placements.set(next);
         straight.set(0);
       }),
@@ -483,6 +484,42 @@ export function DeskStack({ look, width, height, mode, sheets, onSheets, maxShee
       if (i >= 0) straighten(i);
     },
   });
+  // A right-button drag on the loose desk turns the sheet under the pointer round its centre,
+  // to any angle, by how far the hand sweeps round it; it comes to the top, and stays at that
+  // angle (written on as it lies). No context menu on the desk, then.
+  const twisted = useSharedValue(-1);
+  const sweptFrom = useSharedValue({ x: 0, y: 0 });
+  const twist = usePanGesture({
+    enabled: loose,
+    mouseButton: MouseButton.RIGHT,
+    activeOffsetX: [-3, 3],
+    activeOffsetY: [-3, 3],
+    onBegin: (e) => {
+      const i = sheetAt({ x: e.x, y: e.y }, placements.get(), orderNow.get(), size, area);
+      twisted.set(i);
+      if (i < 0) return;
+      const pl = placements.get()[i];
+      sweptFrom.set({ x: e.x - area.width / 2 - pl.x, y: e.y - area.height / 2 - pl.y });
+      scheduleOnRN(bringToTop, i);
+    },
+    onUpdate: (e) => {
+      const i = twisted.get();
+      if (i < 0) return;
+      const now = placements.get();
+      const pl = now[i];
+      if (!pl) return;
+      const at = { x: e.x - area.width / 2 - pl.x, y: e.y - area.height / 2 - pl.y };
+      const by = sweep(sweptFrom.get(), at);
+      if (by === 0) return;
+      sweptFrom.set(at);
+      const next = now.slice();
+      next[i] = twistPlacement(pl, by);
+      placements.set(next);
+    },
+    onFinalize: () => {
+      twisted.set(-1);
+    },
+  });
   // A click on a sheet lying under the top one brings it up.
   const pick = useTapGesture({
     enabled: loose,
@@ -502,7 +539,7 @@ export function DeskStack({ look, width, height, mode, sheets, onSheets, maxShee
   const topPlaced = useAnimatedStyle(() => {
     const pl = placements.value[face.sheet] ?? HOME;
     return {
-      transform: [{ translateX: pl.x }, { translateY: pl.y }, { rotate: `${pl.rot * (1 - straight.value)}rad` }],
+      transform: [{ translateX: pl.x }, { translateY: pl.y }, { rotate: `${pl.rot + ((pl.aim ?? 0) - pl.rot) * straight.value}rad` }],
     };
   });
 
@@ -603,37 +640,40 @@ export function DeskStack({ look, width, height, mode, sheets, onSheets, maxShee
   return (
     <View style={styles.root}>
       {loose ? (
-        <View style={{ width: area.width, height: area.height }}>
-          {/* The sheets lying under the top one, where they were put. */}
-          <GestureDetector gesture={pick}>
-            <Canvas style={{ position: 'absolute', left: 0, top: 0, width: area.width, height: area.height }}>
-              {order
-                .filter((i) => i !== face.sheet && underFaces[i])
-                .map((i) => (
-                  <LooseSheet
-                    key={i}
-                    index={i}
-                    faces={underFaces[i]!}
-                    shadow={looseShadow}
-                    side={sheets[i]?.twoSided ? (sides[i] ?? 'recto') : 'recto'}
-                    placements={placements}
-                    area={area}
-                    width={width}
-                    height={height}
-                  />
-                ))}
-            </Canvas>
-          </GestureDetector>
-          <Animated.View style={[{ position: 'absolute', left: (area.width - width) / 2, top: (area.height - height) / 2, width, height }, topPlaced]}>
-            {writing}
-          </Animated.View>
-          {/* Space held: a layer over the desk takes the drag and moves the sheet under the pointer. */}
-          {(keys.moveHeld || carrying) && (
-            <GestureDetector gesture={carry}>
-              <View style={[StyleSheet.absoluteFill, styles.grab]} />
+        // The right button turns sheets anywhere on the desk, over the one you write on too.
+        <GestureDetector gesture={twist} enableContextMenu={false}>
+          <View style={{ width: area.width, height: area.height }}>
+            {/* The sheets lying under the top one, where they were put. */}
+            <GestureDetector gesture={pick}>
+              <Canvas style={{ position: 'absolute', left: 0, top: 0, width: area.width, height: area.height }}>
+                {order
+                  .filter((i) => i !== face.sheet && underFaces[i])
+                  .map((i) => (
+                    <LooseSheet
+                      key={i}
+                      index={i}
+                      faces={underFaces[i]!}
+                      shadow={looseShadow}
+                      side={sheets[i]?.twoSided ? (sides[i] ?? 'recto') : 'recto'}
+                      placements={placements}
+                      area={area}
+                      width={width}
+                      height={height}
+                    />
+                  ))}
+              </Canvas>
             </GestureDetector>
-          )}
-        </View>
+            <Animated.View style={[{ position: 'absolute', left: (area.width - width) / 2, top: (area.height - height) / 2, width, height }, topPlaced]}>
+              {writing}
+            </Animated.View>
+            {/* Space held: a layer over the desk takes the drag and moves the sheet under the pointer. */}
+            {(keys.moveHeld || carrying) && (
+              <GestureDetector gesture={carry}>
+                <View style={[StyleSheet.absoluteFill, styles.grab]} />
+              </GestureDetector>
+            )}
+          </View>
+        </GestureDetector>
       ) : (
         <View style={{ width, height }}>
           {sheets.length > 1 && <StackEdges count={sheets.length - 1} seed={look.seed} width={width} height={height} paper={look.paper} />}
