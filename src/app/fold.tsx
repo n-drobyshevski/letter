@@ -24,7 +24,7 @@ const COPY = {
     },
     empty: 'Сначала напиши письмо',
     toDesk: 'За стол →',
-    toPost: 'В конверт и на почту →',
+    toSeal: 'Запечатать →',
     buttons: { tri: 'Втрое', half: 'Пополам', quarter: 'Вчетверо' },
   },
   fr: {
@@ -37,7 +37,7 @@ const COPY = {
     },
     empty: 'Écris d’abord ta lettre',
     toDesk: 'À ton bureau →',
-    toPost: 'Dans l’enveloppe, à la poste →',
+    toSeal: 'Cacheter →',
     buttons: { tri: 'En trois', half: 'En deux', quarter: 'En quatre' },
   },
 };
@@ -75,7 +75,8 @@ export default function FoldScreen() {
     );
   }
 
-  const keep = (k: FoldKind) => setDraft({ ...draft!, fold: k });
+  // Folding again takes the letter out of its envelope: it has to be sealed again.
+  const keep = (k: FoldKind) => setDraft({ ...draft!, fold: k, envelope: undefined });
 
   return (
     <Desk title={copy.title} hint={copy.hint[folded ?? kind ?? 'none']} scroll={false}>
@@ -95,17 +96,17 @@ export default function FoldScreen() {
       )}
       <View style={styles.actions}>
         {folded && (
-          <Link href="/post" style={styles.button}>
-            {copy.toPost}
+          <Link href="/seal" style={styles.button}>
+            {copy.toSeal}
           </Link>
         )}
         {/* Every gesture has a tap alternative; it leads when Reduce Motion or a screen reader is on. */}
-        {!folded && needsButtons && (
+        {!folded && (
           <View style={styles.row}>
             {(['tri', 'half', 'quarter'] as const).map((k) => (
-              <Link key={k} href="/post" asChild>
-                <Pressable onPress={() => keep(k)} style={styles.tag} accessibilityRole="button">
-                  <Text style={styles.tagText}>{copy.buttons[k]}</Text>
+              <Link key={k} href="/seal" asChild>
+                <Pressable onPress={() => keep(k)} style={needsButtons ? styles.tag : styles.quiet} accessibilityRole="button">
+                  <Text style={needsButtons ? styles.tagText : styles.quietText}>{copy.buttons[k]}</Text>
                 </Pressable>
               </Link>
             ))}
@@ -130,5 +131,7 @@ const styles = StyleSheet.create({
   },
   tag: { minHeight: 44, paddingHorizontal: 14, justifyContent: 'center', borderRadius: 3, backgroundColor: '#4a3a2e' },
   tagText: { color: '#e4d6bf', fontSize: 14 },
+  quiet: { minHeight: 44, paddingHorizontal: 6, justifyContent: 'center' },
+  quietText: { color: '#b9a88f', fontSize: 13, textDecorationLine: 'underline' },
   link: { color: '#e4d6bf', fontSize: 14, textDecorationLine: 'underline' },
 });

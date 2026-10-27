@@ -10,7 +10,11 @@ import { PGlite } from '@electric-sql/pglite';
 
 const migration = (f: string) => readFileSync(new URL(`../supabase/migrations/${f}`, import.meta.url), 'utf8');
 // 0002 needs Supabase-only extensions; it is covered by dispatch.test.ts.
-const MIGRATIONS = ['20261026000001_letters.sql', '20261027000003_collection_visibility.sql'].map(migration);
+const MIGRATIONS = [
+  '20261026000001_letters.sql',
+  '20261027000003_collection_visibility.sql',
+  '20261029000008_envelope_seal.sql',
+].map(migration);
 
 const SUPABASE_STUB = `
 create role anon nologin;
@@ -214,5 +218,61 @@ describe('row-level security', () => {
       const rows = await as(C, () => db.query(`select * from public.${table}`));
       assert.equal(rows.rows.length, table === 'profiles' ? 1 : 0, table);
     }
+  });
+});
+
+describe('envelope seal (placement and die)', () => {
+  const post = (envelope: unknown, seed: number) =>
+    as(A, () =>
+      one<{ id: string; envelope: Record<string, unknown> }>(
+        `select id, envelope from public.post_letter('express', '{"text":"x"}'::jsonb, $1::jsonb, $2)`,
+        [JSON.stringify(envelope), seed],
+      ),
+    );
+  const seal = {
+    v: 1,
+    x: 0.3,
+    y: 0.32,
+    rMm: 18.7,
+    stretch: [0.1, -0.05],
+    drops: [[0.36, 0.4, 2.1]],
+    stamp: { x: 0.31, y: 0.33, rMm: 13.464, rot: 0.4, depth: 1 },
+  };
+
+  test('an old envelope without seal or die still posts', async () => {
+    const letter = await post({ paper: 'vergé', liner: 'plain', wax: 'oxblood', initials: 'N', seed: 1 }, 11);
+    assert.equal(letter.envelope.seal, undefined);
+    assert.equal((letter.envelope.postmark as { city: string }).city, 'Paris');
+  });
+
+  test('seal and die pass through untouched, the postmark merged on top', async () => {
+    const sent = { paper: 'vergé', liner: 'plain', wax: 'oxblood', initials: 'N', seed: 2, format: 'C6', die: 'lily', seal };
+    const letter = await post({ ...sent, postmark: { city: 'Nowhere', date: '1999-01-01' } }, 12);
+    assert.deepEqual(letter.envelope.seal, seal);
+    assert.equal(letter.envelope.die, 'lily');
+    assert.equal((letter.envelope.postmark as { city: string }).city, 'Paris', 'the client cannot forge a postmark');
+    const stored = await one<{ envelope: Record<string, unknown> }>(`select envelope from public.letters where id = $1`, [
+      letter.id,
+    ]);
+    assert.deepEqual(stored.envelope.seal, seal);
+    await assert.rejects(post({ ...sent, seal: null }, 13), /letters_envelope_seal_object/, 'a null seal is not "no seal"');
+  });
+
+  test('an array seal, a non-string die and an oversize envelope are rejected', async () => {
+    await assert.rejects(post({ seal: [0.5, 0.5] }, 14), /letters_envelope_seal_object/);
+    await assert.rejects(post({ seal: 'centre' }, 15), /letters_envelope_seal_object/);
+    await assert.rejects(post({ die: { id: 'lily' } }, 16), /letters_envelope_die_string/);
+    // 5 KB of random hex: what a client stuffing the envelope would send.
+    const junk = Array.from({ length: 5120 / 8 }, () => Math.random().toString(16).slice(2, 10)).join('');
+    await assert.rejects(post({ seal, initials: junk }, 17), /letters_envelope_small/);
+    const repeated = 'x'.repeat(5120);
+    await assert.rejects(post({ seal, initials: repeated }, 18), /letters_envelope_small/, 'checked before compression');
+  });
+
+  test('the comment on letters.envelope describes the seal', async () => {
+    const c = await one<{ c: string }>(`select col_description('public.letters'::regclass, attnum) c
+      from pg_attribute where attrelid = 'public.letters'::regclass and attname = 'envelope'`);
+    assert.match(c.c, /seal \(placement v1/);
+    assert.match(c.c, /postmark/);
   });
 });

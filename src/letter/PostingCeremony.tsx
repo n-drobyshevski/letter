@@ -13,9 +13,10 @@ import {
 import { scheduleOnRN } from 'react-native-worklets';
 
 import { feel } from '../lib/haptics';
-import type { Country, PostboxSkin } from '../theme/stationery';
+import { LIGHT_DIR, type Country, type PostboxSkin } from '../theme/stationery';
 import { ENVELOPE_MM, envelopeGeometry, recordEnvelope } from './envelope';
 import type { EnvelopeLook } from './EnvelopeCeremony';
+import { defaultSeal, outline, sealToPx } from './seal';
 import { postboxLayout, recordPostbox } from './steelBox';
 import { useTypefaces } from './useTypefaces';
 import { WaxSeal } from './WaxSeal';
@@ -90,6 +91,11 @@ export function PostingCeremony({
   );
   const g = useMemo(() => envelopeGeometry(Math.round(ENVELOPE_MM[format].w * s), look.seed, format), [s, look.seed, format]);
   const parts = useMemo(() => recordEnvelope(g, look.paper, look.liner, look.seed), [g, look.paper, look.liner, look.seed]);
+  // The seal where the sender put it (old letters, and envelopes never sealed at /seal: today's centred seal).
+  const placed = useMemo(
+    () => sealToPx(look.seal ?? defaultSeal(format, look.seed), g.width, g.height, format, look.seed),
+    [look.seal, format, look.seed, g],
+  );
 
   const pw = g.width;
   const ph = g.height;
@@ -101,8 +107,26 @@ export function PostingCeremony({
   const length = turn ? pw : ph; // how far it travels into the slot
   const rest = turn ? { x: width / 2 - pw / 2, y: height * 0.74 } : { x: width / 2, y: height * 0.74 - ph / 2 };
   const hinge = { x: width / 2, y: slot.y + slot.h / 2 };
-  // The seal's leading edge reaches the lip at this much insertion (portrait: picture x → depth).
-  const snagAt = (turn ? g.seal.x : g.seal.y) - g.seal.maxR;
+  // The wax's leading edge reaches the lip at this much insertion (portrait: picture x → depth):
+  // its real outline after the press, and the drops (not the shader's lip and shadow margin;
+  // an overhanging die left nothing behind). A seal hanging off the leading edge catches at once.
+  const lead = useMemo(() => {
+    const pts = outline(placed);
+    let minX = Infinity;
+    let minY = Infinity;
+    for (let i = 0; i < pts.length; i += 2) {
+      minX = Math.min(minX, pts[i]);
+      minY = Math.min(minY, pts[i + 1]);
+    }
+    for (const [dx, dy, dr] of placed.drops) {
+      if (dr > 0) {
+        minX = Math.min(minX, dx - dr);
+        minY = Math.min(minY, dy - dr);
+      }
+    }
+    return { minX, minY };
+  }, [placed]);
+  const snagAt = Math.min(length, Math.max(0, turn ? lead.minX : lead.minY));
   const fingerTravel = (140 + length + SNAG_RAW - SNAG_GAIN) / 0.85;
 
   const p = useSharedValue(fixedT ?? 0);
@@ -194,6 +218,14 @@ export function PostingCeremony({
   const envelopeTransform = useDerivedValue(() =>
     turn ? [{ rotate: (Math.PI / 2) * orient.get() }, { translateY: -ph / 2 }] : [{ translateX: -pw / 2 }],
   );
+  // The desk light in the turned envelope's own space (rotated back by the turn), so the
+  // seal's highlight and its shadow keep agreeing with the desk as it turns.
+  const sealLight = useDerivedValue<[number, number]>(() => {
+    const a = turn ? -(Math.PI / 2) * orient.get() : 0;
+    const c = Math.cos(a);
+    const sn = Math.sin(a);
+    return [LIGHT_DIR.x * c - LIGHT_DIR.y * sn, LIGHT_DIR.x * sn + LIGHT_DIR.y * c];
+  });
   // Before contact nothing is clipped; after, everything beyond the slot plane is inside the box.
   const visible = useDerivedValue(() =>
     p.get() < 0.15 ? Skia.XYWHRect(-4000, -4000, 8000, 8000) : Skia.XYWHRect(-across, depth.get(), across * 2, length * 2),
@@ -242,7 +274,17 @@ export function PostingCeremony({
             <Group transform={envelopeTransform}>
               <Picture picture={parts.pocket} />
               <Picture picture={parts.flapOuter} />
-              <WaxSeal seal={g.seal} wax={look.wax} initials={look.initials} seed={look.seed} pour={1} imprint={1} />
+              <WaxSeal
+                placement={placed}
+                die={look.die ?? 'monogram'}
+                wax={look.wax}
+                initials={look.initials}
+                seed={look.seed}
+                pour={1}
+                imprint={1}
+                flexible={look.waxType === 'flexible'}
+                light={sealLight}
+              />
             </Group>
             {/* light falls off into the slot: a hole, not a mask */}
             <Rect rect={darkRect} opacity={nearSlot}>

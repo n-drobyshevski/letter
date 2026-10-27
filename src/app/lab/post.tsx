@@ -1,11 +1,11 @@
 import { Link } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 
 import { Choice } from '@/components/Choice';
 import { Desk } from '@/components/Desk';
 import { SignIn } from '@/components/SignIn';
-import { draftBody, isEmptyDraft, setDraft, useDraft, type Draft } from '@/lib/draft';
+import { draftBody, envelopeJson, isEmptyDraft, setDraft, useDraft, type Draft, type DraftEnvelope } from '@/lib/draft';
 import { postLetter, retrieveLetter, useCouple, useLettersInTransit, useSession, type Couple } from '@/lib/mail';
 import { useLabParams } from '@/lib/params';
 import { supabase } from '@/lib/supabase';
@@ -14,6 +14,7 @@ import type { EnvelopeLook } from '@/letter/EnvelopeCeremony';
 import { formatForFold } from '@/letter/envelope';
 import { FOLD_KINDS, type FoldKind } from '@/letter/fold';
 import { PostingCeremony } from '@/letter/PostingCeremony';
+import { defaultSeal, parseDie, sealFromParams } from '@/letter/seal';
 import { promiseLine, type LetterRow } from '@/letter/tracking/fromServer';
 import { routed, type Tier } from '@/letter/tracking/itinerary';
 import type { Lang } from '@/letter/tracking/copy';
@@ -159,16 +160,23 @@ function LivePost({ couple, onOffline }: { couple: Couple; onOffline: () => void
   // The sticker shows the next collection; the server's own time replaces it once posted.
   const [expected] = useState(() => clock(new Date(Date.now() + HOUR)));
   const collectAt = letter ? clock(new Date(letter.collect_at)) : expected;
-  const [seed, setSeed] = useState(() => Math.floor(Math.random() * 2 ** 31));
+  // Only for an envelope never sealed at /seal; a sealed one brings its own seed.
+  const [autoSeed] = useState(() => Math.floor(Math.random() * 2 ** 31));
   const { needsButtons } = useMotionPrefs();
+  // The envelope as sealed at /seal, exactly: its seed, wax, die and where the seal went.
+  // Skipped /seal: today's auto-seal (bordeaux, the monogram, centred on the flap tip).
+  const envelope: DraftEnvelope = draft?.envelope ?? autoEnvelope(me.display_name, lang, autoSeed, draft?.fold);
+  const seed = envelope.seed;
   const look: EnvelopeLook = {
-    paper: 'cream',
-    liner: 'postal',
-    wax: 'bordeaux',
-    initials: me.display_name.trim().charAt(0).toUpperCase() || (lang === 'fr' ? 'M' : 'Н'),
+    paper: envelope.paper,
+    liner: envelope.liner,
+    wax: envelope.wax,
+    waxType: envelope.waxType,
+    initials: envelope.initials,
     seed,
-    // The envelope fits the fold: DL, C5 or C6.
-    format: formatForFold(draft?.fold ?? 'tri'),
+    format: envelope.format,
+    die: envelope.die,
+    seal: envelope.seal,
   };
 
   // The postman comes at collect_at: from then on the letter is gone.
@@ -200,7 +208,7 @@ function LivePost({ couple, onOffline }: { couple: Couple; onOffline: () => void
       const row = await postLetter({
         tier,
         body: draftBody(draft!),
-        envelope: { ...look },
+        envelope: envelopeJson(envelope),
         seed,
       });
       setLetter(row);
@@ -224,10 +232,9 @@ function LivePost({ couple, onOffline }: { couple: Couple; onOffline: () => void
   };
 
   const onRetrieved = () => {
-    // Back in your hand; the draft is still there. A new posting is a new envelope.
+    // Back in your hand, still sealed: posting it again sends the same envelope (same seed, same seal).
     if (letter) {
       setLetter(null);
-      setSeed((s) => (s * 1103515245 + 12345) % 2147483647);
       setTransitKey((k) => k + 1);
     }
     setState('ready');
@@ -308,6 +315,23 @@ function LivePost({ couple, onOffline }: { couple: Couple; onOffline: () => void
   );
 }
 
+/** Today's auto-seal, for a letter taken to the post without stopping at /seal. */
+function autoEnvelope(name: string, lang: Lang, seed: number, fold: FoldKind | undefined): DraftEnvelope {
+  // The envelope fits the fold: DL, C5 or C6.
+  const format = formatForFold(fold ?? 'tri');
+  return {
+    paper: 'cream',
+    liner: 'postal',
+    wax: 'bordeaux',
+    waxType: 'brittle',
+    die: 'monogram',
+    initials: name.trim().charAt(0).toUpperCase() || (lang === 'fr' ? 'M' : 'Н'),
+    seed,
+    format,
+    seal: defaultSeal(format, seed),
+  };
+}
+
 function TransitRow({ letter, mine, lang, tz }: { letter: LetterRow; mine: boolean; lang: Lang; tz: string }) {
   const line = `${mine ? '→' : '←'} ${promiseLine(letter, lang, tz)}`;
   if (!letter.tracking) return <Text style={styles.transitRow}>{line}</Text>;
@@ -332,13 +356,23 @@ function PostLab() {
   const [retrieveKey, setRetrieveKey] = useState(0);
   const [collectAt] = useState(() => (q.t !== undefined ? '14:37' : clock(new Date(Date.now() + HOUR))));
   const { needsButtons } = useMotionPrefs();
+  const seed = q.seed ?? 1407;
+  const format = formatForFold(FOLD_KINDS.includes(q.fold as FoldKind) ? (q.fold as FoldKind) : 'tri');
+  // QA: ?sx=&sy= (puddle), kx=&ky= (die), rot=, depth=, hold=, die= place a stored seal.
+  const seal = useMemo(
+    () => sealFromParams({ sx: q.sx, sy: q.sy, kx: q.kx, ky: q.ky, rot: q.rot, depth: q.depth, hold: q.hold }, format, seed),
+    [q.sx, q.sy, q.kx, q.ky, q.rot, q.depth, q.hold, format, seed],
+  );
+  // ?paper=kraft and ?wax=navy|forest|gold (QA); flexible wax looks the same on the postbox.
   const look: EnvelopeLook = {
-    paper: 'cream',
+    paper: q.paper === 'kraft' ? 'kraft' : 'cream',
     liner: 'postal',
-    wax: 'bordeaux',
+    wax: (['forest', 'navy', 'gold'] as const).find((w) => w === q.wax) ?? 'bordeaux',
     initials: country === 'fr' ? 'M' : 'Н',
-    seed: q.seed ?? 1407,
-    format: formatForFold(FOLD_KINDS.includes(q.fold as FoldKind) ? (q.fold as FoldKind) : 'tri'),
+    seed,
+    format,
+    die: parseDie(q.die),
+    seal,
   };
 
   const hint = {

@@ -14,12 +14,49 @@ import { formatForFold } from '@/letter/envelope';
 import { FOLD_KINDS, type FoldKind } from '@/letter/fold';
 import { countryOf, type MailLetter } from '@/letter/mailboxFromServer';
 import { SAMPLE_LETTER, SAMPLE_LETTER_FR, SHORT_NOTES } from '@/letter/samples';
+import { FLAP_TIP, parseDie, parseSeal, presetSeal, sealFromParams, tipFraction, type SealDie, type SealPlacement } from '@/letter/seal';
 import { SHEET_RATIO } from '@/letter/sheet';
 import { shortDate } from '@/letter/tracking/copy';
 import type { Country, PaperKind, WaxKind, WaxType } from '@/theme/stationery';
 
 const daysAgo = (n: number, fixed: boolean) =>
   fixed ? `2026-10-${String(24 - n).padStart(2, '0')}` : new Date(Date.now() - n * 864e5).toISOString().slice(0, 10);
+
+/**
+ * Where the other senders put their seals (DL envelopes): along the flap's left edge, a
+ * decorative one low on the body (knife only), the right edge with the die off-centre and
+ * a drop, deep on the flap (knife only), the tip. Each with its own die.
+ */
+function variedSeal(i: number, seed: number): { seal: SealPlacement; die: SealDie } {
+  const k = (i - 1) % 5;
+  if (k === 0) {
+    const p = presetSeal('left', 'DL', seed);
+    return { seal: { ...p, stamp: p.stamp && { ...p.stamp, rot: 0.35 } }, die: 'swallow' };
+  }
+  if (k === 1) {
+    const p = presetSeal('body', 'DL', seed);
+    return { seal: { ...p, stamp: p.stamp && { ...p.stamp, rot: -0.2 } }, die: 'heart' };
+  }
+  if (k === 2) {
+    // On the right V edge, poured a little smaller and steered down-right, pressed a bit late.
+    const base = presetSeal('tip', 'DL', seed);
+    const x = 0.72;
+    const y = (FLAP_TIP * (1 - x)) / (1 - tipFraction(seed));
+    const seal = parseSeal({
+      ...base,
+      x,
+      y,
+      rMm: 15,
+      stretch: [0.22, 0.12],
+      drops: [[x + 0.075, y + 0.12, 1.6]],
+      stamp: base.stamp && { ...base.stamp, x: x + 0.012, y: y + 0.01, rot: 0.5, depth: 0.6 },
+    });
+    return { seal: seal ?? base, die: 'lily' };
+  }
+  if (k === 3) return { seal: presetSeal('flap', 'DL', seed), die: 'bee' };
+  const p = presetSeal('tip', 'DL', seed);
+  return { seal: { ...p, stamp: p.stamp && { ...p.stamp, rot: 0.12 } }, die: 'moon' };
+}
 
 /**
  * The couple's two directions: a RU mailbox receives letters posted in France,
@@ -33,6 +70,9 @@ function lettersFor(recipient: Country, count: number, seed: number, fixed: bool
     const text = i === 0 ? (fromFrance ? SAMPLE_LETTER_FR : SAMPLE_LETTER) : SHORT_NOTES[fromFrance ? 'fr' : 'ru'][(i - 1) % 3];
     return {
       seed: seed + i * 977,
+      liner: 'postal',
+      die: 'monogram',
+      ...(i > 0 ? variedSeal(i, seed + i * 977) : {}),
       text,
       paper: papers[i % papers.length],
       wax: waxes[i % waxes.length],
@@ -180,10 +220,23 @@ function MailboxLab() {
   const total = Math.max(0, Math.min(6, q.waiting ?? 1));
   // ?fold=half|quarter: the first letter is folded that way, in its envelope (C5, C6).
   const fold = FOLD_KINDS.includes(q.fold as FoldKind) ? (q.fold as FoldKind) : undefined;
+  // The first letter's seal from the QA params (?hold=left|flap|body|tip, sx, sy, kx, ky, rot, depth, die);
+  // without them it is an old letter: no seal recorded, today's seal on the tip.
+  const { sx, sy, kx, ky, rot, depth, hold, die } = q;
   const letters = useMemo(() => {
-    const list = lettersFor(country, total, q.seed ?? 1407, fixed, q.wax === 'flexible' ? 'flexible' : 'brittle');
-    return fold && list[0] ? [{ ...list[0], fold, format: formatForFold(fold) }, ...list.slice(1)] : list;
-  }, [country, total, q.seed, fixed, q.wax, fold]);
+    const seed = q.seed ?? 1407;
+    const list = lettersFor(country, total, seed, fixed, q.wax === 'flexible' ? 'flexible' : 'brittle');
+    if (!list[0]) return list;
+    const format = fold ? formatForFold(fold) : undefined;
+    const seal = sealFromParams({ sx, sy, kx, ky, rot, depth, hold }, format ?? 'DL', seed);
+    const first: MailLetter = {
+      ...list[0],
+      ...(fold ? { fold, format } : {}),
+      ...(seal ? { seal } : {}),
+      ...(die ? { die: parseDie(die) } : {}),
+    };
+    return [first, ...list.slice(1)];
+  }, [country, total, q.seed, fixed, q.wax, fold, sx, sy, kx, ky, rot, depth, hold, die]);
   return (
     <MailboxView
       key={country}

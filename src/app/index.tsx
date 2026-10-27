@@ -26,6 +26,7 @@ const COPY = {
     onDesk: 'Письмо на столе',
     keepWriting: 'Дописать',
     takeToPost: 'Отнести на почту',
+    sealIt: 'Запечатать',
     foldIt: 'Сложить',
     onTheWay: 'В пути',
     read: (n: number) => `Прочитанные: ${n}`,
@@ -43,6 +44,7 @@ const COPY = {
     onDesk: 'Une lettre sur ton bureau',
     keepWriting: 'Continuer',
     takeToPost: 'Poster',
+    sealIt: 'Cacheter',
     foldIt: 'Plier',
     onTheWay: 'En route',
     read: (n: number) => `Déjà lues : ${n}`,
@@ -91,6 +93,13 @@ function HomeDesk({ couple }: { couple: Couple }) {
     timeZone: me.tz,
   }).format(new Date());
 
+  // The letter's next step: fold it, seal it, take it to the post.
+  const next: { href: Href; label: string } = draft?.envelope
+    ? { href: '/post', label: copy.takeToPost }
+    : draft?.fold
+      ? { href: '/seal', label: copy.sealIt }
+      : { href: '/fold', label: copy.foldIt };
+
   const waiting = box.waiting.length;
   const first = box.waiting[0];
   const incoming = transit.find((l) => l.recipient_id === me.id);
@@ -123,8 +132,8 @@ function HomeDesk({ couple }: { couple: Couple }) {
               {copy.keepWriting}
             </Link>
             {them && (
-              <Link href={draft!.fold ? '/post' : '/fold'} style={[styles.action, styles.primary]}>
-                {draft!.fold ? copy.takeToPost : copy.foldIt} →
+              <Link href={next.href} style={[styles.action, styles.primary]}>
+                {next.label} →
               </Link>
             )}
           </View>

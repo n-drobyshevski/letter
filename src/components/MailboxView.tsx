@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 
 import { Desk } from '@/components/Desk';
@@ -8,6 +8,7 @@ import { FoldableLetter } from '@/letter/FoldableLetter';
 import { LetterSheet, useLetterPicture, useWithStrokes, type LetterLook } from '@/letter/LetterSheet';
 import type { MailLetter } from '@/letter/mailboxFromServer';
 import { ReceivingCeremony, type OpenedBy, type ReceiveStage } from '@/letter/ReceivingCeremony';
+import { defaultSeal, sealHold } from '@/letter/seal';
 import { SHEET_RATIO } from '@/letter/sheet';
 import type { Country } from '@/theme/stationery';
 
@@ -26,7 +27,10 @@ export const MAILBOX_COPY = {
       4: 'Достань письмо из конверта',
       5: 'Разверни',
     } as Record<ReceiveStage, string>,
+    /** Stage 3 when the seal is decoration (wholly on the flap or the body): only the knife opens it. */
+    knifeOnly: 'Проведи ножом вдоль сгиба',
     unfold: { tri: 'Разверни: потяни вниз', half: 'Разверни: подними верхнюю половину', quarter: 'Разверни: вправо, потом вверх' },
+    unfoldNow: 'Развернуть',
     from: (name: string, city: string, seal: boolean) => `От ${name}, ${city}${seal ? ' · печать сломана' : ''}`,
     next: (n: number) => `Следующее письмо · ещё ${n}`,
     empty: 'Пока пусто',
@@ -48,7 +52,9 @@ export const MAILBOX_COPY = {
       4: 'Sors la lettre de l’enveloppe',
       5: 'Déplie-la',
     } as Record<ReceiveStage, string>,
+    knifeOnly: 'Fais glisser le coupe-papier le long du pli',
     unfold: { tri: 'Déplie-la : tire vers le bas', half: 'Déplie-la : relève la moitié du haut', quarter: 'Déplie-la : vers la droite, puis vers le haut' },
+    unfoldNow: 'Déplier',
     from: (name: string, city: string, seal: boolean) => `De ${name}, ${city}${seal ? ' · cachet brisé' : ''}`,
     next: (n: number) => `Lettre suivante · encore ${n}`,
     empty: 'Rien pour l’instant',
@@ -114,13 +120,21 @@ export function MailboxView({ letters, lang, country, name, fixedT, openMode = '
   const letterLook: LetterLook = { ...(letter?.letterLook ?? LAB_HAND), seed: letter?.seed ?? 1 };
   const look: EnvelopeLook = {
     paper: letter?.paper ?? 'cream',
-    liner: 'postal',
+    liner: letter?.liner ?? 'postal',
     wax: letter?.wax ?? 'bordeaux',
     waxType: letter?.waxType,
     initials: letter?.initials ?? 'Н',
     seed: letter?.seed ?? 1,
     format: letter?.format,
+    die: letter?.die,
+    seal: letter?.seal,
   };
+  // The same call as the ceremony's: whether the seal holds the flap (and can be broken) or is decoration.
+  const format = look.format ?? 'DL';
+  const hold = useMemo(
+    () => sealHold(look.seal ?? defaultSeal(format, look.seed), format, look.seed),
+    [look.seal, format, look.seed],
+  );
   const fold = letter?.fold ?? 'tri';
   const { picture: inked } = useLetterPicture(letter?.text ?? '', letterLook, sheet.width, sheet.height, 1, 'all', fold);
   const front = useWithStrokes(inked, letter?.strokes, letter?.strokesWidth, letterLook, sheet.width, sheet.height);
@@ -138,10 +152,12 @@ export function MailboxView({ letters, lang, country, name, fixedT, openMode = '
       : phase === 'mailbox'
         ? stage === 0 && letters.length - index > 1
           ? `${copy.hints[0]} · ${copy.count(letters.length - index)}`
-          : copy.hints[stage]
+          : stage === 3 && hold !== 'straddle'
+            ? copy.knifeOnly
+            : copy.hints[stage]
         : phase === 'unfold'
           ? copy.unfold[fold]
-          : copy.from(letter.fromLabel.name, letter.fromLabel.city, openedBy === 'seal');
+          : copy.from(letter.fromLabel.name, letter.fromLabel.city, openedBy === 'seal' && hold === 'straddle');
 
   return (
     <Desk title={copy.title} hint={hint} scroll={phase === 'read' || (phase === 'empty' && !!emptyExtra)}>
@@ -208,6 +224,10 @@ export function MailboxView({ letters, lang, country, name, fixedT, openMode = '
       <View style={styles.actions}>
         {phase === 'mailbox' && stage < 5 && (
           <MailboxButton label={copy.advance} quiet={!needsButtons} onPress={() => setAdvanceKey((k) => k + 1)} />
+        )}
+        {/* The unfold gesture's button: straight to the open sheet. */}
+        {phase === 'unfold' && fixedUnfold === undefined && (
+          <MailboxButton label={copy.unfoldNow} quiet={!needsButtons} onPress={() => setPhase('read')} />
         )}
         {phase === 'read' && remaining > 0 && (
           <MailboxButton

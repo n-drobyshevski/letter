@@ -6,7 +6,7 @@ import { Desk } from '@/components/Desk';
 import { MailboxView } from '@/components/MailboxView';
 import { useLabParams } from '@/lib/params';
 import { useMotionPrefs } from '@/lib/useMotionPrefs';
-import { EnvelopeCeremony, type EnvelopeLook, type Stage } from '@/letter/EnvelopeCeremony';
+import { EnvelopeCeremony, useSealingFit, type EnvelopeLook } from '@/letter/EnvelopeCeremony';
 import { ENVELOPE_MM, formatForFold } from '@/letter/envelope';
 import { FOLD_KINDS, type FoldKind } from '@/letter/fold';
 import { FoldableLetter } from '@/letter/FoldableLetter';
@@ -14,16 +14,20 @@ import { useLetterPicture, useWithStrokes, type LetterLook } from '@/letter/Lett
 import type { MailLetter } from '@/letter/mailboxFromServer';
 import { PostingCeremony } from '@/letter/PostingCeremony';
 import { SAMPLE_LETTER } from '@/letter/samples';
+import { parseDie, type SealDie, type SealPlacement } from '@/letter/seal';
+import { SealButtons } from '@/letter/SealButtons';
+import { useSealControls } from '@/letter/sealCopy';
 import { SHEET_RATIO, useSheetSize } from '@/letter/sheet';
 import type { Stroke } from '@/letter/strokes';
 import { WritingDesk, type WritingMode } from '@/letter/WritingDesk';
-import { WAX, type Country, type PaperKind, type WaxKind } from '@/theme/stationery';
+import { WAX, WAX_TYPES, type Country, type LinerKind, type PaperKind, type WaxKind, type WaxType } from '@/theme/stationery';
 
 /**
  * Lab: the whole journey of one letter, offline. Write it, fold it (the gesture
  * picks the fold), slide it into an envelope sized for that fold and seal it, drop
  * it in the postbox; then skip the weeks and open it in her mailbox.
- * `?step=fold|envelope|post|receive` starts later with a sample letter (QA).
+ * `?step=fold|envelope|post|receive` starts later with a sample letter (QA); at the
+ * envelope, `?t=` freezes a frame and `?die=` picks the die.
  */
 
 type Step = 'write' | 'fold' | 'envelope' | 'post' | 'receive';
@@ -52,6 +56,18 @@ const ENVELOPE_PAPERS = [
   { key: 'kraft', label: 'Крафт' },
 ] as const;
 const WAX_OPTIONS = (Object.keys(WAX) as WaxKind[]).map((k) => ({ key: k, label: WAX[k].label }));
+const WAX_TYPE_OPTIONS = (Object.keys(WAX_TYPES) as WaxType[]).map((k) => ({ key: k, label: WAX_TYPES[k].label }));
+
+/** The envelope as chosen and sealed: it travels with the letter to her mailbox. */
+type Sealed = {
+  paper: PaperKind;
+  liner: LinerKind;
+  wax: WaxKind;
+  waxType: WaxType;
+  die: SealDie;
+  /** Where the wax and the die went (onSealed); none until it is sealed. */
+  seal?: SealPlacement;
+};
 
 const FOLD_NAMES: Record<FoldKind, string> = { tri: 'втрое', half: 'пополам', quarter: 'вчетверо' };
 const HOUR = 3600e3;
@@ -67,7 +83,13 @@ export default function JourneyLab() {
   const [text, setText] = useState(startAt === 'write' ? '' : SAMPLE_LETTER);
   const [strokes, setStrokes] = useState<Stroke[]>([]);
   const [fold, setFold] = useState<FoldKind>(FOLD_KINDS.includes(q.fold as FoldKind) ? (q.fold as FoldKind) : 'tri');
-  const [envelope, setEnvelope] = useState<{ paper: PaperKind; wax: WaxKind }>({ paper: 'cream', wax: 'bordeaux' });
+  const [envelope, setEnvelope] = useState<Sealed>(() => ({
+    paper: 'cream',
+    liner: 'postal',
+    wax: 'bordeaux',
+    waxType: 'brittle',
+    die: q.die ? parseDie(q.die) : 'monogram',
+  }));
   const [from, setFrom] = useState<Country>('fr');
   const writeSize = useSheetSize();
 
@@ -75,8 +97,11 @@ export default function JourneyLab() {
   const letter = { text, strokes, strokesWidth: writeSize.width, hand, fold };
   const look: EnvelopeLook = {
     paper: envelope.paper,
-    liner: 'postal',
+    liner: envelope.liner,
     wax: envelope.wax,
+    waxType: envelope.waxType,
+    die: envelope.die,
+    seal: envelope.seal,
     initials: from === 'fr' ? 'Н' : 'М',
     seed,
     format: formatForFold(fold),
@@ -85,6 +110,7 @@ export default function JourneyLab() {
     setText('');
     setStrokes([]);
     setFold('tri');
+    setEnvelope((e) => ({ ...e, seal: undefined }));
     setStep('write');
   };
   const progress = <Progress at={step} />;
@@ -112,13 +138,23 @@ export default function JourneyLab() {
           letter={letter}
           onFolded={(k) => {
             setFold(k);
+            // A new fold, a new envelope: it has to be sealed again.
+            setEnvelope((e) => ({ ...e, seal: undefined }));
             setStep('envelope');
           }}
         />
       );
     case 'envelope':
       return (
-        <EnvelopeStep progress={progress} letter={letter} look={look} envelope={envelope} onEnvelope={setEnvelope} onNext={() => setStep('post')} />
+        <EnvelopeStep
+          progress={progress}
+          letter={letter}
+          look={look}
+          envelope={envelope}
+          onEnvelope={(patch) => setEnvelope((e) => ({ ...e, ...patch }))}
+          fixedT={q.t}
+          onNext={() => setStep('post')}
+        />
       );
     case 'post':
       return <PostStep progress={progress} look={look} from={from} onFrom={setFrom} onNext={() => setStep('receive')} />;
@@ -215,10 +251,10 @@ function FoldStep({ progress, letter, onFolded }: { progress: React.ReactNode; l
       )}
       <View style={styles.actions}>
         {folded && <Button label="В конверт →" onPress={() => onFolded(folded)} />}
-        {!folded && needsButtons && (
+        {!folded && (
           <View style={styles.row}>
             {FOLD_KINDS.map((k) => (
-              <Button key={k} label={FOLD_NAMES[k]} onPress={() => onFolded(k)} />
+              <Button key={k} label={FOLD_NAMES[k]} quiet={!needsButtons} onPress={() => onFolded(k)} />
             ))}
           </View>
         )}
@@ -227,44 +263,67 @@ function FoldStep({ progress, letter, onFolded }: { progress: React.ReactNode; l
   );
 }
 
-const ENVELOPE_HINTS: Record<Stage, string> = {
-  0: 'Потяни письмо вниз, в конверт',
-  1: 'Закрой клапан: потяни вниз или коснись',
-  2: 'Удерживай, чтобы налить сургуч',
-  3: 'Печать…',
-  4: 'Запечатано',
-};
-
 function EnvelopeStep(props: {
   progress: React.ReactNode;
   letter: Letter;
   look: EnvelopeLook;
-  envelope: { paper: PaperKind; wax: WaxKind };
-  onEnvelope: (e: { paper: PaperKind; wax: WaxKind }) => void;
+  envelope: Sealed;
+  onEnvelope: (patch: Partial<Sealed>) => void;
+  fixedT?: number;
   onNext: () => void;
 }) {
   const { letter, look } = props;
-  const { width: screenW } = useWindowDimensions();
-  // The DL width on screen, chosen so the widest envelope (a C5, 229 mm) still fits.
-  const envW = Math.round((Math.min(screenW - 48, 480) * ENVELOPE_MM.DL.w) / ENVELOPE_MM.C5.w);
+  // The DL width on screen, chosen so the widest envelope (a C5, 229 mm) still fits; steady through the ceremony.
+  const envW = Math.round((useSealingFit(look.format ?? 'DL') * ENVELOPE_MM.DL.w) / ENVELOPE_MM.C5.w);
   const sheet = { width: Math.round(envW * 0.93), height: Math.round(envW * 0.93 * SHEET_RATIO) };
   const { picture: inked } = useLetterPicture(letter.text, letter.hand, sheet.width, sheet.height, 1, 'all', letter.fold);
   const front = useWithStrokes(inked, letter.strokes, letter.strokesWidth, letter.hand, sheet.width, sheet.height);
   const { picture: back } = useLetterPicture('', letter.hand, sheet.width, sheet.height, 1, 'paper', letter.fold);
-  const [stage, setStage] = useState<Stage>(0);
+  const { needsButtons } = useMotionPrefs();
+  // «Заново» takes the seal off: only a finished seal goes to the post.
+  const { stage, shown, actions, run, ceremony } = useSealControls('ru', () => props.onEnvelope({ seal: undefined }), {
+    needsButtons,
+    fixed: props.fixedT !== undefined,
+  });
   return (
-    <Desk title={`Конверт ${look.format}`} hint={ENVELOPE_HINTS[stage]} scroll={false}>
+    // Scrolls: the choices, the die tray and the buttons don't all fit a laptop window under a C5.
+    <Desk title={`Конверт ${look.format}`} hint={shown}>
       {props.progress}
+      {front && back && (
+        <EnvelopeCeremony
+          letterFront={front}
+          letterBack={back}
+          sheet={sheet}
+          width={envW}
+          look={look}
+          fold={letter.fold}
+          lang="ru"
+          needsButtons={needsButtons}
+          {...ceremony}
+          onDie={(die) => {
+            ceremony.onDie(die);
+            props.onEnvelope({ die });
+          }}
+          onSealed={(seal) => props.onEnvelope({ seal })}
+          fixedT={props.fixedT}
+        />
+      )}
+      <View style={styles.actions}>
+        <SealButtons actions={actions} lang="ru" quiet={!needsButtons} onRun={run} />
+        {stage === 4 && (
+          <View style={styles.row}>
+            {props.fixedT === undefined && <Button label="Заново" quiet onPress={() => run('reset')} />}
+            <Button label="На почту →" onPress={props.onNext} />
+          </View>
+        )}
+      </View>
       {stage === 0 && (
         <View style={styles.row}>
-          <Choice options={ENVELOPE_PAPERS} value={props.envelope.paper as 'cream' | 'kraft'} onChange={(paper) => props.onEnvelope({ ...props.envelope, paper })} />
-          <Choice options={WAX_OPTIONS} value={props.envelope.wax} onChange={(wax) => props.onEnvelope({ ...props.envelope, wax })} />
+          <Choice options={ENVELOPE_PAPERS} value={props.envelope.paper as 'cream' | 'kraft'} onChange={(paper) => props.onEnvelope({ paper })} />
+          <Choice options={WAX_OPTIONS} value={props.envelope.wax} onChange={(wax) => props.onEnvelope({ wax })} />
+          <Choice options={WAX_TYPE_OPTIONS} value={props.envelope.waxType} onChange={(waxType) => props.onEnvelope({ waxType })} />
         </View>
       )}
-      {front && back && (
-        <EnvelopeCeremony letterFront={front} letterBack={back} sheet={sheet} width={envW} look={look} fold={letter.fold} onStage={setStage} />
-      )}
-      <View style={styles.actions}>{stage === 4 && <Button label="На почту →" onPress={props.onNext} />}</View>
     </Desk>
   );
 }
@@ -326,8 +385,11 @@ function ReceiveStep(props: { progress: React.ReactNode; letter: Letter; look: E
     fold: letter.fold,
     format: look.format,
     paper: look.paper,
+    liner: look.liner,
     wax: look.wax,
-    waxType: 'brittle',
+    waxType: look.waxType ?? 'brittle',
+    die: look.die ?? 'monogram',
+    seal: look.seal,
     initials: look.initials,
     address: fromFrance
       ? { fromName: 'Н.', fromCity: 'Lille', toName: 'М.', toCity: 'Minsk', toCountry: 'Biélorussie' }

@@ -38,10 +38,11 @@ import type { FoldKind } from './fold';
 import type { EnvelopeLook } from './EnvelopeCeremony';
 import { recordEnvelopeFront, type Address, type Postmark } from './envelopeFront';
 import { mailboxLayout, recordDoor, recordMailboxBank } from './steelBox';
-import { breakGeometry, crumbAt, crumbs as makeCrumbs, fibreTears, residueFibres, type Crumb } from './sealBreak';
+import { coverSD, defaultSeal, edgeYAt, sealBounds, sealHold, sealToPx } from './seal';
+import { breakGeometry, crumbAt, crumbLandsOn, crumbs as makeCrumbs, fibreTears, residueFibres, type Crumb } from './sealBreak';
 import { slitCatches, slitEdge } from './tear';
 import { useTypefaces } from './useTypefaces';
-import { WaxSeal } from './WaxSeal';
+import { sealOutlinePath, WaxSeal } from './WaxSeal';
 
 /**
  * Receiving, five stages with one progress value each:
@@ -50,7 +51,10 @@ import { WaxSeal } from './WaxSeal';
  *   2 flip   tap to turn it over: address side → seal side
  *   3 open   either run the paper knife along the top fold from either corner,
  *            or pull the flap up by the seal: the wax strains, snaps along the flap
- *            edge (one half lifts with the flap, one stays), and the flap swings open
+ *            edge (one half lifts with the flap, one stays), and the flap swings open.
+ *            Only a seal across the flap's edge (sealHold 'straddle': at the tip or
+ *            anywhere along the V) can be broken; one wholly on the flap or the body is
+ *            decoration, stays whole, and the knife is the only way in
  *   4 pull   draw the folded letter up out of the slit
  * Unfolding is FoldableLetter, started folded. Re-reading skips all of this.
  */
@@ -194,9 +198,19 @@ export function ReceivingCeremony({
   }, [ew, look.seed]);
   const catches = useMemo(() => slitCatches(ew, look.seed), [ew, look.seed]);
 
+  // The seal where the sender put it (old letters: today's seal on the flap tip), in envelope px.
+  const stored = useMemo(() => look.seal ?? defaultSeal(format, look.seed), [look.seal, format, look.seed]);
+  const seal = useMemo(() => sealToPx(stored, g.width, g.height, format, look.seed), [stored, g, format, look.seed]);
+  const sealBox = useMemo(() => sealBounds(seal), [seal]);
+  // Only a seal across the flap's edge holds it shut and can be broken; otherwise it is decoration.
+  const hold = useMemo(() => sealHold(stored, format, look.seed), [stored, format, look.seed]);
+  const breakable = hold === 'straddle';
+  const die = look.die ?? 'monogram';
+
   // Breaking the seal: the flap piece (jagged through the wax), the crack, crumbs, torn fibres.
   const broken = useMemo(() => {
-    const geo = breakGeometry(g, look.seed);
+    if (!breakable) return null;
+    const geo = breakGeometry(g, seal, look.seed);
     const poly = (pts: number[], close: boolean) => {
       const b = Skia.PathBuilder.Make().moveTo(pts[0], pts[1]);
       for (let i = 2; i < pts.length; i += 2) b.lineTo(pts[i], pts[i + 1]);
@@ -206,15 +220,21 @@ export function ReceivingCeremony({
     const fibres = Skia.PathBuilder.Make();
     for (const [x0, y0, x1, y1] of fibreTears(g, look.seed)) fibres.moveTo(x0, y0).lineTo(x1, y1);
     const residue = Skia.PathBuilder.Make();
-    for (const [x0, y0, x1, y1] of residueFibres(g, look.seed)) residue.moveTo(x0, y0).lineTo(x1, y1);
+    for (const [x0, y0, x1, y1] of residueFibres(g, seal, look.seed)) residue.moveTo(x0, y0).lineTo(x1, y1);
     return {
       residue: residue.detach(),
+      // The faint film flexible wax leaves on the body: its real footprint, a hair inside.
+      film: sealOutlinePath(seal),
       flapPiece: poly(geo.flapPiece, true),
-      crack: poly(geo.crack, false),
-      crumbs: makeCrumbs(geo.crack, look.seed),
+      crack: geo.crack.length ? poly(geo.crack, false) : Skia.PathBuilder.Make().detach(),
+      // A seal near a corner throws some off the paper: those fall on past it, fading, instead of resting on air.
+      crumbs: (geo.crack.length ? makeCrumbs(geo.crack, look.seed) : []).map((c) => ({
+        crumb: c,
+        off: !crumbLandsOn(c, { x: 0, y: 0, width: g.width, height: g.height }),
+      })),
       fibres: fibres.detach(),
     };
-  }, [g, look.seed]);
+  }, [breakable, g, seal, look.seed]);
 
   // Poses: lying on the floor of the box → held in front of you.
   const rand = mulberry32(subSeed(look.seed, 'mailbox'));
@@ -232,7 +252,9 @@ export function ReceivingCeremony({
   const slit = useSharedValue(init.values[3]);
   const pull = useSharedValue(init.values[4]);
   const progress = [doorV, take, flip, slit, pull];
-  const sealFixed = fixedT !== undefined && openMode === 'seal';
+  // A QA frame "opened by the seal" falls back to the knife when the seal can't be broken.
+  const sealOpen = openMode === 'seal' && breakable;
+  const sealFixed = fixedT !== undefined && sealOpen;
   const breakV = useSharedValue(sealFixed ? init.values[3] : 0);
   const crumbT = useSharedValue(0);
   /** 0: not chosen yet, 1: paper knife, 2: break the seal. */
@@ -247,7 +269,7 @@ export function ReceivingCeremony({
     if (fixedT === undefined) return;
     const v = splitReceiveT(fixedT);
     v.values.forEach((x, i) => progress[i].set(x));
-    if (openMode === 'seal') {
+    if (sealOpen) {
       // Same timeline, opened by the seal: the knife never moves, crumbs follow the break.
       slit.set(0);
       breakV.set(v.values[3]);
@@ -278,8 +300,17 @@ export function ReceivingCeremony({
   }, [advanceKey]);
 
   const envelopeLeft = held.x - ew / 2;
-  const sealOnScreen = { x: envelopeLeft + g.seal.x, y: held.y - eh / 2 + g.seal.y };
-  const flapTravel = eh * 0.9;
+  // Held in front of you (turned by held.rot) and flipped: back-face px are plain envelope px.
+  const cosR = Math.cos(held.rot);
+  const sinR = Math.sin(held.rot);
+  const toEnvelope = (x: number, y: number) => {
+    'worklet';
+    const dx = x - held.x;
+    const dy = y - held.y;
+    return { x: cosR * dx + sinR * dy + ew / 2, y: -sinR * dx + cosR * dy + eh / 2 };
+  };
+  // The flap is lifted by the seal: the lever arm is how far down the flap it sits.
+  const flapTravel = Math.max(eh * 0.35, 1.7 * seal.y);
   const pan = usePanGesture({
     enabled: fixedT === undefined,
     minDistance: 0,
@@ -289,8 +320,10 @@ export function ReceivingCeremony({
       settled.set(false);
       if (s < 5) start.set(progress[s].get());
       if (s === 3 && mode.get() === 0) {
-        // Touching the seal means breaking it; anywhere else picks up the paper knife.
-        const onSeal = Math.hypot(e.x - sealOnScreen.x, e.y - sealOnScreen.y) < g.seal.maxR + 12;
+        // Touching a seal that holds the flap means breaking it; anywhere else (or any
+        // decorative seal) picks up the paper knife.
+        const p = toEnvelope(e.x, e.y);
+        const onSeal = breakable && coverSD(seal, p.x, p.y) > -12;
         mode.set(onSeal ? 2 : 1);
         if (!onSeal) slitDir.set(e.x < width / 2 ? 1 : -1);
       }
@@ -494,12 +527,13 @@ export function ReceivingCeremony({
     { perspective: 1100 },
     { rotateX: -flapAngle.get() },
   ]);
-  const flapBounds = Skia.XYWHRect(-4, -4, ew + 8, g.flapTip + g.seal.maxR * 1.3);
+  // The flap and everything riding on it: its half of the seal, or a flexible seal whole.
+  const flapBounds = Skia.XYWHRect(-4, -4, ew + 8, Math.max(g.flapTip, sealBox.maxY) + 6);
   const flapInnerClip = useDerivedValue(() => (flapAngle.get() > Math.PI / 2 ? flapBounds : EMPTY));
   const flapOuterClip = useDerivedValue(() => (flapAngle.get() > Math.PI / 2 ? EMPTY : flapBounds));
   const flapShade = useDerivedValue(() => 0.28 * Math.sin(flapAngle.get()));
   const fibresShown = useDerivedValue(() => snapped.get() * Math.min(1, flapAngle.get() * 3));
-  // Flexible wax under strain: stretched where it is still stuck to the body, a bend along the flap edge.
+  // Flexible wax under strain: stretched across the flap edge where it is still stuck to the body, a bend along that edge.
   const stretch = useDerivedValue(() => [{ scaleY: breakV.get() < SNAP ? 1 + 0.07 * strain.get() : 1 }]);
   const bend = useDerivedValue(() => (breakV.get() < SNAP ? strain.get() * 0.55 : 0));
 
@@ -587,7 +621,7 @@ export function ReceivingCeremony({
                 <Group transform={[{ translateX: ew }, { scaleX: -1 }]}>
                   <Picture picture={parts.pocket} />
                   <Picture picture={parts.flapOuter} />
-                  <WaxSeal seal={g.seal} wax={look.wax} initials={look.initials} seed={look.seed} pour={1} imprint={1} cracked={!flexible} />
+                  <WaxSeal placement={seal} die={die} wax={look.wax} initials={look.initials} seed={look.seed} pour={1} imprint={1} flexible={flexible} cracked={!flexible} />
                   <Rect rect={envRect} opacity={0.6}>
                     <RadialGradient c={vec(ew / 2, eh / 2)} r={ew * 0.62} colors={['rgba(60,40,20,0)', 'rgba(60,40,20,0.08)']} />
                   </Rect>
@@ -602,79 +636,83 @@ export function ReceivingCeremony({
               <Path path={edge} style="stroke" strokeWidth={0.8} color="rgba(255, 252, 240, 0.85)" transform={[{ translateY: 1 }]} />
               <Rect x={0} y={-1} width={ew} height={2.2} color="rgba(10, 6, 4, 0.55)" opacity={gap} />
             </Group>
-            {/* breaking the seal: the whole opened back, drawn over the intact one */}
-            <Group clip={sealLayers}>
-              <Group origin={{ x: ew / 2, y: 0 }} transform={flapTransform}>
-                <Group clip={flapInnerClip}>
-                  <Picture picture={parts.flapInner} />
-                  <Group clip={g.flap}>
-                    <Rect x={0} y={0} width={ew} height={g.flapTip} color="#140c04" opacity={flapShade} />
-                  </Group>
-                </Group>
-              </Group>
-              <Picture picture={parts.interior} />
-              <Group transform={letterTransform}>
-                <Picture picture={letter.picture} />
-              </Group>
-              <Picture picture={parts.pocket} />
-              {/* paper fibres torn where the flap was glued */}
-              {/* rough, uneven: the top layer of paper came away with the gum */}
-              <Path path={broken.fibres} style="stroke" strokeWidth={1.8} strokeCap="round" color="rgba(252, 249, 240, 0.75)" opacity={fibresShown}>
-                <DiscretePathEffect length={2.5} deviation={1.1} seed={look.seed % 97} />
-              </Path>
-              <Path path={broken.fibres} style="stroke" strokeWidth={0.5} color="rgba(90, 70, 50, 0.3)" opacity={fibresShown} transform={[{ translateY: 1.1 }]}>
-                <DiscretePathEffect length={2} deviation={0.9} seed={(look.seed % 97) + 1} />
-              </Path>
-              {flexible ? (
-                /* where flexible wax held the body: a faint film and a few lifted fibres */
-                <Group clip={broken.flapPiece} invertClip opacity={snapped}>
-                  <Circle cx={g.seal.x} cy={g.seal.y} r={g.seal.maxR * 0.93} color={waxColor(look.wax, 0.08)} />
-                  <Circle cx={g.seal.x} cy={g.seal.y} r={g.seal.maxR * 0.93} style="stroke" strokeWidth={0.8} color={waxColor(look.wax, 0.12)} />
-                  <Path path={broken.residue} style="stroke" strokeWidth={1.4} strokeCap="round" color="rgba(252, 249, 240, 0.8)">
-                    <DiscretePathEffect length={1.5} deviation={0.6} seed={look.seed % 89} />
-                  </Path>
-                </Group>
-              ) : (
-                <>
-                  {/* the half of the seal that stays on the envelope */}
-                  <Group clip={broken.flapPiece} invertClip>
-                    <WaxSeal seal={g.seal} wax={look.wax} initials={look.initials} seed={look.seed} pour={1} imprint={1} cracked />
-                  </Group>
-                  <Path path={broken.crack} style="stroke" strokeWidth={0.9} color="rgba(255, 200, 190, 0.35)" opacity={snapped} transform={[{ translateY: 0.8 }]} />
-                </>
-              )}
-              {/* the flap, with its half of the seal */}
-              <Group origin={{ x: ew / 2, y: 0 }} transform={flapTransform}>
-                <Group clip={flapOuterClip}>
-                  <Picture picture={parts.flapOuter} />
-                  {flexible ? (
-                    /* flexible wax goes with the flap, whole */
-                    <Group origin={{ x: g.seal.x, y: g.seal.y - g.seal.maxR }} transform={stretch}>
-                      <WaxSeal seal={g.seal} wax={look.wax} initials={look.initials} seed={look.seed} pour={1} imprint={1} />
+            {/* breaking the seal: the whole opened back, drawn over the intact one (a seal across the flap edge only) */}
+            {broken && (
+              <Group clip={sealLayers}>
+                <Group origin={{ x: ew / 2, y: 0 }} transform={flapTransform}>
+                  <Group clip={flapInnerClip}>
+                    <Picture picture={parts.flapInner} />
+                    <Group clip={g.flap}>
+                      <Rect x={0} y={0} width={ew} height={g.flapTip} color="#140c04" opacity={flapShade} />
                     </Group>
-                  ) : (
-                    <Group clip={broken.flapPiece}>
-                      <WaxSeal seal={g.seal} wax={look.wax} initials={look.initials} seed={look.seed} pour={1} imprint={1} cracked />
-                    </Group>
-                  )}
-                  <Group clip={g.flap}>
-                    <Rect x={0} y={0} width={ew} height={g.flapTip} color="#140c04" opacity={flapShade} />
                   </Group>
                 </Group>
-              </Group>
-              {flexible ? (
-                <Path path={broken.crack} style="stroke" strokeWidth={3} color="rgba(255, 225, 215, 0.35)" opacity={bend}>
-                  <BlurMask blur={1.5} style="normal" />
+                <Picture picture={parts.interior} />
+                <Group transform={letterTransform}>
+                  <Picture picture={letter.picture} />
+                </Group>
+                <Picture picture={parts.pocket} />
+                {/* paper fibres torn where the flap was glued */}
+                {/* rough, uneven: the top layer of paper came away with the gum */}
+                <Path path={broken.fibres} style="stroke" strokeWidth={1.8} strokeCap="round" color="rgba(252, 249, 240, 0.75)" opacity={fibresShown}>
+                  <DiscretePathEffect length={2.5} deviation={1.1} seed={look.seed % 97} />
                 </Path>
-              ) : (
-                <>
-                  <Path path={broken.crack} style="stroke" strokeWidth={0.8} color="rgba(20, 4, 4, 0.85)" opacity={strainCrack} />
-                  {broken.crumbs.map((c, i) => (
-                    <WaxCrumb key={i} crumb={c} t={crumbT} color={WAX[look.wax].rgb} />
-                  ))}
-                </>
-              )}
-            </Group>
+                <Path path={broken.fibres} style="stroke" strokeWidth={0.5} color="rgba(90, 70, 50, 0.3)" opacity={fibresShown} transform={[{ translateY: 1.1 }]}>
+                  <DiscretePathEffect length={2} deviation={0.9} seed={(look.seed % 97) + 1} />
+                </Path>
+                {flexible ? (
+                  /* where flexible wax held the body: a faint film and a few lifted fibres */
+                  <Group clip={broken.flapPiece} invertClip opacity={snapped}>
+                    <Group origin={{ x: seal.x, y: seal.y }} transform={[{ scale: 0.93 }]}>
+                      <Path path={broken.film} color={waxColor(look.wax, 0.08)} />
+                      <Path path={broken.film} style="stroke" strokeWidth={0.8} color={waxColor(look.wax, 0.12)} />
+                    </Group>
+                    <Path path={broken.residue} style="stroke" strokeWidth={1.4} strokeCap="round" color="rgba(252, 249, 240, 0.8)">
+                      <DiscretePathEffect length={1.5} deviation={0.6} seed={look.seed % 89} />
+                    </Path>
+                  </Group>
+                ) : (
+                  <>
+                    {/* the half of the seal that stays on the envelope */}
+                    <Group clip={broken.flapPiece} invertClip>
+                      <WaxSeal placement={seal} die={die} wax={look.wax} initials={look.initials} seed={look.seed} pour={1} imprint={1} flexible={flexible} cracked />
+                    </Group>
+                    <Path path={broken.crack} style="stroke" strokeWidth={0.9} color="rgba(255, 200, 190, 0.35)" opacity={snapped} transform={[{ translateY: 0.8 }]} />
+                  </>
+                )}
+                {/* the flap, with its half of the seal */}
+                <Group origin={{ x: ew / 2, y: 0 }} transform={flapTransform}>
+                  <Group clip={flapOuterClip}>
+                    <Picture picture={parts.flapOuter} />
+                    {flexible ? (
+                      /* flexible wax goes with the flap, whole */
+                      <Group origin={{ x: seal.x, y: edgeYAt(g, seal.x) }} transform={stretch}>
+                        <WaxSeal placement={seal} die={die} wax={look.wax} initials={look.initials} seed={look.seed} pour={1} imprint={1} flexible={flexible} />
+                      </Group>
+                    ) : (
+                      <Group clip={broken.flapPiece}>
+                        <WaxSeal placement={seal} die={die} wax={look.wax} initials={look.initials} seed={look.seed} pour={1} imprint={1} flexible={flexible} cracked />
+                      </Group>
+                    )}
+                    <Group clip={g.flap}>
+                      <Rect x={0} y={0} width={ew} height={g.flapTip} color="#140c04" opacity={flapShade} />
+                    </Group>
+                  </Group>
+                </Group>
+                {flexible ? (
+                  <Path path={broken.crack} style="stroke" strokeWidth={3} color="rgba(255, 225, 215, 0.35)" opacity={bend}>
+                    <BlurMask blur={1.5} style="normal" />
+                  </Path>
+                ) : (
+                  <>
+                    <Path path={broken.crack} style="stroke" strokeWidth={0.8} color="rgba(20, 4, 4, 0.85)" opacity={strainCrack} />
+                    {broken.crumbs.map((c, i) => (
+                      <WaxCrumb key={i} crumb={c.crumb} off={c.off} t={crumbT} color={WAX[look.wax].rgb} />
+                    ))}
+                  </>
+                )}
+              </Group>
+            )}
             {/* paper knife */}
             <Group transform={knifeTransform} opacity={knifeShown}>
               <Path path={knife}>
@@ -692,7 +730,7 @@ export function ReceivingCeremony({
 }
 
 /** A chip of wax in flight: closed-form, so a frozen QA frame shows exactly where it is. */
-function WaxCrumb({ crumb, t, color }: { crumb: Crumb; t: SharedValue<number>; color: Rgb }) {
+function WaxCrumb({ crumb, off, t, color }: { crumb: Crumb; off: boolean; t: SharedValue<number>; color: Rgb }) {
   const shape = useMemo(() => {
     const b = Skia.PathBuilder.Make();
     crumb.shape.forEach((r, i) => {
@@ -703,10 +741,11 @@ function WaxCrumb({ crumb, t, color }: { crumb: Crumb; t: SharedValue<number>; c
     return b.close().detach();
   }, [crumb]);
   const transform = useDerivedValue(() => {
-    const p = crumbAt(crumb, t.get() * CRUMB_SECONDS);
+    const p = crumbAt(crumb, t.get() * CRUMB_SECONDS, off);
     return [{ translateX: p.x }, { translateY: p.y }, { rotate: p.angle }];
   });
-  const shown = useDerivedValue(() => (t.get() > 0 ? 1 : 0));
+  // Off the paper it drops away out of sight (past the envelope, into the box).
+  const shown = useDerivedValue(() => (t.get() <= 0 ? 0 : off ? 1 - Math.min(1, Math.max(0, (t.get() - 0.35) / 0.5)) : 1));
   const [r, g, b] = color.map((v) => Math.round(v * 255));
   return (
     <Group transform={transform} opacity={shown}>

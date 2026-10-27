@@ -1,12 +1,17 @@
 import { mulberry32, range, subSeed, wobble } from '../lib/random';
+import { coverSD, edgeYAt, sealBounds, type FlapGeo, type SealPx } from './seal';
 
 /**
  * Breaking the wax seal, as geometry (no Skia, so it can be tested).
  *
- * The seal sits across the flap tip. When the flap is pulled up, brittle wax splits
- * along the flap's edge: the part on the flap lifts with it, the part on the body
- * stays. The break is jagged where it runs through wax and follows the paper edge
- * elsewhere. All of it is seeded, so both phones break the same seal the same way.
+ * The seal sits across the closed flap's edge: at the tip, or anywhere along either side
+ * of the V. When the flap is pulled up, brittle wax splits along that edge: the part on
+ * the flap lifts with it, the part on the body stays. The break is jagged where it runs
+ * through wax (the real shape, seal.ts's coverSD) and follows the paper edge (with its
+ * rounded tip) elsewhere. All of it is seeded, so both phones break the same seal the same way.
+ *
+ * Only a seal that straddles the edge (seal.ts's sealHold) breaks; one wholly on the flap
+ * or the body is decoration and the knife opens the envelope.
  */
 
 export type BreakGeometry = {
@@ -16,43 +21,61 @@ export type BreakGeometry = {
   crack: number[];
 };
 
-type Geo = {
-  width: number;
-  flapTip: number;
-  seal: { x: number; y: number; maxR: number };
-};
+/** The closed flap: EnvelopeGeometry satisfies it (px), seal.ts's flapGeo builds it. */
+type Geo = FlapGeo;
 
-export function breakGeometry(g: Geo, seed: number): BreakGeometry {
+/** Points along the closed flap's lower edge, (0, 0) → (width, 0), about `step` apart, with the unit normal at each. */
+function edgeWalk(g: Geo, step: number): { x: number; y: number; nx: number; ny: number }[] {
+  const w = g.width;
+  const n = Math.ceil(w / 0.25);
+  const out: { x: number; y: number; nx: number; ny: number }[] = [];
+  let px = 0;
+  let py = 0;
+  let along = 0;
+  for (let i = 1; i <= n; i++) {
+    const x = i === n ? w : (i * w) / n;
+    const y = i === n ? 0 : edgeYAt(g, x);
+    along += Math.hypot(x - px, y - py);
+    if (along >= step || i === n) {
+      // The normal of the local tangent (1, dy/dx).
+      const d = edgeYAt(g, Math.min(w, x + 0.5)) - edgeYAt(g, Math.max(0, x - 0.5));
+      const len = Math.hypot(1, d);
+      out.push({ x, y, nx: -d / len, ny: 1 / len });
+      along = 0;
+    }
+    px = x;
+    py = y;
+  }
+  return out;
+}
+
+/**
+ * The break for the wax `wax` (px, from sealToPx) on the flap `g`. The jag scales with the
+ * seal (2.4 pt and a point every 2.4 pt on today's 30 pt seal), so a small seal far down
+ * a V edge breaks as raggedly as a big one on the tip.
+ */
+export function breakGeometry(g: Geo, wax: SealPx, seed: number): BreakGeometry {
   const rand = mulberry32(subSeed(seed, 'seal-break'));
-  const { x: cx, y: cy, maxR } = g.seal;
-  const tip: [number, number] = [g.seal.x, g.flapTip];
+  const R = wax.r;
+  const amp = R * 0.082;
+  const b = sealBounds(wax);
   const flapPiece: number[] = [0, 0];
   const crack: number[] = [];
   let jag = 0;
-
-  const edge = (from: [number, number], to: [number, number]) => {
-    const n = 80;
-    for (let i = 1; i <= n; i++) {
-      const t = i / n;
-      let x = from[0] + (to[0] - from[0]) * t;
-      let y = from[1] + (to[1] - from[1]) * t;
-      const d = Math.hypot(x - cx, y - cy);
-      if (d < maxR * 1.12) {
-        // Through the wax the break wanders: a random walk, pulled back to the paper edge.
-        jag = jag * 0.55 + wobble(rand, 2.4);
-        const len = Math.hypot(to[0] - from[0], to[1] - from[1]);
-        const nx = -(to[1] - from[1]) / len;
-        const ny = (to[0] - from[0]) / len;
-        const fade = 1 - Math.max(0, (d - maxR * 0.85) / (maxR * 0.27));
-        x += nx * jag * fade;
-        y += ny * jag * fade;
-        if (d < maxR * 1.04) crack.push(x, y);
-      }
-      flapPiece.push(x, y);
+  for (const p of edgeWalk(g, Math.min(3, Math.max(0.8, R * 0.08)))) {
+    let { x, y } = p;
+    const inBox = x >= b.minX && x <= b.maxX && y >= b.minY && y <= b.maxY;
+    const sd = inBox && R > 0 ? coverSD(wax, x, y) : -Infinity;
+    if (sd > -0.12 * R) {
+      // Through the wax the break wanders: a random walk, pulled back to the paper edge.
+      jag = jag * 0.55 + wobble(rand, amp);
+      const fade = Math.min(1, (sd + 0.12 * R) / (0.27 * R));
+      x += p.nx * jag * fade;
+      y += p.ny * jag * fade;
+      if (sd > -0.04 * R) crack.push(x, y);
     }
-  };
-  edge([0, 0], tip);
-  edge(tip, [g.width, 0]);
+    flapPiece.push(x, y);
+  }
   return { flapPiece, crack };
 }
 
@@ -89,12 +112,34 @@ export function crumbs(crack: number[], seed: number, count = 4): Crumb[] {
 
 export const GRAVITY = 2000; // pt/s²
 
-/** Closed-form flight of a crumb at time t (s): deterministic, so QA frames can freeze it. */
-export function crumbAt(c: Crumb, t: number) {
+/** When a crumb lands (s): the positive root of vy·t + G·t²/2 = land. */
+export function crumbLandsAt(c: Crumb) {
   'worklet';
-  const x = c.x + c.vx * t;
-  const y = Math.min(c.y + c.vy * t + 0.5 * GRAVITY * t * t, c.y + c.land);
-  return { x, y, angle: c.spin * Math.min(t, 0.4) };
+  return (-c.vy + Math.sqrt(c.vy * c.vy + 2 * GRAVITY * c.land)) / GRAVITY;
+}
+
+/**
+ * Closed-form flight of a crumb at time t (s): deterministic, so QA frames can freeze it.
+ * Once down it stays down: a short skid (≤ 4 % of its flight speed × 1 s), then still.
+ * `fall`: it left the paper (landed off the envelope), so it drops on past `land`.
+ */
+export function crumbAt(c: Crumb, t: number, fall = false) {
+  'worklet';
+  const tl = crumbLandsAt(c);
+  const flying = Math.min(t, tl);
+  const skid = t > tl && !fall ? c.vx * 0.04 * (1 - Math.exp(-(t - tl) / 0.05)) : 0;
+  const x = c.x + c.vx * (fall ? t : flying) + skid;
+  const yFree = c.y + c.vy * t + 0.5 * GRAVITY * t * t;
+  const y = fall ? yFree : Math.min(yFree, c.y + c.land);
+  return { x, y, angle: c.spin * Math.min(t, tl, 0.4) };
+}
+
+/** Whether a crumb comes down on the envelope (else it falls off the paper). */
+export function crumbLandsOn(c: Crumb, rect: { x: number; y: number; width: number; height: number }) {
+  const tl = crumbLandsAt(c);
+  const x = c.x + c.vx * tl;
+  const y = c.y + c.land;
+  return x >= rect.x && x <= rect.x + rect.width && y >= rect.y && y <= rect.y + rect.height;
 }
 
 /**
@@ -104,7 +149,7 @@ export function crumbAt(c: Crumb, t: number) {
  */
 export function fibreTears(g: Geo, seed: number): number[][] {
   const rand = mulberry32(subSeed(seed, 'fibres'));
-  const tip: [number, number] = [g.seal.x, g.flapTip];
+  const tip: [number, number] = [g.tip.x, g.flapTip];
   const out: number[][] = [];
   for (const [from, to] of [
     [[0, 0], tip],
@@ -129,22 +174,20 @@ export function fibreTears(g: Geo, seed: number): number[][] {
 /**
  * Flexible (modern) sealing wax doesn't crack: it bends, then lets go of the paper
  * whole and stays on the flap. Where it held the body it leaves a faint film and
- * lifts a few paper fibres. Segments [x0, y0, x1, y1] inside the seal's footprint,
- * below the flap edge (on the body), short and in random directions.
+ * lifts a few paper fibres. Segments [x0, y0, x1, y1] well inside the wax's real
+ * footprint, below the flap edge (on the body), short and in random directions.
  */
-export function residueFibres(g: Geo, seed: number, count = 9): number[][] {
+export function residueFibres(g: Geo, wax: SealPx, seed: number, count = 9): number[][] {
   const rand = mulberry32(subSeed(seed, 'residue'));
-  const { x: cx, y: cy, maxR } = g.seal;
+  const b = sealBounds(wax);
   const out: number[][] = [];
   let guard = 0;
-  while (out.length < count && guard++ < 400) {
-    const a = rand() * Math.PI * 2;
-    const r = Math.sqrt(rand()) * maxR * 0.85;
-    const x = cx + Math.cos(a) * r;
-    const y = cy + Math.sin(a) * r;
-    // Only where the seal sat on the body, i.e. below the flap's V edge.
-    const edgeY = g.flapTip * (1 - Math.abs(x - g.seal.x) / g.seal.x);
-    if (y <= edgeY + 1) continue;
+  while (out.length < count && guard++ < 1200) {
+    const x = b.minX + rand() * b.width;
+    const y = b.minY + rand() * b.height;
+    // Inside the wax, away from its thin edge, and only where it sat on the body.
+    if (coverSD(wax, x, y) < wax.r * 0.15) continue;
+    if (y <= edgeYAt(g, x) + 1) continue;
     const dir = rand() * Math.PI * 2;
     const len = range(rand, 2, 5);
     out.push([x, y, x + Math.cos(dir) * len, y + Math.sin(dir) * len]);

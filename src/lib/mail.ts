@@ -8,6 +8,7 @@ import type { OpenedBy } from '@/letter/ReceivingCeremony';
 import { itineraryFromServer, type EventRow, type LetterRow } from '@/letter/tracking/fromServer';
 import type { Itinerary, Tier } from '@/letter/tracking/itinerary';
 
+import type { EnvelopeJson } from './draft';
 import { supabase } from './supabase';
 
 /**
@@ -84,7 +85,8 @@ async function reason(error: unknown): Promise<string> {
 export type PostInput = {
   tier: PostTier;
   body: unknown;
-  envelope: Record<string, unknown>;
+  /** letters.envelope (envelopeJson); the server adds the postmark. */
+  envelope: EnvelopeJson;
   seed: number;
   /** YYYY-MM-DD, scheduled tier only. */
   scheduledFor?: string;
