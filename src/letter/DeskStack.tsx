@@ -36,7 +36,7 @@ import {
   type FaceRef,
   type SheetContent,
 } from './stack';
-import { gripOf, type Grip } from './grip';
+import { MAX_TILT, freeGripOf, gripOf, type Grip } from './grip';
 import type { Stroke } from './strokes';
 import { WritingDesk, type WritingMode } from './WritingDesk';
 
@@ -248,6 +248,16 @@ export function DeskStack({ look, width, height, mode, sheets, onSheets, maxShee
     target.set(turn?.target ?? null);
     setTurning(turn);
   };
+  // A steep free turn (top over bottom) spins the sheet past the overlay's usual room: the
+  // overlay grows for it as the lean passes MAX_TILT, and back once the turn lands. Sideways
+  // turns keep the small canvas (a canvas is filled whole every frame of a turn).
+  const [steep, setSteep] = useState(() => Math.abs(fixedTilt ?? 0) > MAX_TILT);
+  useAnimatedReaction(
+    () => loose && p.value > 0 && p.value < 1 && Math.abs(grip.value.tilt) > MAX_TILT,
+    (now, prev) => {
+      if (now && !prev) scheduleOnRN(setSteep, true);
+    },
+  );
   const land = (commit: boolean, apply?: () => void) => {
     const to = target.get();
     target.set(null);
@@ -256,6 +266,7 @@ export function DeskStack({ look, width, height, mode, sheets, onSheets, maxShee
       setFace(to);
     }
     setTurning(null);
+    setSteep(false);
   };
   /** A turn by button: the whole way, on its own. */
   const play = (turn: Turn | null) => {
@@ -322,9 +333,14 @@ export function DeskStack({ look, width, height, mode, sheets, onSheets, maxShee
   // The sheet's edges: the finger writes p (0 → 1 is the whole turn) and the grip.
   // With a mouse (the laptop) only Ctrl (⌘) + drag turns, and from anywhere on the sheet
   // (a layer laid over it while Ctrl is held); a plain drag there writes or selects.
+  // On the loose desk that drag turns the sheet over any way it goes (freeGripOf).
   const travel = width * 0.8;
   const grabX = useSharedValue(0);
+  const grabYpx = useSharedValue(0);
   const grabY = useSharedValue(0.5);
+  // A free turn's way (unit vector, set as it starts) and whether this sheet has a back to turn to.
+  const way = useSharedValue({ x: -1, y: 0 });
+  const canFlipNow = useSharedValue(false);
   const keys = useDeskKeys();
   const idle = useSharedValue(false);
   // Which way the turn under way goes (1 forward, -1 back), and which ways this face can turn:
@@ -335,60 +351,100 @@ export function DeskStack({ look, width, height, mode, sheets, onSheets, maxShee
   // A Ctrl turn taken from the middle of the sheet: its layer stays until the drag ends.
   const [turningAnywhere, setTurningAnywhere] = useState(false);
   const startDrag = (dir: 1 | -1) => begin(dir === 1 ? forward() : backward());
-  /** A turn by hand: from the right edge (1), the left edge (-1), or anywhere, the way the drag goes (0). */
-  const turnGesture = (fixed: 1 | -1 | 0) => ({
-    // Not switched off while its own turn is under way: that would cancel the drag.
-    enabled: fixedTurn === undefined && (fixed === 1 ? canForward : fixed === -1 ? canBackward : canForward || canBackward),
-    // An edge only its own way; mostly vertical still scrolls the desk.
-    activeOffsetX: fixed === 1 ? -6 : fixed === -1 ? 6 : ([-6, 6] as [number, number]),
-    failOffsetY: [-40, 40] as [number, number],
-    onBegin: (e: { x: number; y: number }) => {
-      grabX.set(e.x);
-      grabY.set(Math.min(1, Math.max(0, e.y / height)));
-    },
-    onActivate: (e: { x: number; translationX: number; translationY: number; pointerType: PointerType }) => {
-      // Dragged left it turns forward (to the back, the next sheet), right it comes back.
-      // (From where it was taken: on the web the activation's translation still reads 0.)
-      const dir: 1 | -1 = fixed !== 0 ? fixed : e.x < grabX.get() ? 1 : -1;
-      const allowed = dir === 1 ? canForwardNow.get() : canBackwardNow.get();
-      idle.set((e.pointerType === PointerType.MOUSE && !keys.turn.get()) || !allowed);
-      if (idle.get()) return;
-      turnDir.set(dir);
-      if (fixed === 0) scheduleOnRN(setTurningAnywhere, true);
-      p.set(0);
-      grip.set(gripOf(dir, e.translationX, e.translationY, grabY.get()));
-      scheduleOnRN(startDrag, dir);
-    },
-    onUpdate: (e: { translationX: number; translationY: number }) => {
-      if (idle.get()) return;
-      const dir = turnDir.get();
-      p.set(Math.min(1, Math.max(0, (-dir * e.translationX) / travel)));
-      grip.set(gripOf(dir, e.translationX, e.translationY, grabY.get()));
-    },
-    onDeactivate: (e: { velocityX: number; canceled: boolean }) => {
-      if (idle.get()) return idle.set(false);
-      const v = (-turnDir.get() * e.velocityX) / travel;
-      const commit = !e.canceled && (v > 0.5 || (v > -0.5 && p.get() > 0.5));
-      const done = (finished?: boolean) => {
-        'worklet';
-        if (finished) scheduleOnRN(land, commit);
-      };
-      p.set(
-        reduceMotion
-          ? withTiming(commit ? 1 : 0, { duration: 150 }, done)
-          : withSpring(commit ? 1 : 0, { velocity: v, damping: 20, stiffness: 150, mass: 0.9, overshootClamping: true }, done),
-      );
-    },
-    onFinalize: () => {
-      if (fixed === 0) scheduleOnRN(setTurningAnywhere, false);
-    },
-  });
+  const startFlip = () => begin(flip());
+  // How far a free turn's way takes the hand for the whole turn (a vertical one: the sheet's height).
+  const travelFree = (u: { x: number; y: number }) => {
+    'worklet';
+    return 0.8 * (Math.abs(u.x) * width + Math.abs(u.y) * height);
+  };
+  /**
+   * A turn by hand: from the right edge (1), the left edge (-1), or anywhere, the way the
+   * drag goes (0): on the loose desk any way at all, elsewhere left forward and right back.
+   */
+  const turnGesture = (fixed: 1 | -1 | 0) => {
+    const free = fixed === 0 && loose;
+    return {
+      // Not switched off while its own turn is under way: that would cancel the drag.
+      enabled: fixedTurn === undefined && (fixed === 1 ? canForward : fixed === -1 ? canBackward : canForward || canBackward),
+      // An edge only its own way; mostly vertical still scrolls the desk (not under Ctrl on the loose desk).
+      activeOffsetX: fixed === 1 ? -6 : fixed === -1 ? 6 : ([-6, 6] as [number, number]),
+      activeOffsetY: free ? ([-6, 6] as [number, number]) : undefined,
+      failOffsetY: free ? undefined : ([-40, 40] as [number, number]),
+      onBegin: (e: { x: number; y: number }) => {
+        grabX.set(e.x);
+        grabYpx.set(e.y);
+        grabY.set(Math.min(1, Math.max(0, e.y / height)));
+      },
+      onActivate: (e: { x: number; y: number; translationX: number; translationY: number; pointerType: PointerType }) => {
+        const mouse = e.pointerType === PointerType.MOUSE;
+        // The way from where it was taken: on the web the activation's translation still reads 0.
+        const dx = e.x - grabX.get();
+        const dy = e.y - grabYpx.get();
+        if (free) {
+          idle.set((mouse && !keys.turn.get()) || !canFlipNow.get());
+          if (idle.get()) return;
+          const len = Math.hypot(dx, dy);
+          const u = len < 1 ? { x: -1, y: 0 } : { x: dx / len, y: dy / len };
+          const spin: 1 | -1 = u.x <= 0 ? 1 : -1;
+          way.set(u);
+          turnDir.set(spin);
+          scheduleOnRN(setTurningAnywhere, true);
+          p.set(0);
+          grip.set(freeGripOf(spin, dx, dy, grabY.get()));
+          scheduleOnRN(startFlip);
+          return;
+        }
+        // Dragged left it turns forward (to the back, the next sheet), right it comes back.
+        const dir: 1 | -1 = fixed !== 0 ? fixed : dx < 0 ? 1 : -1;
+        const allowed = dir === 1 ? canForwardNow.get() : canBackwardNow.get();
+        idle.set((mouse && !keys.turn.get()) || !allowed);
+        if (idle.get()) return;
+        turnDir.set(dir);
+        if (fixed === 0) scheduleOnRN(setTurningAnywhere, true);
+        p.set(0);
+        grip.set(gripOf(dir, e.translationX, e.translationY, grabY.get()));
+        scheduleOnRN(startDrag, dir);
+      },
+      onUpdate: (e: { translationX: number; translationY: number }) => {
+        if (idle.get()) return;
+        if (free) {
+          const u = way.get();
+          p.set(Math.min(1, Math.max(0, (e.translationX * u.x + e.translationY * u.y) / travelFree(u))));
+          grip.set(freeGripOf(turnDir.get(), e.translationX, e.translationY, grabY.get()));
+          return;
+        }
+        const dir = turnDir.get();
+        p.set(Math.min(1, Math.max(0, (-dir * e.translationX) / travel)));
+        grip.set(gripOf(dir, e.translationX, e.translationY, grabY.get()));
+      },
+      onDeactivate: (e: { velocityX: number; velocityY: number; canceled: boolean }) => {
+        if (idle.get()) return idle.set(false);
+        const u = way.get();
+        const v = free ? (e.velocityX * u.x + e.velocityY * u.y) / travelFree(u) : (-turnDir.get() * e.velocityX) / travel;
+        const commit = !e.canceled && (v > 0.5 || (v > -0.5 && p.get() > 0.5));
+        const done = (finished?: boolean) => {
+          'worklet';
+          if (finished) scheduleOnRN(land, commit);
+        };
+        p.set(
+          reduceMotion
+            ? withTiming(commit ? 1 : 0, { duration: 150 }, done)
+            : withSpring(commit ? 1 : 0, { velocity: v, damping: 20, stiffness: 150, mass: 0.9, overshootClamping: true }, done),
+        );
+      },
+      onFinalize: () => {
+        if (fixed === 0) scheduleOnRN(setTurningAnywhere, false);
+      },
+    };
+  };
   const canForward = (face.side === 'recto' && sheet.twoSided) || (!loose && face.sheet < sheets.length - 1);
   const canBackward = face.side === 'verso' || (!loose && face.sheet > 0);
+  const canFlip = sheet.twoSided;
   useEffect(() => {
     canForwardNow.set(canForward);
     canBackwardNow.set(canBackward);
-  }, [canForward, canBackward, canForwardNow, canBackwardNow]);
+    canFlipNow.set(canFlip);
+  }, [canForward, canBackward, canFlip, canForwardNow, canBackwardNow, canFlipNow]);
   const forwardEdge = usePanGesture(turnGesture(1));
   const backEdge = usePanGesture(turnGesture(-1));
   const anywhere = usePanGesture(turnGesture(0));
@@ -535,6 +591,7 @@ export function DeskStack({ look, width, height, mode, sheets, onSheets, maxShee
           dir={turning?.dir ?? 1}
           grip={grip}
           fade={reduceMotion}
+          free={loose && steep}
           p={p}
           width={width}
           height={height}
@@ -671,6 +728,7 @@ function TurnOverlay({
   dir,
   grip,
   fade,
+  free,
   p,
   width,
   height,
@@ -682,6 +740,8 @@ function TurnOverlay({
   dir: 1 | -1;
   grip: SharedValue<Grip>;
   fade: boolean;
+  /** A steep free turn (the loose desk, top over bottom): the sheet spins through every angle on its way over. */
+  free: boolean;
   p: SharedValue<number>;
   width: number;
   height: number;
@@ -690,12 +750,17 @@ function TurnOverlay({
   const back = useMemo(() => (to ? mirrorPicture(to, { width, height }) : null), [to, width, height]);
   const EMPTY = Skia.XYWHRect(0, 0, 0, 0);
   const full = Skia.XYWHRect(-2, -2, width + 4, height + 4);
-  const room = Math.round(width * 0.2);
+  // Room around the sheet for a leaning turn. A free one spins the sheet through every angle:
+  // at most ~1.03 of its half-diagonal across and ~1.13 up and down (nearer the eye, lifted),
+  // found by sweeping this transform over every lean, spin and way; with a little to spare.
+  const half = Math.hypot(width, height) / 2;
+  const roomX = Math.ceil(free ? Math.max(width * 0.2, half * 1.06 - width / 2) : width * 0.2);
+  const roomY = Math.ceil(free ? Math.max(width * 0.2, half * 1.16 - height / 2) : width * 0.2);
   const angle = useDerivedValue(() => p.value * Math.PI);
   // The sheet that moves: forward it is the one leaving; coming back, the previous one returning.
   const away = useDerivedValue(() => (dir === 1 ? p.value : 1 - p.value));
   const transform = useDerivedValue<Transforms3d>(() => {
-    const { tilt, ux, uy } = grip.value;
+    const { tilt, ux, uy, spin } = grip.value;
     if (kind === 'slide') {
       // Pushed the way the hand went (coming back, it arrives from the other side, moving the same way).
       const k = dir === 1 ? away.value : -away.value;
@@ -711,7 +776,8 @@ function TurnOverlay({
       { translateY: uy * lift },
       { perspective: PERSPECTIVE },
       { rotate: tilt - 2 * tilt * e },
-      { rotateY: -dir * angle.value },
+      // Turned over the way the hand went (a free turn on the loose desk), else the turn's own way.
+      { rotateY: -(spin ?? dir) * angle.value },
       { rotate: -tilt },
       { scale: 1 + 0.015 * Math.sin(angle.value) },
     ];
@@ -749,10 +815,10 @@ function TurnOverlay({
   return (
     // Room around the sheet: a leaning, travelling turn reaches past the sheet's own bounds.
     // Touches go through to the sheet beneath (a Canvas drops pointerEvents on the web: its wrapper keeps it).
-    <View style={[{ position: 'absolute', left: -room, top: -room }, styles.through]}>
-      <Canvas style={{ width: width + room * 2, height: height + room * 2 }}>
+    <View style={[{ position: 'absolute', left: -roomX, top: -roomY }, styles.through]}>
+      <Canvas style={{ width: width + roomX * 2, height: height + roomY * 2 }}>
         {from && to && back && (
-          <Group transform={[{ translateX: room }, { translateY: room }]}>
+          <Group transform={[{ translateX: roomX }, { translateY: roomY }]}>
             {/* A slide: the sheet that stays put lies beneath the one that moves. */}
             {kind === 'slide' && <Picture picture={dir === 1 ? to : from} />}
             <Group origin={{ x: width / 2, y: height / 2 }} transform={transform}>
