@@ -16,6 +16,7 @@ import { scheduleOnRN } from 'react-native-worklets';
 
 import { feel } from '../lib/haptics';
 import type { FoldKind } from './fold';
+import { gripOf, type Grip } from './grip';
 import { paperEdgeColor, useSheetFaces, type LetterLook, type SheetFaces } from './LetterSheet';
 import { sheetJitter, writtenFaces, type FaceRef, type SheetContent } from './stack';
 
@@ -24,8 +25,12 @@ import { sheetJitter, writtenFaces, type FaceRef, type SheetContent } from './st
  * faces in writing order (a float: 1.5 is halfway between the second and third
  * face, the one exception to the app's t ∈ [0, 1]). Between the two faces of a
  * sheet the sheet turns over like a book page; between sheets the read one slides
- * off to the left and is tucked under the stack. A horizontal drag writes `turn`,
- * a release settles on a face with a velocity spring; buttons do the same.
+ * off and is tucked under the stack. A horizontal drag writes `turn`, a release
+ * settles on a face with a velocity spring; buttons do the same, square.
+ * The turn follows the hand as at the desk (grip.ts): its axis leans with the
+ * drag's direction and where the sheet was taken, the sheet travels with the
+ * hand, and a read sheet slides off (and a previous one comes back) the way it
+ * was pushed.
  * Every sheet is baked up front (at most four), so nothing bakes mid-gesture.
  */
 
@@ -40,14 +45,15 @@ type Props = {
   fold: FoldKind;
   /** Width of the desk sheet the pen strokes were drawn on. */
   strokesWidth?: number;
-  /** Lab/QA: freeze the stack at this turn. */
+  /** Lab/QA: freeze the stack at this turn, and lean that turn's axis (rad). */
   fixedTurn?: number;
+  fixedTilt?: number;
   /** Bump to go to the next face (or back with a negative key), as the buttons do. */
   step?: { key: number; dir: 1 | -1 };
   onFace?: (index: number, faces: FaceRef[]) => void;
 };
 
-export function ReadingStack({ sheets, look, width, height, fold, strokesWidth, fixedTurn, step, onFace }: Props) {
+export function ReadingStack({ sheets, look, width, height, fold, strokesWidth, fixedTurn, fixedTilt, step, onFace }: Props) {
   const crease = 0.35;
   // A fixed number of hooks: one per possible sheet.
   const s0 = useSheetFaces(sheets[0], 0, look, width, height, crease, fold, strokesWidth);
@@ -69,12 +75,16 @@ export function ReadingStack({ sheets, look, width, height, fold, strokesWidth, 
   // Where the drag took hold of the stack (live), and the face it started from.
   const grab = useSharedValue(0);
   const origin = useSharedValue(0);
+  // How the hand holds the sheet that moves (square for the buttons), and where it took it.
+  const grip = useSharedValue<Grip>({ tilt: fixedTilt ?? 0, ux: -1, uy: 0 });
+  const grabY = useSharedValue(0.5);
   const reduceMotion = useReducedMotion();
   const [at, setAt] = useState(Math.round(fixedTurn ?? 0));
 
   useEffect(() => {
     if (fixedTurn !== undefined) turn.set(fixedTurn);
-  }, [fixedTurn, turn]);
+    if (fixedTilt !== undefined) grip.set({ tilt: fixedTilt, ux: -Math.cos(fixedTilt), uy: Math.sin(fixedTilt) });
+  }, [fixedTurn, fixedTilt, turn, grip]);
   useEffect(() => {
     onFace?.(at, faces);
     // report face changes only
@@ -98,16 +108,22 @@ export function ReadingStack({ sheets, look, width, height, fold, strokesWidth, 
   const stepAtMount = useRef(step?.key);
   useEffect(() => {
     if (!step || step.key === stepAtMount.current || fixedTurn !== undefined) return;
+    grip.set({ tilt: 0, ux: -step.dir, uy: 0 });
     settle(Math.max(0, Math.min(last, Math.round(turn.get()) + step.dir)));
     // only a new key moves the stack
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step?.key]);
 
   const travel = width * 0.9;
+  const room = Math.round(height * 0.12);
   const pan = usePanGesture({
     enabled: fixedTurn === undefined && last > 0,
     activeOffsetX: [-12, 12],
-    failOffsetY: [-10, 10],
+    // A mostly vertical drag still scrolls the desk; one that starts sideways turns, at any angle after.
+    failOffsetY: [-30, 30],
+    onBegin: (e) => {
+      grabY.set(Math.min(1, Math.max(0, (e.y - PAD - room) / height)));
+    },
     onActivate: () => {
       // Catch the sheet where it is, even mid-spring.
       cancelAnimation(turn);
@@ -120,6 +136,8 @@ export function ReadingStack({ sheets, look, width, height, fold, strokesWidth, 
       const lo = Math.max(0, origin.get() - 1);
       const hi = Math.min(last, origin.get() + 1);
       turn.set(raw < lo ? lo - (lo - raw) * 0.25 : raw > hi ? hi + (raw - hi) * 0.25 : raw);
+      // Leftward reads on (as the right edge taken at the desk), rightward goes back.
+      if (e.translationX !== 0) grip.set(gripOf(e.translationX < 0 ? 1 : -1, e.translationX, e.translationY, grabY.get()));
     },
     onDeactivate: (e) => {
       const s = origin.get();
@@ -131,11 +149,13 @@ export function ReadingStack({ sheets, look, width, height, fold, strokesWidth, 
     },
   });
 
-  // Halfway between two faces: a tick as a sheet's edge passes upright, paper on paper as one slides away.
+  // Halfway between two faces: a tick as a sheet's edge passes upright, paper on paper as one slides away;
+  // the face under the reader's eyes is the new one from there (not once the spring has quite settled).
   useAnimatedReaction(
     () => Math.round(turn.get()),
     (now, prev) => {
       if (prev === null || now === prev) return;
+      if (now >= 0 && now <= last) scheduleOnRN(setAt, now);
       const k = Math.min(now, prev);
       const isFlip = marks.some((m) => m.hasBack && m.first === k);
       scheduleOnRN(isFlip ? feel.tick : feel.fibre);
@@ -147,26 +167,29 @@ export function ReadingStack({ sheets, look, width, height, fold, strokesWidth, 
   const edge = paperEdgeColor(look.paper);
 
   return (
-    <GestureDetector gesture={pan} touchAction="pan-y">
-      <Canvas style={{ width: width + PAD * 2, height: height + PAD * 2 }}>
-        <Group transform={[{ translateX: PAD }, { translateY: PAD }]}>
-          <Rect x={0} y={0} width={width} height={height} color="#000">
-            <Shadow dx={2} dy={6} blur={10} color="rgba(20, 12, 4, 0.35)" shadowOnly />
-            <Shadow dx={0} dy={1} blur={1.5} color="rgba(20, 12, 4, 0.4)" shadowOnly />
-          </Rect>
-          {/* Read sheets, tucked under the stack: only their edges show. */}
-          {ready.map((faces, i) => (
-            <ReadSheet key={`under${i}`} layer="under" faces={faces} index={i} mark={marks[i]} turn={turn} seed={look.seed} edge={edge} width={width} height={height} />
-          ))}
-          {/* The stack, the first unread sheet on top. */}
-          {ready
-            .map((faces, i) => (
-              <ReadSheet key={`top${i}`} layer="top" faces={faces} index={i} mark={marks[i]} turn={turn} seed={look.seed} edge={edge} width={width} height={height} />
-            ))
-            .reverse()}
-        </Group>
-      </Canvas>
-    </GestureDetector>
+    // Room above and below for a leaning turn, without moving the layout around it.
+    <View style={{ marginVertical: -room }}>
+      <GestureDetector gesture={pan} touchAction="pan-y">
+        <Canvas style={{ width: width + PAD * 2, height: height + (PAD + room) * 2 }}>
+          <Group transform={[{ translateX: PAD }, { translateY: PAD + room }]}>
+            <Rect x={0} y={0} width={width} height={height} color="#000">
+              <Shadow dx={2} dy={6} blur={10} color="rgba(20, 12, 4, 0.35)" shadowOnly />
+              <Shadow dx={0} dy={1} blur={1.5} color="rgba(20, 12, 4, 0.4)" shadowOnly />
+            </Rect>
+            {/* Read sheets, tucked under the stack: only their edges show. */}
+            {ready.map((faces, i) => (
+              <ReadSheet key={`under${i}`} layer="under" faces={faces} index={i} mark={marks[i]} turn={turn} grip={grip} seed={look.seed} edge={edge} width={width} height={height} />
+            ))}
+            {/* The stack, the first unread sheet on top. */}
+            {ready
+              .map((faces, i) => (
+                <ReadSheet key={`top${i}`} layer="top" faces={faces} index={i} mark={marks[i]} turn={turn} grip={grip} seed={look.seed} edge={edge} width={width} height={height} />
+              ))
+              .reverse()}
+          </Group>
+        </Canvas>
+      </GestureDetector>
+    </View>
   );
 }
 
@@ -191,6 +214,7 @@ function ReadSheet({
   index,
   mark,
   turn,
+  grip,
   seed,
   edge,
   width,
@@ -201,6 +225,7 @@ function ReadSheet({
   index: number;
   mark: { first: number; hasBack: boolean; done: number };
   turn: SharedValue<number>;
+  grip: SharedValue<Grip>;
   seed: number;
   edge: string;
   width: number;
@@ -214,14 +239,30 @@ function ReadSheet({
   const out = useDerivedValue(() => clamp01(turn.value - mark.done));
   const shown = useDerivedValue(() => (layer === 'top' ? out.value <= 0.5 : out.value > 0.5));
   const transform = useDerivedValue<Transforms3d>(() => {
-    // Out to the left, clear of the stack at 0.5, then back in underneath.
+    const { tilt, ux, uy } = grip.value;
+    // Out the way it was pushed (mostly sideways: the reading view is short), just clear
+    // of the stack at 0.5, then back in underneath.
     const away = Math.sin(Math.PI * ease(out.value));
+    const len = Math.hypot(ux, uy * 0.35) || 1;
+    const sx = ux / len;
+    const sy = (uy * 0.35) / len;
+    const clear = Math.min(
+      Math.abs(sx) > 0.01 ? (width * 1.04) / Math.abs(sx) : Infinity,
+      Math.abs(sy) > 0.01 ? (height * 1.04) / Math.abs(sy) : Infinity,
+    );
+    // Turned over about an axis leaning by `tilt`, travelling a little with the hand; the twist
+    // (tilt − 2·tilt·e) lands the back as the plain mirror versoThrough is drawn for, at any lean.
+    const e = angle.value / Math.PI;
+    const twist = tilt - 2 * tilt * e * e * (3 - 2 * e);
+    const lift = Math.sin(angle.value) * width * 0.05;
     return [
-      { translateX: j.dx - width * 1.04 * away },
-      { translateY: j.dy - height * 0.025 * away },
-      { rotate: j.rot * 0.4 - 0.05 * away },
+      { translateX: j.dx + sx * clear * away + ux * lift },
+      { translateY: j.dy + sy * clear * away + uy * lift - height * 0.025 * away },
+      { rotate: j.rot * 0.4 + 0.05 * sx * away },
       { perspective: PERSPECTIVE },
+      { rotate: twist },
       { rotateY: -angle.value },
+      { rotate: -tilt },
       { scale: 1 + 0.015 * Math.sin(angle.value) },
     ];
   });

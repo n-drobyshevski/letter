@@ -205,6 +205,7 @@ function MailboxLab() {
       name={country === 'fr' ? 'M. Laurent' : ''}
       fixedT={q.t}
       fixedTurn={q.turn}
+      fixedTilt={q.tilt}
       openMode={q.open === 'seal' ? 'seal' : 'slit'}
       header={
         <Choice options={[{ key: 'ru', label: 'Москва' }, { key: 'fr', label: 'Paris' }] as const} value={country} onChange={setCountry} />

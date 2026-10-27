@@ -74,6 +74,7 @@ export default function TypingLab() {
         maxSheets={maxSheetsFor(fold)}
         initialFace={q.face}
         fixedTurn={q.turn}
+        fixedTilt={q.tilt}
       />
       {touched && !fixture && (
         <Link href="/fold" style={styles.link}>

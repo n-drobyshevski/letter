@@ -27,6 +27,8 @@ const SHOTS = [
   { name: 'desk-verso', path: '/lab/typing?seed=7&sheets=2&face=1' },
   { name: 'desk-sheet2', path: '/lab/typing?seed=7&sheets=3&face=2' },
   { name: 'desk-turn-0.5', path: '/lab/typing?seed=7&sheets=2&turn=0.42' },
+  // taken by the top of the right edge and pulled up-left: the axis leans, the sheet travels with the hand
+  ...[0.3, 0.7].map((turn) => ({ name: `desk-turn-tilt-${turn}`, path: `/lab/typing?seed=7&sheets=2&turn=${turn}&tilt=-0.4` })),
   { name: 'desk-cotton-verso', path: '/lab/typing?seed=7&paper=cotton&sheets=3&face=5' },
   // the whole journey, one frame per step (later steps start with a sample letter)
   { name: 'journey-write', path: '/lab/journey' },
@@ -63,6 +65,8 @@ const SHOTS = [
   ...[0.345, 0.365, 0.38, 0.42, 0.5, 0.6].map((t) => ({ name: `seal-${t}`, path: `/lab/mailbox?seed=1407&open=seal&t=${t}` })),
   // reading a letter of three sheets: front · turning over · its back · sliding off to sheet 2 · sheet 3 · its back
   ...[0, 0.35, 1, 1.3, 3, 4].map((turn) => ({ name: `read-${turn}`, path: `/lab/mailbox?seed=1407&sheets=3&t=1.01&turn=${turn}` })),
+  // taken high and pulled up-left: the turn leans; a read sheet pushed up-left slides off that way
+  ...[0.3, 0.7, 1.3].map((turn) => ({ name: `read-tilt-${turn}`, path: `/lab/mailbox?seed=1407&sheets=3&t=1.01&turn=${turn}&tilt=-0.4` })),
   { name: 'read-fr-quarter', path: '/lab/mailbox?seed=1407&country=fr&sheets=2&fold=quarter&t=1.01&turn=1' },
   { name: 'mbmulti-0.6', path: '/lab/mailbox?seed=1407&sheets=3&t=0.6' },
   // a four-sheet letter in her hands: address side · seal side (bulging) · the bulge gone once it is out
