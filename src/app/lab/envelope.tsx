@@ -5,8 +5,9 @@ import { Choice } from '@/components/Choice';
 import { Desk } from '@/components/Desk';
 import { useLabParams } from '@/lib/params';
 import { EnvelopeCeremony, type EnvelopeLook, type Stage } from '@/letter/EnvelopeCeremony';
-import { useLetterPicture, type LetterLook } from '@/letter/LetterSheet';
-import { SAMPLE_LETTER } from '@/letter/samples';
+import { useStackPictures, type LetterLook } from '@/letter/LetterSheet';
+import { sampleSheets } from '@/letter/samples';
+import { bulgeFor } from '@/letter/stack';
 import { SHEET_RATIO } from '@/letter/sheet';
 import { LINERS, WAX, WAX_TYPES, type LinerKind, type PaperKind, type WaxKind, type WaxType } from '@/theme/stationery';
 
@@ -34,8 +35,9 @@ export default function EnvelopeLab() {
 
   const seed = q.seed ?? 1407;
   const letterLook: LetterLook = { paper: 'cotton', ink: 'blueBlack', font: 'badScript', seed };
-  const { picture: front } = useLetterPicture(SAMPLE_LETTER, letterLook, sheet.width, sheet.height, 1);
-  const { picture: back } = useLetterPicture('', letterLook, sheet.width, sheet.height, 1, 'paper');
+  // ?sheets=2..4: a thicker letter goes in.
+  const [sheets] = useState(() => sampleSheets(q.sheets ?? 1));
+  const { front, back } = useStackPictures(sheets, letterLook, sheet.width, sheet.height, 1, 'tri', sheet.width);
 
   const [look, setLook] = useState<EnvelopeLook>({
     paper: (q.paper as PaperKind) ?? 'cream',
@@ -60,6 +62,8 @@ export default function EnvelopeLab() {
           letterFront={front}
           letterBack={back}
           sheet={sheet}
+          sheets={sheets.length}
+          bulge={bulgeFor('tri', sheets.length, letterLook.paper)}
           width={envW}
           look={look}
           onStage={setStage}

@@ -129,6 +129,7 @@ attachments(letter_id, storage_path, kind)                 -- Storage gated thro
   - gesture-driven opening with skip-on-reread
   - procedural postmark
   - shoebox archive
+  - several sheets (up to 4), each written on both sides or not (per-sheet choice): show-through by paper weight, folded as one stack, read by turning each sheet over
   - sound + haptics
   - RU/FR UI (i18n)
 - **v1:**
@@ -137,7 +138,7 @@ attachments(letter_id, storage_path, kind)                 -- Storage gated thro
   - more papers and envelope liners
   - stamp album with city unlocks
   - photo, washi-tape and pressed-flower enclosures
-  - reply on the back
+  - reply on the back (the body already has a verso per sheet)
   - PDF export
   - continuous haptics (Core Haptics module)
   - home-screen mailbox widget + Live Activity "arrives tomorrow at 10:00" (`expo-widgets`)

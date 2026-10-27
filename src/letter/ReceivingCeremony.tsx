@@ -1,6 +1,7 @@
 import {
   BlurMask,
   Canvas,
+  Paint,
   Text as SkiaText,
   Circle,
   DiscretePathEffect,
@@ -33,7 +34,7 @@ import { scheduleOnRN } from 'react-native-worklets';
 import { feel } from '../lib/haptics';
 import { WAX, type Country, type PaperKind, type Rgb } from '../theme/stationery';
 import { mulberry32, subSeed, wobble } from '../lib/random';
-import { ENVELOPE_MM, envelopeGeometry, recordEnvelope, recordFoldedLetter, type EnvelopeFormat } from './envelope';
+import { ENVELOPE_MM, envelopeGeometry, pocketPath, recordBulge, recordEnvelope, recordFoldedLetter, type EnvelopeFormat } from './envelope';
 import type { FoldKind } from './fold';
 import type { EnvelopeLook } from './EnvelopeCeremony';
 import { recordEnvelopeFront, type Address, type Postmark } from './envelopeFront';
@@ -87,9 +88,16 @@ type Props = {
   look: EnvelopeLook;
   address: Address;
   postmark: Postmark;
+  /** The folded letter, as FoldableLetter's front and back (top sheet's recto, last sheet's verso). */
   letterFront: SkPicture;
   letterBack: SkPicture;
   sheet: { width: number; height: number };
+  /** Sheets folded together (a thicker packet). */
+  sheets?: number;
+  /** How much the letter inside rounds the envelope out (bulgeFor), 0..1, until it is pulled out. */
+  bulge?: number;
+  /** The letter's own seed, where its creases are (defaults to the envelope's). */
+  foldSeed?: number;
   /** RU: the flat number painted on the door. */
   flat: number;
   /** FR: the name on the nameplate. */
@@ -136,6 +144,9 @@ export function ReceivingCeremony({
   letterFront,
   letterBack,
   sheet,
+  sheets = 1,
+  bulge = 0,
+  foldSeed,
   flat,
   name = '',
   country = 'ru',
@@ -183,8 +194,8 @@ export function ReceivingCeremony({
     [faces, others, width],
   );
   const letter = useMemo(
-    () => recordFoldedLetter(letterFront, letterBack, sheet, look.seed, fold),
-    [letterFront, letterBack, sheet, look.seed, fold],
+    () => recordFoldedLetter(letterFront, letterBack, sheet, foldSeed ?? look.seed, fold, sheets),
+    [letterFront, letterBack, sheet, foldSeed, look.seed, fold, sheets],
   );
   const edge = useMemo(() => {
     const pts = slitEdge(ew, look.seed);
@@ -479,6 +490,11 @@ export function ReceivingCeremony({
     const y1 = -letter.height * letterScale - 14;
     return [{ translateX: (ew - lw) / 2 }, { translateY: lerp(y0, y1, k) }, { rotate: letterTilt * k }, { scale: letterScale }];
   });
+  // The envelope stays rounded over the letter until it is pulled out.
+  const pocket = useMemo(() => pocketPath(g), [g]);
+  const lh = letter.height * letterScale;
+  const bulgePic = useMemo(() => recordBulge(g, { x: (ew - lw) / 2, y: eh - lh - 4, w: lw, h: lh }, bulge), [g, ew, eh, lw, lh, bulge]);
+  const stillIn = useDerivedValue(() => 1 - Math.min(1, pull.get() * 1.4));
   // Pictures ignore group opacity: hide the letter with a clip until the envelope is open.
   const letterClip = useDerivedValue(() => (flip.get() >= 1 && slit.get() >= 1 ? BIG : EMPTY));
 
@@ -498,6 +514,7 @@ export function ReceivingCeremony({
   const flapInnerClip = useDerivedValue(() => (flapAngle.get() > Math.PI / 2 ? flapBounds : EMPTY));
   const flapOuterClip = useDerivedValue(() => (flapAngle.get() > Math.PI / 2 ? EMPTY : flapBounds));
   const flapShade = useDerivedValue(() => 0.28 * Math.sin(flapAngle.get()));
+  const flapStillDown = useDerivedValue(() => stillIn.get() * (1 - Math.min(1, flapAngle.get() / 0.3)));
   const fibresShown = useDerivedValue(() => snapped.get() * Math.min(1, flapAngle.get() * 3));
   // Flexible wax under strain: stretched where it is still stuck to the body, a bend along the flap edge.
   const stretch = useDerivedValue(() => [{ scaleY: breakV.get() < SNAP ? 1 + 0.07 * strain.get() : 1 }]);
@@ -532,6 +549,7 @@ export function ReceivingCeremony({
             <Group clip={inBoxClip}>
               <Group transform={poseTransform}>
                 <Picture picture={front} />
+                {bulge > 0 && <Picture picture={bulgePic} />}
               </Group>
             </Group>
           )}
@@ -580,6 +598,7 @@ export function ReceivingCeremony({
             <Group origin={{ x: ew / 2, y: eh / 2 }} transform={flipTransform}>
               <Group clip={frontClip}>
                 <Picture picture={front} />
+                {bulge > 0 && <Picture picture={bulgePic} />}
                 <Rect rect={envRect} color="#140c04" opacity={flipShade} />
               </Group>
               <Group clip={backClip}>
@@ -587,6 +606,12 @@ export function ReceivingCeremony({
                 <Group transform={[{ translateX: ew }, { scaleX: -1 }]}>
                   <Picture picture={parts.pocket} />
                   <Picture picture={parts.flapOuter} />
+                  {bulge > 0 && (
+                    // Mirrored back: the lamp is still top-left, so the bulge is drawn unmirrored.
+                    <Group transform={[{ translateX: ew }, { scaleX: -1 }]} layer={<Paint opacity={stillIn} />}>
+                      <Picture picture={bulgePic} />
+                    </Group>
+                  )}
                   <WaxSeal seal={g.seal} wax={look.wax} initials={look.initials} seed={look.seed} pour={1} imprint={1} cracked={!flexible} />
                   <Rect rect={envRect} opacity={0.6}>
                     <RadialGradient c={vec(ew / 2, eh / 2)} r={ew * 0.62} colors={['rgba(60,40,20,0)', 'rgba(60,40,20,0.08)']} />
@@ -617,6 +642,11 @@ export function ReceivingCeremony({
                 <Picture picture={letter.picture} />
               </Group>
               <Picture picture={parts.pocket} />
+              {bulge > 0 && (
+                <Group clip={pocket} layer={<Paint opacity={stillIn} />}>
+                  <Picture picture={bulgePic} />
+                </Group>
+              )}
               {/* paper fibres torn where the flap was glued */}
               {/* rough, uneven: the top layer of paper came away with the gum */}
               <Path path={broken.fibres} style="stroke" strokeWidth={1.8} strokeCap="round" color="rgba(252, 249, 240, 0.75)" opacity={fibresShown}>
@@ -647,6 +677,11 @@ export function ReceivingCeremony({
               <Group origin={{ x: ew / 2, y: 0 }} transform={flapTransform}>
                 <Group clip={flapOuterClip}>
                   <Picture picture={parts.flapOuter} />
+                  {bulge > 0 && (
+                    <Group clip={g.flap} layer={<Paint opacity={flapStillDown} />}>
+                      <Picture picture={bulgePic} />
+                    </Group>
+                  )}
                   {flexible ? (
                     /* flexible wax goes with the flap, whole */
                     <Group origin={{ x: g.seal.x, y: g.seal.y - g.seal.maxR }} transform={stretch}>

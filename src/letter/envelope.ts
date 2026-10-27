@@ -3,6 +3,7 @@ import {
   BlurStyle,
   ClipOp,
   PaintStyle,
+  PathOp,
   TileMode,
   Skia,
   StrokeCap,
@@ -218,14 +219,124 @@ export function recordEnvelope(g: EnvelopeGeometry, paper: PaperKind, liner: Lin
   return { interior, pocket, flapOuter, flapInner };
 }
 
+/** Where the folded letter rests inside an envelope (envelope coordinates), turned by `rot` radians about its top-left corner. */
+export type PacketRect = { x: number; y: number; w: number; h: number; rot?: number };
+
+/** The side and bottom flaps as one outline: the paper over the letter while the flap is open. */
+export function pocketPath(g: EnvelopeGeometry): SkPath {
+  const sides = Skia.Path.MakeFromOp(g.left, g.right, PathOp.Union) ?? g.left;
+  return Skia.Path.MakeFromOp(sides, g.bottom, PathOp.Union) ?? sides;
+}
+
+/** The letter lying on the bottom of the pocket when only the envelope is known (as in the postbox). */
+export function restingPacket(g: EnvelopeGeometry): PacketRect {
+  const w = g.width * 0.93;
+  const h = g.height * 0.88;
+  return { x: (g.width - w) / 2, y: g.height - h - g.height * 0.045, w, h };
+}
+
+/**
+ * The envelope bulging over a thick letter, as an overlay on either face (`amount`
+ * 0..1, from bulgeFor). The paper is drawn taut over the packet: its edges press
+ * through, lit on the lamp's side (top-left) and shaded on the far side; the
+ * middle domes a little, lighter towards the lamp; from about half a bulge,
+ * tension wrinkles run from the packet's corners towards the envelope's.
+ * Callers clip it to the paper actually lying over the letter and fade it out
+ * when the letter is not in the envelope.
+ */
+export function recordBulge(g: EnvelopeGeometry, packet: PacketRect, amount: number): SkPicture {
+  const { width: w, height: h } = g;
+  return record(w, 0, h, (c) => {
+    if (amount <= 0) return;
+    const a = Math.min(1, amount);
+    const { w: pw, h: ph } = packet;
+
+    // Tension wrinkles first, under the packet's own shading.
+    if (a > 0.35) {
+      const k = (a - 0.35) / 0.65;
+      const rot = packet.rot ?? 0;
+      const cos = Math.cos(rot);
+      const sin = Math.sin(rot);
+      const at = (x: number, y: number): [number, number] => [packet.x + x * cos - y * sin, packet.y + x * sin + y * cos];
+      const corners: [[number, number], [number, number]][] = [
+        [at(0, 0), [0, 0]],
+        [at(pw, 0), [w, 0]],
+        [at(0, ph), [0, h]],
+        [at(pw, ph), [w, h]],
+      ];
+      const dark = Skia.Paint();
+      dark.setStyle(PaintStyle.Stroke);
+      dark.setStrokeWidth(1.4);
+      dark.setStrokeCap(StrokeCap.Round);
+      dark.setMaskFilter(Skia.MaskFilter.MakeBlur(BlurStyle.Normal, 1.1, true));
+      dark.setColor(Skia.Color(`rgba(30, 18, 8, ${0.13 * k})`));
+      const light = dark.copy();
+      light.setColor(Skia.Color(`rgba(255, 251, 242, ${0.22 * k})`));
+      for (const [[px, py], [ex, ey]] of corners) {
+        // Only part of the way: the crease dies out before the envelope's corner.
+        const tx = px + (ex - px) * 0.55 * k;
+        const ty = py + (ey - py) * 0.55 * k;
+        c.drawLine(px, py, tx, ty, dark);
+        c.drawLine(px - 0.9, py - 1.1, tx - 0.9, ty - 1.1, light);
+      }
+    }
+
+    c.save();
+    c.translate(packet.x, packet.y);
+    c.rotate(((packet.rot ?? 0) * 180) / Math.PI, 0, 0);
+    const body = Skia.RRectXY(Skia.XYWHRect(0, 0, pw, ph), 3, 3);
+
+    // The dome: lighter towards the lamp, darker away from it, soft at the rim.
+    const dome = Skia.Paint();
+    dome.setShader(
+      Skia.Shader.MakeLinearGradient(
+        { x: 0, y: 0 },
+        { x: pw * 0.55, y: ph },
+        [Skia.Color(`rgba(255, 251, 242, ${0.16 * a})`), Skia.Color('rgba(255, 251, 242, 0)'), Skia.Color(`rgba(30, 18, 8, ${0.12 * a})`)],
+        [0, 0.45, 1],
+        TileMode.Clamp,
+      ),
+    );
+    dome.setMaskFilter(Skia.MaskFilter.MakeBlur(BlurStyle.Normal, 2 + 3 * a, true));
+    c.drawRRect(body, dome);
+
+    // The packet's edges pressing through: shade beyond the far edges, a lit lip along the near ones.
+    const shade = Skia.Paint();
+    shade.setStyle(PaintStyle.Stroke);
+    shade.setStrokeWidth(1.2 + 1.4 * a);
+    shade.setMaskFilter(Skia.MaskFilter.MakeBlur(BlurStyle.Normal, 0.8 + 1.4 * a, true));
+    shade.setColor(Skia.Color(`rgba(30, 18, 8, ${0.32 * a})`));
+    const far = Skia.PathBuilder.Make()
+      .moveTo(pw + 0.8, 2)
+      .lineTo(pw + 0.8, ph + 0.8)
+      .lineTo(2, ph + 0.8)
+      .detach();
+    c.drawPath(far, shade);
+    const lip = Skia.Paint();
+    lip.setStyle(PaintStyle.Stroke);
+    lip.setStrokeWidth(1 + 0.8 * a);
+    lip.setMaskFilter(Skia.MaskFilter.MakeBlur(BlurStyle.Normal, 1 + 1.2 * a, true));
+    lip.setColor(Skia.Color(`rgba(255, 252, 244, ${0.38 * a})`));
+    const near = Skia.PathBuilder.Make()
+      .moveTo(0.6, ph - 2)
+      .lineTo(0.6, 0.6)
+      .lineTo(pw - 2, 0.6)
+      .detach();
+    c.drawPath(near, lip);
+    c.restore();
+  });
+}
+
 /**
  * The folded letter as seen from outside: the back of the last panel folded on
- * top, a little of its own writing showing through (mirrored by the fold), the
- * edges of the hidden panels pressing through as faint lines.
+ * top (with its own writing showing through, baked into `back`), the edges of the
+ * hidden panels and of the other sheets pressing through as faint lines.
  *   tri      the back of the top third over the middle third (DL)
  *   half     the back of the top half over the bottom half (A5)
  *   quarter  the back of the bottom-right quarter over the bottom-left (A6),
  *            turned sideways: that is how an A6 goes into a C6
+ * `front` is the top sheet's recto, `back` the last sheet's verso in the recto's
+ * coordinates (FoldableLetter's pair); `sheets` how many were folded together.
  */
 export function recordFoldedLetter(
   front: SkPicture,
@@ -233,6 +344,7 @@ export function recordFoldedLetter(
   sheet: { width: number; height: number },
   seed: number,
   kind: FoldKind = 'tri',
+  sheets = 1,
 ): { picture: SkPicture; width: number; height: number } {
   const { width: W, height: H } = sheet;
   const lines = foldLines(kind, W, H, seed);
@@ -244,40 +356,63 @@ export function recordFoldedLetter(
   const recorder = Skia.PictureRecorder();
   const c = recorder.beginRecording(Skia.XYWHRect(-10, -10, stackW + 20, stackH + 20));
 
-  // Soft shadow of the whole stack.
+  // Soft shadow of the whole stack, a little deeper for a thicker one.
   const shadow = Skia.Paint();
-  shadow.setColor(Skia.Color('rgba(30, 18, 8, 0.3)'));
-  shadow.setMaskFilter(Skia.MaskFilter.MakeBlur(BlurStyle.Normal, 2.5, true));
+  shadow.setColor(Skia.Color(`rgba(30, 18, 8, ${0.3 + 0.03 * (sheets - 1)})`));
+  shadow.setMaskFilter(Skia.MaskFilter.MakeBlur(BlurStyle.Normal, 2.5 + 0.4 * (sheets - 1), true));
   c.drawRect(Skia.XYWHRect(1, 2, stackW, stackH), shadow);
 
-  c.save();
-  c.clipRect(Skia.XYWHRect(0, 0, stackW, stackH), ClipOp.Intersect, true);
-  c.translate(0, -a);
-  c.drawPicture(back);
-  c.restore();
-
-  // Through paper, writing is faint and diffuse, never crisp.
-  const ghost = Skia.Paint();
-  ghost.setAlphaf(0.045);
-  ghost.setImageFilter(Skia.ImageFilter.MakeBlur(0.9, 0.9, TileMode.Decal, null));
   const line = Skia.Paint();
   line.setStyle(PaintStyle.Stroke);
   line.setStrokeWidth(1);
+  const stack = Skia.XYWHRect(0, 0, stackW, stackH);
 
-  if (kind === 'quarter') {
-    // The right quarter's own writing, mirrored about the vertical crease.
+  // The sheets inside go round a tighter fold, so at the open edge each one sticks out a hair further
+  // (towards `dir`, the side the outer panel leaves uncovered).
+  const creep = (edge: number, vertical: boolean, dir = 1) => {
+    for (let k = 1; k < sheets; k++) {
+      line.setColor(Skia.Color(`rgba(30, 18, 8, ${0.1 - 0.02 * k})`));
+      const at = edge + dir * 0.7 * k;
+      if (vertical) c.drawLine(at, 0, at, stackH, line);
+      else c.drawLine(0, at, stackW, at, line);
+    }
+  };
+
+  /** The back of the top half, folded down over the bottom half about m (also the top third about a). */
+  const topPanelBack = (crease: number, clip: ReturnType<typeof Skia.XYWHRect>) => {
     c.save();
-    c.clipRect(Skia.XYWHRect(Math.max(0, 2 * x - W), 0, stackW, stackH), ClipOp.Intersect, true);
-    c.saveLayer(ghost);
-    c.translate(2 * x, -a);
-    c.scale(-1, 1);
+    c.clipRect(clip, ClipOp.Intersect, true);
+    c.translate(0, crease);
+    c.scale(1, -1);
+    c.drawPicture(back);
+    c.restore();
+  };
+
+  // Beneath it all, the bottom half's front (seen where the panels above fall short).
+  const bottomFront = () => {
+    c.save();
+    c.clipRect(stack, ClipOp.Intersect, true);
+    c.translate(0, -a);
     c.drawPicture(front);
     c.restore();
+  };
+
+  if (kind === 'quarter') {
+    bottomFront();
+    topPanelBack(a, Skia.XYWHRect(0, 0, stackW, Math.min(a, stackH)));
+    // On top, the bottom half's right quarter, turned over about the vertical crease.
+    const left = Math.max(0, 2 * x - W);
+    c.save();
+    c.clipRect(Skia.XYWHRect(left, 0, stackW - left, stackH), ClipOp.Intersect, true);
+    c.translate(2 * x, -a);
+    c.scale(-1, 1);
+    c.drawPicture(back);
     c.restore();
     // Its outer edge, if it falls short of the fold's far side.
-    if (2 * x - W > 1) {
+    if (left > 1) {
       line.setColor(Skia.Color('rgba(30, 18, 8, 0.16)'));
-      c.drawLine(2 * x - W + 0.5, 0, 2 * x - W + 0.5, stackH, line);
+      c.drawLine(left + 0.5, 0, left + 0.5, stackH, line);
+      creep(left + 0.5, true, -1);
     }
     const upright = recorder.finishRecordingAsPicture();
     const turned = Skia.PictureRecorder();
@@ -288,20 +423,24 @@ export function recordFoldedLetter(
     return { picture: turned.finishRecordingAsPicture(), width: stackH, height: stackW };
   }
 
-  // Show-through of the top panel's own writing, mirrored about its crease.
-  c.save();
-  c.clipRect(Skia.XYWHRect(0, 0, W, Math.min(a, stackH)), ClipOp.Intersect, true);
-  c.saveLayer(ghost);
-  c.translate(0, a);
-  c.scale(1, -1);
-  c.drawPicture(front);
-  c.restore();
-  c.restore();
+  // Beneath the top panel, where it falls short: the bottom third's back (folded up about b), or the bottom half's front.
+  bottomFront();
+  if (kind === 'tri') {
+    const reach = Math.max(0, stackH - (H - b));
+    c.save();
+    c.clipRect(Skia.XYWHRect(0, reach, stackW, stackH - reach), ClipOp.Intersect, true);
+    c.translate(0, 2 * b - a);
+    c.scale(1, -1);
+    c.drawPicture(back);
+    c.restore();
+  }
+  topPanelBack(a, Skia.XYWHRect(0, 0, W, Math.min(a, stackH)));
 
   // Edge of the top panel (if shorter than the stack) and of the bottom panel beneath it.
   if (a < stackH - 1) {
     line.setColor(Skia.Color('rgba(30, 18, 8, 0.16)'));
     c.drawLine(0, a + 0.5, W, a + 0.5, line);
+    creep(a + 0.5, false);
   }
   const hidden = 2 * b - H - a;
   if (kind === 'tri' && hidden > 1 && hidden < stackH - 1) {

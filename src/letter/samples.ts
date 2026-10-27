@@ -1,3 +1,5 @@
+import type { SheetContent } from './stack';
+
 /** Test copy that exercises Cyrillic (ё, й, щ, ъ) and French accents/ligatures together. */
 export const SAMPLE_LETTER = `Моя хорошая,
 
@@ -35,3 +37,31 @@ export const SHORT_NOTES = {
     `Mon amour,\n\n    plus que douze jours. Ce n'est rien, douze jours, n'est-ce pas ?\n\nM.`,
   ],
 };
+
+/** Sheet faces for multi-sheet samples, in reading order (RU, with a little French). */
+const SAMPLE_FACES = [
+  SAMPLE_LETTER,
+  `    А ещё — помнишь ту лавку с вареньем на углу? Её закрыли, и мне почему-то грустно, будто закрыли кусочек нашего лета.\n\n    Je garde le pot de confiture de cerises pour ton retour. Ne ris pas.`,
+  `Лист второй, потому что первый кончился.\n\n    Вчера шёл через мост и считал фонари: ровно сорок два. Ты бы сказала, что это знак. Может, и знак.`,
+  `    Ещё немного, и я опять начну писать на полях. Целую в нос.\n\nP.S. Le facteur m'a souri ce matin, il sait.`,
+  `Третий лист — это уже роман, да?\n\n    Мама передаёт привет и спрашивает, ешь ли ты суп. Ешь, пожалуйста.`,
+  `    Всё, заканчиваю, а то конверт не закроется.\n\nТвой Н.`,
+  `Четвёртый. Обещаю, последний.\n\n    Просто хотелось ещё побыть с тобой на бумаге.`,
+  `    Je t'embrasse fort, très fort.`,
+];
+
+/**
+ * A deterministic stack of `n` sheets (1–4) for labs and visual QA: the backs of
+ * sheets 1, 3 and 4 are written, sheet 2's back is left blank (a turned-off verso).
+ * One sheet is SAMPLE_LETTER alone, front only: the letter the labs always showed.
+ */
+export function sampleSheets(n: number): SheetContent[] {
+  return Array.from({ length: Math.max(1, Math.min(4, n)) }, (_, i) => {
+    const twoSided = n > 1 && i !== 1;
+    return {
+      recto: { text: SAMPLE_FACES[i * 2], strokes: [] },
+      verso: { text: twoSided ? SAMPLE_FACES[i * 2 + 1] : '', strokes: [] },
+      twoSided,
+    };
+  });
+}

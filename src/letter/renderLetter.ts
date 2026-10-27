@@ -3,14 +3,16 @@ import {
   BlurStyle,
   Skia,
   type SkFont,
+  type SkImage,
   type SkPicture,
   type SkRuntimeEffect,
 } from '@shopify/react-native-skia';
 
-import { mulberry32, subSeed, wobble } from '../lib/random';
-import { LIGHT_DIR, type PaperSpec, type Rgb } from '../theme/stationery';
+import type { PaperSpec, Rgb } from '../theme/stationery';
 import { layoutHandwriting, type HandwritingLayout } from './handwriting';
+import { paperUniforms, writingArea, type SheetGeometry, type Side } from './paperLayout';
 import { INK_SKSL, PAPER_SKSL } from './shaders';
+import { drawGhost } from './showThrough';
 
 let paperEffect: SkRuntimeEffect | null = null;
 let inkEffect: SkRuntimeEffect | null = null;
@@ -22,37 +24,7 @@ function effects() {
   return { paper: paperEffect, ink: inkEffect };
 }
 
-export type SheetGeometry = { width: number; height: number };
-
-/** The two fold lines of a tri-fold: near the thirds, never exactly on them. */
-export function creaseOffsets(seed: number): [number, number] {
-  const rand = mulberry32(subSeed(seed, 'fold'));
-  return [wobble(rand, 5), wobble(rand, 5)];
-}
-
-export function paperUniforms(
-  paper: PaperSpec,
-  sheet: SheetGeometry,
-  seed: number,
-  crease: number,
-  fold: 'tri' | 'half' | 'quarter' = 'tri',
-): number[] {
-  const [c1, c2] = creaseOffsets(seed);
-  const marginX = paper.kind === 'grid' ? sheet.width - paper.cell * 2.6 : 0;
-  return [
-    sheet.width, sheet.height,
-    seed % 9973,
-    ...paper.base,
-    paper.cell,
-    marginX,
-    ...paper.gridColor,
-    ...paper.marginColor,
-    crease,
-    LIGHT_DIR.x, LIGHT_DIR.y,
-    c1, c2,
-    fold === 'tri' ? 0 : fold === 'half' ? 1 : 2,
-  ];
-}
+export { creaseOffsets, paperUniforms, writingArea, type SheetGeometry, type Side } from './paperLayout';
 
 export function measureWithFont(font: SkFont) {
   return (word: string) => {
@@ -61,26 +33,6 @@ export function measureWithFont(font: SkFont) {
     for (const w of widths) sum += w;
     return sum;
   };
-}
-
-/** Writing area for a sheet: inside the margins, baselines on the grid. */
-export function writingArea(paper: PaperSpec, sheet: SheetGeometry, fontSize: number) {
-  if (paper.kind === 'grid') {
-    // Notebook habit: start two cells in, write on every second line of cells,
-    // baselines sitting exactly on a printed grid line.
-    const cell = paper.cell;
-    const left = cell * 2;
-    const right = sheet.width - cell * 3.2;
-    const lineHeight = cell * 2;
-    const top = cell * 4;
-    const maxLines = Math.floor((sheet.height - top - cell * 2) / lineHeight) + 1;
-    return { left, top, maxWidth: right - left, lineHeight, maxLines };
-  }
-  const left = sheet.width * 0.1;
-  const lineHeight = fontSize * 1.75;
-  const top = sheet.height * 0.09 + lineHeight * 0.6;
-  const maxLines = Math.floor((sheet.height * 0.93 - top) / lineHeight) + 1;
-  return { left, top, maxWidth: sheet.width * 0.8, lineHeight, maxLines };
 }
 
 export type LetterRenderInput = {
@@ -96,14 +48,25 @@ export type LetterRenderInput = {
   layers?: 'all' | 'paper' | 'ink';
   /** Where the creases are (see fold.ts). */
   fold?: 'tri' | 'half' | 'quarter';
+  /** Which face: the verso mirrors the paper (margin on the left) and the writing area. */
+  side?: Side;
+  /** Pulp of this sheet (defaults to `seed`); `seed` itself drives the handwriting jitter and ink. */
+  paperSeed?: number;
+  /** Creases of the whole stack (defaults to `seed`). */
+  foldSeed?: number;
+  /** The other face's ink, already mirrored and blurred (showThrough.ts), drawn into the paper. */
+  ghost?: SkImage | null;
+  /** Lines allowed past the sheet's own count: a face written at one width never loses words at another. */
+  extraLines?: number;
 };
 
 export function layoutLetter(input: LetterRenderInput): HandwritingLayout {
-  const area = writingArea(input.paper, input.sheet, input.font.getSize());
+  const area = writingArea(input.paper, input.sheet, input.font.getSize(), input.side);
   return layoutHandwriting(input.text, measureWithFont(input.font), {
     seed: input.seed,
     fontSize: input.font.getSize(),
     ...area,
+    maxLines: area.maxLines + (input.extraLines ?? 0),
   });
 }
 
@@ -120,8 +83,13 @@ export function recordLetter(input: LetterRenderInput, layout = layoutLetter(inp
   const layers = input.layers ?? 'all';
   if (layers !== 'ink') {
     const paperPaint = Skia.Paint();
-    paperPaint.setShader(paper.makeShader(paperUniforms(input.paper, input.sheet, input.seed, input.crease, input.fold)));
+    paperPaint.setShader(
+      paper.makeShader(
+        paperUniforms(input.paper, input.sheet, input.paperSeed ?? input.seed, input.crease, input.fold, input.side, input.foldSeed ?? input.seed),
+      ),
+    );
     canvas.drawRect(Skia.XYWHRect(0, 0, width, height), paperPaint);
+    if (input.ghost) drawGhost(canvas, input.ghost, input.sheet, input.paper.showThrough);
   }
   if (layers === 'paper') return recorder.finishRecordingAsPicture();
 

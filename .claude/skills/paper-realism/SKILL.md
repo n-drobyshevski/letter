@@ -18,8 +18,17 @@ The illusion breaks on the *first* digital-looking detail. Every rule below exis
 ## Paper
 - Shader: `PAPER_SKSL` in `src/letter/shaders.ts` — mottling (fbm ~0.0045), grain (~0.85), fibres (anisotropic fbm), printed rules with uneven strike, tri-fold creases that never fully vanish (`uCrease` 1 → ~0.35 after reading), faint edge darkening.
 - Grain/mottle amplitude stays within 4–8 %; if it is visible at arm's length it is too strong.
-- Russian notebook (`grid`): ~30 cells across, grey-blue rules at ~40 % strength, **red/pink margin on the right**, baselines exactly on grid lines, writing on every second line (`writingArea`).
+- Russian notebook (`grid`): ~30 cells across, grey-blue rules at ~40 % strength, **red/pink margin on the outer edge** (right on the recto, left on the verso), baselines exactly on grid lines, writing on every second line (`writingArea`).
 - Cotton: warm, no rules, more bleed.
+
+## Both sides, several sheets (`src/letter/stack.ts`, `showThrough.ts`)
+- A sheet turns like a book page (about the vertical axis): the top stays up. The verso is the same pulp mirrored (`PAPER_SKSL` `uSide`), creases read as ridges, the margin is on the left.
+- **Show-through** is per paper (`PaperSpec.showThrough`, from opacity): notebook 10 %, cotton 6 %, cream 6 %, kraft 4 %. The other face's ink, mirrored, blurred by `ghostBlur` (≈ 0.2 mm), a little warmer and greyer, multiplied into the *paper* layer (never the ink layer). Never crisp. A blank other side means no ghost.
+- Faces are baked once (`useSheetFaces`): paper + ghost + ink + strokes. The ghost is a half-resolution image so fold panels never blur live.
+- Seeds: sheet 1's recto keeps the letter seed; every other sheet has its own pulp (`paperSeed`) and every face its own hand (`inkSeed`); creases use the letter seed for the whole stack. The seed travels in the body (`body.seed`): the recipient lays the words out with the desk's seed.
+- A face is written to the desk's last line; every other render lays it out with a line to spare (`extraLines`), so no word is lost at another width.
+- A stack is never aligned: `sheetJitter` (±1.5 px, ±0.5°). Folded together, the sheets under the top one show only as edges (`FoldableLetter sheets`), the packet gets one creep hairline per extra sheet at its open edge.
+- **Bulge** (`recordBulge`, amount from `bulgeFor`): thickness = layers (tri 3, half 2, quarter 4) × sheets × caliper (notebook 0.075 mm, cotton 0.13) × 1.3 for the air in the creases; flat under ~0.7 mm (every one-sheet letter), full by ~2.2 mm. The paper goes taut over the packet: a lit lip on its lamp side, shade beyond its far edges, a slight dome, and from half a bulge tension wrinkles from its corners towards the envelope's. Only while the letter is inside: it fades in at the end of the insert and out as the letter is pulled; on the open back it is clipped to the pocket flaps, on the closing flap shown only once it is down.
 
 ## Handwriting (typed)
 - Fonts must cover RU + FR; `tests/fonts.test.ts` enforces it. Allowed: Bad Script, Marck Script (native Russian cursive), Caveat. Never Homemade Apple, Reenie Beanie, La Belle Aurore (Latin only).
@@ -36,7 +45,7 @@ The illusion breaks on the *first* digital-looking detail. Every rule below exis
 - The closing flap must cover the whole pocket opening: side-flap tips sit *above* its edges, or the inside shows through as a sliver.
 - Each flap gets its own paper seed and a ±2–3 % tint (no two flaps are lit identically), a tiny drop shadow on its edges, and the far wall is in shade (darker towards the bottom).
 - Inside: liner with a fine "security" diamond pattern (`LINER_SKSL`); the flap's inside carries a gum strip along both edges.
-- Folded letter (`recordFoldedLetter`): back of the top third on top, mirrored show-through at ~4.5 % *blurred* (crisp ghost text reads as print), faint lines where hidden panel edges press through.
+- Folded letter (`recordFoldedLetter`): the back of the last sheet on the top panel, flipped about its crease, with its own front showing through *blurred* (baked in, crisp ghost text reads as print); faint lines where hidden panel edges and the other sheets press through.
 
 ## Envelope front (`envelopeFront.ts`)
 - Russian printed fields «От кого / Откуда / Кому / Куда» + the six-box index template, in a printed slate ink; filled in by hand (`layoutHandwriting`, one line each).

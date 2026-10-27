@@ -5,7 +5,7 @@ import { Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-na
 import { Choice } from '@/components/Choice';
 import { Desk } from '@/components/Desk';
 import { SignIn } from '@/components/SignIn';
-import { draftBody, isEmptyDraft, setDraft, useDraft, type Draft } from '@/lib/draft';
+import { MAX_BODY_BYTES, bodyBytes, draftBody, isEmptyDraft, setDraft, useDraft, writtenSheets, type Draft } from '@/lib/draft';
 import { postLetter, retrieveLetter, useCouple, useLettersInTransit, useSession, type Couple } from '@/lib/mail';
 import { useLabParams } from '@/lib/params';
 import { supabase } from '@/lib/supabase';
@@ -14,6 +14,7 @@ import type { EnvelopeLook } from '@/letter/EnvelopeCeremony';
 import { formatForFold } from '@/letter/envelope';
 import { FOLD_KINDS, type FoldKind } from '@/letter/fold';
 import { PostingCeremony } from '@/letter/PostingCeremony';
+import { bulgeFor } from '@/letter/stack';
 import { promiseLine, type LetterRow } from '@/letter/tracking/fromServer';
 import { routed, type Tier } from '@/letter/tracking/itinerary';
 import type { Lang } from '@/letter/tracking/copy';
@@ -62,6 +63,7 @@ const COPY = {
     write: 'Сначала напиши письмо',
     toDesk: 'За стол →',
     empty: 'Конверт пустой: сначала напиши письмо',
+    heavy: 'Письмо слишком тяжёлое для конверта: убери лист или часть рисунков',
     refused: (why: string) => `Ящик не принял письмо: ${why}`,
     tooLate: 'Поздно: письмо уже забрали',
     track: 'Где письмо? →',
@@ -88,6 +90,7 @@ const COPY = {
     write: 'Écris d’abord ta lettre',
     toDesk: 'À ton bureau →',
     empty: 'L’enveloppe est vide : écris d’abord ta lettre',
+    heavy: 'La lettre est trop lourde pour l’enveloppe : retire une feuille ou quelques dessins',
     refused: (why: string) => `La boîte n’a pas pris la lettre : ${why}`,
     tooLate: 'Trop tard : la lettre est déjà partie',
     track: 'Où est ma lettre ? →',
@@ -194,12 +197,14 @@ function LivePost({ couple, onOffline }: { couple: Couple; onOffline: () => void
 
   const onPosted = async () => {
     if (isEmptyDraft(draft)) return bounce(copy.empty);
+    const body = draftBody(draft!);
+    if (bodyBytes(body) > MAX_BODY_BYTES) return bounce(copy.heavy);
     setState('sending');
     setNotice(null);
     try {
       const row = await postLetter({
         tier,
-        body: draftBody(draft!),
+        body,
         envelope: { ...look },
         seed,
       });
@@ -265,6 +270,7 @@ function LivePost({ couple, onOffline }: { couple: Couple; onOffline: () => void
           collectAt={collectAt}
           commitKey={commitKey}
           retrieveKey={retrieveKey}
+          bulge={draft ? bulgeFor(draft.fold ?? 'tri', writtenSheets(draft).length, draft.look.paper) : 0}
           onPosted={onPosted}
           onRetrieved={onRetrieved}
         />
@@ -340,6 +346,8 @@ function PostLab() {
     seed: q.seed ?? 1407,
     format: formatForFold(FOLD_KINDS.includes(q.fold as FoldKind) ? (q.fold as FoldKind) : 'tri'),
   };
+  // ?sheets=2..4: a thicker letter in the envelope (cotton paper).
+  const bulge = bulgeFor(FOLD_KINDS.includes(q.fold as FoldKind) ? (q.fold as FoldKind) : 'tri', q.sheets ?? 1, 'cotton');
 
   const hint = {
     ready: copy.ready,
@@ -367,6 +375,7 @@ function PostLab() {
           fixedT={q.t}
           commitKey={commitKey}
           retrieveKey={retrieveKey}
+          bulge={bulge}
           onPosted={() => setState('posted')}
           onRetrieved={() => setState('ready')}
         />

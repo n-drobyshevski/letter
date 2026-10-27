@@ -20,12 +20,21 @@ export type PaperSpec = {
   marginColor: Rgb;
   /** How strongly ink feathers into this paper (0..1). */
   bleed: number;
+  /**
+   * Show-through: how dark the other face's ink reads through the sheet (multiplied, 0..1).
+   * From opacity: ~60 g notebook paper 10–15 %, copy paper 6–10 %, 100–120 g cotton 3–5 % (a touch more here: a ghost too faint to see is no cue).
+   */
+  showThrough: number;
+  /** How far light scatters inside the sheet, blurring that ghost (px on a ~440 px sheet, ≈ 0.2 mm). */
+  ghostBlur: number;
 };
 
 export const PAPERS: Record<PaperKind, PaperSpec> = {
   // Школьная тетрадь в клетку: grey-blue 5 mm grid, red/pink margin.
   grid: {
     kind: 'grid',
+    showThrough: 0.1,
+    ghostBlur: 0.9,
     base: [0.965, 0.955, 0.93],
     cell: 19,
     marginX: 0, // set from sheet width at layout time (right-hand margin, as in a real notebook)
@@ -36,6 +45,8 @@ export const PAPERS: Record<PaperKind, PaperSpec> = {
   // Cotton writing paper: warm, no rules, slightly stronger fibres.
   cotton: {
     kind: 'cotton',
+    showThrough: 0.06,
+    ghostBlur: 1.3,
     base: [0.955, 0.93, 0.88],
     cell: 0,
     marginX: 0,
@@ -46,6 +57,8 @@ export const PAPERS: Record<PaperKind, PaperSpec> = {
   // Envelope stock.
   cream: {
     kind: 'cream',
+    showThrough: 0.06,
+    ghostBlur: 1.2,
     base: [0.94, 0.905, 0.83],
     cell: 0,
     marginX: 0,
@@ -55,6 +68,8 @@ export const PAPERS: Record<PaperKind, PaperSpec> = {
   },
   kraft: {
     kind: 'kraft',
+    showThrough: 0.04,
+    ghostBlur: 1.4,
     base: [0.76, 0.6, 0.43],
     cell: 0,
     marginX: 0,
@@ -175,8 +190,8 @@ export const POSTAL = {
   ] as const,
 };
 
-/** The single desk light: from the top-left, slightly in front. */
-export const LIGHT_DIR = { x: -0.45, y: -0.75 } as const;
+/** The single desk light: from the top-left, slightly in front (defined with the Skia-free sheet geometry). */
+export { LIGHT_DIR } from '../letter/paperLayout';
 
 export const DESK = {
   background: '#2a211b',
