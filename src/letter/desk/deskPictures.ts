@@ -51,6 +51,7 @@ import {
   type Rect,
   type RestingLook,
 } from './types';
+import { perfCount } from '../../lib/perfCounters';
 
 /**
  * The desk's static pictures (spec §5.4): the underlay (wood, sous-main, the sheet's contact shadow,
@@ -117,6 +118,7 @@ export function keptPicture(key: string, make: () => SkPicture): SkPicture {
   if (p) {
     pictures.delete(key);
   } else {
+    perfCount('recordDesk');
     p = make();
     if (pictures.size >= 16) pictures.delete(pictures.keys().next().value as string);
   }
@@ -555,7 +557,11 @@ export function recordDrawerBox(
 // ---------------------------------------------------------------- the desk top
 
 /** The underlay's height for this content: rounded up to 200 pt, so a new row of buttons doesn't redraw it. */
-export const underlayHeight = (contentHeight: number) => Math.max(200, Math.ceil(contentHeight / 200) * 200);
+/**
+ * The desk top's height: the content's, rounded up to 200 pt with at least 120 pt to spare, so a row of
+ * buttons appearing under the sheet (the first word typed, a second sheet) doesn't draw the wood again.
+ */
+export const underlayHeight = (contentHeight: number) => Math.max(200, Math.ceil((contentHeight + 120) / 200) * 200);
 
 /**
  * The desk top under the scroll content (content coordinates, `height` tall): wood over all of it, worn

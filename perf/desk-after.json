@@ -1,0 +1,611 @@
+{
+ "label": "after",
+ "commit": "e896d8f",
+ "date": "2026-10-29T09:11:10.399Z",
+ "target": "dist",
+ "warm": false,
+ "runs": {
+  "laptop": [
+   {
+    "load": {
+     "ready": 5991,
+     "settled": 9190,
+     "blocked": 8192,
+     "gl": 9,
+     "canvases": 10,
+     "kb": {
+      "js": 945,
+      "wasm": 3196,
+      "ttf": 269
+     },
+     "counters": {
+      "renderDeskScene": 3,
+      "renderDeskStack": 2,
+      "rasterBake": 13,
+      "renderWritingDesk": 2,
+      "recordLetter": 5,
+      "layerBake": 7,
+      "recordDesk": 7,
+      "recordItem": 23,
+      "layoutHandwriting": 4
+     }
+    },
+    "idle": {
+     "frames": 92,
+     "p50": 17,
+     "p95": 17,
+     "max": 17,
+     "over50": 0
+    },
+    "typing": {
+     "blocked": 144,
+     "frames": 221,
+     "max": 117,
+     "keys": {
+      "p50": 24,
+      "max": 56,
+      "slow": 65
+     },
+     "perKey": {
+      "renderDeskScene": 1.04,
+      "renderDeskStack": 1,
+      "rasterBake": 0.12,
+      "renderWritingDesk": 1.04,
+      "recordLetter": 0.12,
+      "layerBake": 0,
+      "recordDesk": 0,
+      "recordItem": 0,
+      "layoutHandwriting": 0.16
+     }
+    },
+    "blur": {
+     "blocked": 0,
+     "p95": 17,
+     "max": 33
+    },
+    "drawer": {
+     "blocked": 0,
+     "p95": 33,
+     "max": 50,
+     "over50": 1
+    },
+    "turn": {
+     "blocked": 0,
+     "p95": 17,
+     "max": 17,
+     "over50": 0
+    },
+    "drag": {
+     "blocked": 0,
+     "p95": 33,
+     "max": 34,
+     "over50": 0
+    },
+    "errors": []
+   },
+   {
+    "load": {
+     "ready": 6274,
+     "settled": 9216,
+     "blocked": 8087,
+     "gl": 9,
+     "canvases": 10,
+     "kb": {
+      "js": 945,
+      "wasm": 3196,
+      "ttf": 368
+     },
+     "counters": {
+      "renderDeskScene": 3,
+      "renderDeskStack": 2,
+      "rasterBake": 13,
+      "renderWritingDesk": 2,
+      "recordLetter": 5,
+      "layerBake": 7,
+      "recordDesk": 7,
+      "recordItem": 23,
+      "layoutHandwriting": 4
+     }
+    },
+    "idle": {
+     "frames": 92,
+     "p50": 17,
+     "p95": 17,
+     "max": 17,
+     "over50": 0
+    },
+    "typing": {
+     "blocked": 155,
+     "frames": 222,
+     "max": 133,
+     "keys": {
+      "p50": 24,
+      "max": 72,
+      "slow": 64
+     },
+     "perKey": {
+      "renderDeskScene": 1.04,
+      "renderDeskStack": 1,
+      "rasterBake": 0.12,
+      "renderWritingDesk": 1.04,
+      "recordLetter": 0.12,
+      "layerBake": 0,
+      "recordDesk": 0,
+      "recordItem": 0,
+      "layoutHandwriting": 0.16
+     }
+    },
+    "blur": {
+     "blocked": 0,
+     "p95": 17,
+     "max": 17
+    },
+    "drawer": {
+     "blocked": 0,
+     "p95": 33,
+     "max": 50,
+     "over50": 0
+    },
+    "turn": {
+     "blocked": 0,
+     "p95": 17,
+     "max": 50,
+     "over50": 0
+    },
+    "drag": {
+     "blocked": 0,
+     "p95": 33,
+     "max": 50,
+     "over50": 0
+    },
+    "errors": []
+   },
+   {
+    "load": {
+     "ready": 6473,
+     "settled": 9603,
+     "blocked": 8565,
+     "gl": 9,
+     "canvases": 10,
+     "kb": {
+      "js": 611,
+      "wasm": 3196,
+      "ttf": 220
+     },
+     "counters": {
+      "renderDeskScene": 3,
+      "renderDeskStack": 2,
+      "rasterBake": 13,
+      "renderWritingDesk": 2,
+      "recordLetter": 5,
+      "layerBake": 7,
+      "recordDesk": 7,
+      "recordItem": 23,
+      "layoutHandwriting": 4
+     }
+    },
+    "idle": {
+     "frames": 92,
+     "p50": 17,
+     "p95": 17,
+     "max": 17,
+     "over50": 0
+    },
+    "typing": {
+     "blocked": 145,
+     "frames": 227,
+     "max": 117,
+     "keys": {
+      "p50": 24,
+      "max": 64,
+      "slow": 65
+     },
+     "perKey": {
+      "renderDeskScene": 1.04,
+      "renderDeskStack": 1,
+      "rasterBake": 0.12,
+      "renderWritingDesk": 1.04,
+      "recordLetter": 0.12,
+      "layerBake": 0,
+      "recordDesk": 0,
+      "recordItem": 0,
+      "layoutHandwriting": 0.16
+     }
+    },
+    "blur": {
+     "blocked": 0,
+     "p95": 17,
+     "max": 17
+    },
+    "drawer": {
+     "blocked": 0,
+     "p95": 33,
+     "max": 50,
+     "over50": 0
+    },
+    "turn": {
+     "blocked": 0,
+     "p95": 17,
+     "max": 17,
+     "over50": 0
+    },
+    "drag": {
+     "blocked": 0,
+     "p95": 33,
+     "max": 67,
+     "over50": 1
+    },
+    "errors": []
+   }
+  ],
+  "phone": [
+   {
+    "load": {
+     "ready": 5241,
+     "settled": 7742,
+     "blocked": 6552,
+     "gl": 6,
+     "canvases": 8,
+     "kb": {
+      "js": 945,
+      "wasm": 3196,
+      "ttf": 228
+     },
+     "counters": {
+      "renderDeskScene": 3,
+      "renderDeskStack": 2,
+      "rasterBake": 12,
+      "renderWritingDesk": 2,
+      "recordLetter": 5,
+      "layerBake": 6,
+      "recordDesk": 6,
+      "layoutHandwriting": 4,
+      "recordItem": 19
+     }
+    },
+    "idle": {
+     "frames": 87,
+     "p50": 17,
+     "p95": 17,
+     "max": 67,
+     "over50": 1
+    },
+    "typing": {
+     "blocked": 310,
+     "frames": 225,
+     "max": 283,
+     "keys": {
+      "p50": 16,
+      "max": 40,
+      "slow": 56
+     },
+     "perKey": {
+      "renderDeskScene": 1.04,
+      "renderDeskStack": 1,
+      "rasterBake": 0.12,
+      "renderWritingDesk": 1.04,
+      "recordLetter": 0.12,
+      "layerBake": 0,
+      "recordDesk": 0,
+      "layoutHandwriting": 0.16,
+      "recordItem": 0
+     }
+    },
+    "blur": {
+     "blocked": 52,
+     "p95": 33,
+     "max": 50
+    },
+    "drawer": {
+     "blocked": 0,
+     "p95": 17,
+     "max": 33,
+     "over50": 0
+    },
+    "turn": {
+     "blocked": 0,
+     "p95": 17,
+     "max": 17,
+     "over50": 0
+    },
+    "drag": null,
+    "errors": []
+   },
+   {
+    "load": {
+     "ready": 5376,
+     "settled": 7943,
+     "blocked": 6917,
+     "gl": 6,
+     "canvases": 8,
+     "kb": {
+      "js": 945,
+      "wasm": 3196,
+      "ttf": 318
+     },
+     "counters": {
+      "renderDeskScene": 3,
+      "renderDeskStack": 2,
+      "rasterBake": 12,
+      "renderWritingDesk": 2,
+      "recordLetter": 5,
+      "layerBake": 6,
+      "recordDesk": 6,
+      "layoutHandwriting": 4,
+      "recordItem": 19
+     }
+    },
+    "idle": {
+     "frames": 92,
+     "p50": 17,
+     "p95": 17,
+     "max": 17,
+     "over50": 0
+    },
+    "typing": {
+     "blocked": 320,
+     "frames": 224,
+     "max": 300,
+     "keys": {
+      "p50": 16,
+      "max": 40,
+      "slow": 62
+     },
+     "perKey": {
+      "renderDeskScene": 1.04,
+      "renderDeskStack": 1,
+      "rasterBake": 0.12,
+      "renderWritingDesk": 1.04,
+      "recordLetter": 0.12,
+      "layerBake": 0,
+      "recordDesk": 0,
+      "layoutHandwriting": 0.16,
+      "recordItem": 0
+     }
+    },
+    "blur": {
+     "blocked": 117,
+     "p95": 33,
+     "max": 50
+    },
+    "drawer": {
+     "blocked": 0,
+     "p95": 17,
+     "max": 17,
+     "over50": 0
+    },
+    "turn": {
+     "blocked": 0,
+     "p95": 17,
+     "max": 17,
+     "over50": 0
+    },
+    "drag": null,
+    "errors": []
+   },
+   {
+    "load": {
+     "ready": 4013,
+     "settled": 7845,
+     "blocked": 6858,
+     "gl": 6,
+     "canvases": 8,
+     "kb": {
+      "js": 945,
+      "wasm": 3196,
+      "ttf": 269
+     },
+     "counters": {
+      "renderDeskScene": 3,
+      "renderDeskStack": 2,
+      "rasterBake": 12,
+      "renderWritingDesk": 2,
+      "recordLetter": 5,
+      "layerBake": 6,
+      "recordDesk": 6,
+      "layoutHandwriting": 4,
+      "recordItem": 19
+     }
+    },
+    "idle": {
+     "frames": 92,
+     "p50": 17,
+     "p95": 17,
+     "max": 17,
+     "over50": 0
+    },
+    "typing": {
+     "blocked": 293,
+     "frames": 227,
+     "max": 267,
+     "keys": {
+      "p50": 16,
+      "max": 32,
+      "slow": 51
+     },
+     "perKey": {
+      "renderDeskScene": 1.04,
+      "renderDeskStack": 1,
+      "rasterBake": 0.12,
+      "renderWritingDesk": 1.04,
+      "recordLetter": 0.12,
+      "layerBake": 0,
+      "recordDesk": 0,
+      "layoutHandwriting": 0.16,
+      "recordItem": 0
+     }
+    },
+    "blur": {
+     "blocked": 77,
+     "p95": 33,
+     "max": 83
+    },
+    "drawer": {
+     "blocked": 0,
+     "p95": 17,
+     "max": 17,
+     "over50": 0
+    },
+    "turn": {
+     "blocked": 0,
+     "p95": 17,
+     "max": 17,
+     "over50": 0
+    },
+    "drag": null,
+    "errors": []
+   }
+  ]
+ },
+ "median": {
+  "laptop": {
+   "load": {
+    "ready": 6274,
+    "settled": 9216,
+    "blocked": 8192,
+    "gl": 9,
+    "canvases": 10,
+    "kb": {
+     "js": 945,
+     "wasm": 3196,
+     "ttf": 269
+    },
+    "counters": {
+     "renderDeskScene": 3,
+     "renderDeskStack": 2,
+     "rasterBake": 13,
+     "renderWritingDesk": 2,
+     "recordLetter": 5,
+     "layerBake": 7,
+     "recordDesk": 7,
+     "recordItem": 23,
+     "layoutHandwriting": 4
+    }
+   },
+   "idle": {
+    "frames": 92,
+    "p50": 17,
+    "p95": 17,
+    "max": 17,
+    "over50": 0
+   },
+   "typing": {
+    "blocked": 145,
+    "frames": 222,
+    "max": 117,
+    "keys": {
+     "p50": 24,
+     "max": 64,
+     "slow": 65
+    },
+    "perKey": {
+     "renderDeskScene": 1.04,
+     "renderDeskStack": 1,
+     "rasterBake": 0.12,
+     "renderWritingDesk": 1.04,
+     "recordLetter": 0.12,
+     "layerBake": 0,
+     "recordDesk": 0,
+     "recordItem": 0,
+     "layoutHandwriting": 0.16
+    }
+   },
+   "blur": {
+    "blocked": 0,
+    "p95": 17,
+    "max": 17
+   },
+   "drawer": {
+    "blocked": 0,
+    "p95": 33,
+    "max": 50,
+    "over50": 0
+   },
+   "turn": {
+    "blocked": 0,
+    "p95": 17,
+    "max": 17,
+    "over50": 0
+   },
+   "drag": {
+    "blocked": 0,
+    "p95": 33,
+    "max": 50,
+    "over50": 0
+   },
+   "errors": []
+  },
+  "phone": {
+   "load": {
+    "ready": 5241,
+    "settled": 7845,
+    "blocked": 6858,
+    "gl": 6,
+    "canvases": 8,
+    "kb": {
+     "js": 945,
+     "wasm": 3196,
+     "ttf": 269
+    },
+    "counters": {
+     "renderDeskScene": 3,
+     "renderDeskStack": 2,
+     "rasterBake": 12,
+     "renderWritingDesk": 2,
+     "recordLetter": 5,
+     "layerBake": 6,
+     "recordDesk": 6,
+     "layoutHandwriting": 4,
+     "recordItem": 19
+    }
+   },
+   "idle": {
+    "frames": 92,
+    "p50": 17,
+    "p95": 17,
+    "max": 17,
+    "over50": 0
+   },
+   "typing": {
+    "blocked": 310,
+    "frames": 225,
+    "max": 283,
+    "keys": {
+     "p50": 16,
+     "max": 40,
+     "slow": 56
+    },
+    "perKey": {
+     "renderDeskScene": 1.04,
+     "renderDeskStack": 1,
+     "rasterBake": 0.12,
+     "renderWritingDesk": 1.04,
+     "recordLetter": 0.12,
+     "layerBake": 0,
+     "recordDesk": 0,
+     "layoutHandwriting": 0.16,
+     "recordItem": 0
+    }
+   },
+   "blur": {
+    "blocked": 77,
+    "p95": 33,
+    "max": 50
+   },
+   "drawer": {
+    "blocked": 0,
+    "p95": 17,
+    "max": 17,
+    "over50": 0
+   },
+   "turn": {
+    "blocked": 0,
+    "p95": 17,
+    "max": 17,
+    "over50": 0
+   },
+   "drag": null,
+   "errors": []
+  }
+ }
+}

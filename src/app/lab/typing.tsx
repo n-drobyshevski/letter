@@ -1,9 +1,9 @@
 import { Link } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useEffectEvent, useMemo, useState } from 'react';
 import { StyleSheet } from 'react-native';
 
 import { Choice } from '@/components/Choice';
-import { getDraft, setDraft, useDraft, writtenSheets } from '@/lib/draft';
+import { getDraft, setDraft, useDraftFold, writtenSheets } from '@/lib/draft';
 import { useCouple, useSession } from '@/lib/mail';
 import { useLabParams } from '@/lib/params';
 import { getStationeryPick, setStationeryPick, useStationeryPick } from '@/lib/stationeryPick';
@@ -49,6 +49,7 @@ const COPY: Record<Lang, { title: string; modes: readonly { key: WritingMode; la
 const DEMO = 'Привет! Пишу тебе прямо на бумаге.\nÇa marche aussi en français.';
 // A fresh letter's seed: the recipient lays the words out with it too.
 const newSeed = () => Math.floor(Math.random() * 2 ** 31);
+const deviceCountry = (): Country => (Intl.DateTimeFormat().resolvedOptions().timeZone === 'Europe/Paris' ? 'fr' : 'by');
 const validQ = <T extends string>(v: string | undefined, list: readonly T[]) => (list.includes(v as T) ? (v as T) : undefined);
 
 export default function TypingLab() {
@@ -58,7 +59,9 @@ export default function TypingLab() {
   // The writer's desk: their locale, and their country's furniture (a Paris time zone is the French desk).
   const session = useSession();
   const { couple } = useCouple(session?.user.id);
-  const qCountry: Country = q.country === 'fr' ? 'fr' : 'by';
+  // Until the couple has loaded, the device's own time zone guesses the desk (?country= in the labs):
+  // the desk is drawn once, not first as the other one.
+  const qCountry: Country = q.country ? (q.country === 'fr' ? 'fr' : 'by') : deviceCountry();
   const country: Country = couple ? (couple.me.tz === 'Europe/Paris' ? 'fr' : 'by') : qCountry;
   const lang: Lang = couple?.me.locale ?? (qCountry === 'fr' ? 'fr' : 'ru');
   const copy = COPY[lang];
@@ -99,11 +102,13 @@ export default function TypingLab() {
   // What the letter holds without the demo line: the draft, and whether the drawers still re-paper it.
   const written = useMemo(() => withoutDemo(sheets, demo), [sheets, demo]);
   const blank = written.every(isEmptySheet);
-  // The draft as /fold and /seal left it (this screen stays mounted under them): its fold, its seal.
-  const draft = useDraft();
-  const fold = draft?.fold;
+  // The draft's fold as /fold left it (this screen stays mounted under it).
+  const fold = useDraftFold();
   const maxSheets = maxSheetsFor(fold);
-  useEffect(() => {
+  // The draft follows the letter once the typing pauses (a write wakes every screen that shows
+  // the draft), and at once when the keyboard leaves the sheet, the desk is left, or the letter
+  // goes to be folded.
+  const saveDraft = () => {
     if (!touched || fixture) return;
     const prev = getDraft();
     const folded = prev?.fold;
@@ -113,7 +118,13 @@ export default function TypingLab() {
     // Coming back to the desk without changing a word (or the look) keeps the letter sealed; any edit unseals it.
     const unchanged = fits && prev.sheets === written && prev.sheetWidth === size.width && prev.look === look;
     setDraft(written.every(isEmptySheet) ? null : { ...next, fold: fits ? folded : undefined, envelope: unchanged ? prev.envelope : undefined });
+  };
+  const saveLater = useEffectEvent(saveDraft);
+  useEffect(() => {
+    const timer = setTimeout(saveLater, 250);
+    return () => clearTimeout(timer);
   }, [touched, fixture, written, size.width, look]);
+  useEffect(() => () => saveLater(), []);
 
   // The desk: what DeskStack reports (keyboard on the sheet, a sheet turning), and a bump to lay the next sheet.
   const [editing, setEditing] = useState(false);
@@ -166,7 +177,10 @@ export default function TypingLab() {
           initialFace={q.face}
           fixedTurn={q.turn}
           fixedTilt={q.tilt}
-          onEditing={setEditing}
+          onEditing={(on) => {
+            setEditing(on);
+            if (!on) saveDraft();
+          }}
           onBusy={setBusy}
           addSheetKey={addSheetKey}
           controlsGap={layout.pad.marginY - 6}
@@ -189,7 +203,7 @@ export default function TypingLab() {
       }}
     >
       {touched && !fixture && (
-        <Link href="/fold" style={styles.link}>
+        <Link href="/fold" style={styles.link} onPress={saveDraft}>
           {copy.fold}
         </Link>
       )}

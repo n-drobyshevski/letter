@@ -1,14 +1,12 @@
-import { Canvas, Picture } from '@shopify/react-native-skia';
-import { Platform, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
+import { StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
 
 import type { Country } from '../../theme/stationery';
 import type { Lang } from '../tracking/copy';
 import { DESK_COPY } from './deskCopy';
 import { cardRect, keptPicture, layoutKey, recordApron, recordNosing } from './deskPictures';
 import { DESK_PRESETS } from './deskUniforms';
+import { StaticLayer } from './StaticLayer';
 import { DRAWERS, type ApronProps, type DeskLayout, type DrawerKey } from './types';
-
-const STATIC = Platform.OS === 'web';
 
 /**
  * The fixed band at the bottom of the screen (spec §2.2, §5.4): the nosing, the apron board, the
@@ -18,12 +16,16 @@ const STATIC = Platform.OS === 'web';
  */
 export function ApronCanvas({ layout, preset, seed, lang, style }: ApronProps & { style?: StyleProp<ViewStyle> }) {
   const { width, band } = layout;
-  const picture = keptPicture(`apron:${layoutKey(layout)}:${preset}:${seed}`, () => recordApron(layout, preset, seed));
+  const key = `apron:${layoutKey(layout)}:${preset}:${seed}`;
   return (
     <View pointerEvents="none" style={[{ width, height: band.height }, style]}>
-      <Canvas style={StyleSheet.flatten([styles.fill, { width, height: band.height }])} __destroyWebGLContextAfterRender={STATIC}>
-        <Picture picture={picture} />
-      </Canvas>
+      <StaticLayer
+        cacheKey={key}
+        width={width}
+        height={band.height}
+        record={() => keptPicture(key, () => recordApron(layout, preset, seed))}
+        style={styles.fill}
+      />
       {DRAWERS.map((key) => {
         const f = layout.fronts[key];
         return <FrontLabel key={key} layout={layout} drawer={key} lang={lang} preset={preset} x={f.x} y={f.y - band.top} />;
@@ -89,15 +91,15 @@ export function Nosing({
   style?: StyleProp<ViewStyle>;
 }) {
   const { width, band } = layout;
-  const picture = keptPicture(`nosing:${layoutKey(layout)}:${preset}:${seed}`, () => recordNosing(layout, preset, seed));
+  const key = `nosing:${layoutKey(layout)}:${preset}:${seed}`;
   return (
-    <Canvas
-      style={StyleSheet.flatten([{ width, height: band.nosing }, style])}
-      pointerEvents="none"
-      __destroyWebGLContextAfterRender={STATIC}
-    >
-      <Picture picture={picture} />
-    </Canvas>
+    <StaticLayer
+      cacheKey={key}
+      width={width}
+      height={band.nosing}
+      record={() => keptPicture(key, () => recordNosing(layout, preset, seed))}
+      style={style}
+    />
   );
 }
 

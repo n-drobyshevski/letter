@@ -1,6 +1,8 @@
 import {
+  AlphaType,
   BlurStyle,
   ClipOp,
+  ColorType,
   FilterMode,
   MipmapMode,
   Skia,
@@ -11,6 +13,7 @@ import {
 import { useMemo } from 'react';
 import { PixelRatio, Platform } from 'react-native';
 
+import { perfCount } from '../lib/perfCounters';
 import type { SheetGeometry } from './paperLayout';
 
 /**
@@ -29,6 +32,8 @@ import type { SheetGeometry } from './paperLayout';
 const web = Platform.OS === 'web';
 // Pixels per point: the screen's, but no more than 2 (four images a letter, two faces each).
 export const RASTER_SCALE = Math.min(2, Math.max(1, PixelRatio.get()));
+/** The screen's own density (at most 3): for images seen at rest, where 2× would soften the ink. */
+export const SCREEN_SCALE = Math.min(3, Math.max(1, PixelRatio.get()));
 
 let shared: { surface: SkSurface; w: number; h: number } | null = null;
 
@@ -49,6 +54,7 @@ function surfaceFor(w: number, h: number): SkSurface | null {
 
 /** `picture` (in pixels, from 0, 0) drawn into a `w` × `h` image, or null if there is no GPU surface to draw it on. */
 export function rasterize(picture: SkPicture, w: number, h: number): SkImage | null {
+  perfCount('rasterBake');
   w = Math.ceil(w);
   h = Math.ceil(h);
   if (!(w > 0 && h > 0)) return null;
@@ -79,6 +85,38 @@ export function rasterize(picture: SkPicture, w: number, h: number): SkImage | n
   }
 }
 
+/**
+ * `picture` (in pixels, from 0, 0) drawn into `w` × `h` RGBA pixels (straight alpha, as an
+ * ImageData wants them), read back once from the shared surface: for a layer shown by the
+ * page itself (a 2D canvas, an image), with no GPU image or WebGL context of its own.
+ */
+export function rasterizePixels(picture: SkPicture, w: number, h: number): Uint8Array | null {
+  perfCount('rasterBake');
+  w = Math.ceil(w);
+  h = Math.ceil(h);
+  if (!(w > 0 && h > 0)) return null;
+  const surface = surfaceFor(w, h);
+  if (!surface) return null;
+  try {
+    const canvas = surface.getCanvas();
+    canvas.clear(Skia.Color('transparent'));
+    canvas.save();
+    canvas.clipRect(Skia.XYWHRect(0, 0, w, h), ClipOp.Intersect, false);
+    canvas.drawPicture(picture);
+    canvas.restore();
+    surface.flush();
+    const snapshot = surface.makeImageSnapshot(Skia.XYWHRect(0, 0, w, h));
+    const pixels = snapshot.readPixels(0, 0, { width: w, height: h, colorType: ColorType.RGBA_8888, alphaType: AlphaType.Unpremul });
+    snapshot.dispose();
+    return pixels instanceof Uint8Array ? pixels : null;
+  } catch {
+    if (web) shared = null;
+    return null;
+  } finally {
+    if (!web) surface.dispose();
+  }
+}
+
 /** A picture that draws `image` over `rect` (smoothly scaled): what callers of a baked picture keep drawing. */
 export function imagePicture(image: SkImage, rect: { x: number; y: number; width: number; height: number }): SkPicture {
   const recorder = Skia.PictureRecorder();
@@ -94,13 +132,17 @@ export function imagePicture(image: SkImage, rect: { x: number; y: number; width
   return recorder.finishRecordingAsPicture();
 }
 
-/** `picture` (a sheet, in points) flattened into an image at RASTER_SCALE, still as a picture; the picture itself if that fails. */
-export function flatten(picture: SkPicture, sheet: SheetGeometry): SkPicture {
+/**
+ * `picture` (a sheet, in points) flattened into an image at `scale` (RASTER_SCALE by default;
+ * the screen's own density for what is seen at rest, like the sheet you write on), still as a
+ * picture; the picture itself if that fails.
+ */
+export function flatten(picture: SkPicture, sheet: SheetGeometry, scale = RASTER_SCALE): SkPicture {
   const recorder = Skia.PictureRecorder();
-  const canvas = recorder.beginRecording(Skia.XYWHRect(0, 0, sheet.width * RASTER_SCALE, sheet.height * RASTER_SCALE));
-  canvas.scale(RASTER_SCALE, RASTER_SCALE);
+  const canvas = recorder.beginRecording(Skia.XYWHRect(0, 0, sheet.width * scale, sheet.height * scale));
+  canvas.scale(scale, scale);
   canvas.drawPicture(picture);
-  const image = rasterize(recorder.finishRecordingAsPicture(), sheet.width * RASTER_SCALE, sheet.height * RASTER_SCALE);
+  const image = rasterize(recorder.finishRecordingAsPicture(), sheet.width * scale, sheet.height * scale);
   if (!image) return picture;
   const flat = imagePicture(image, { x: 0, y: 0, ...sheet });
   // The picture holds the pixels now: they go when it does (see DeskStack's top-sheet bake).

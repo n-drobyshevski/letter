@@ -1,4 +1,4 @@
-import { BlendMode, Canvas, Group, Picture, Rect, Shadow, Skia, useFont, type SkFont, type SkImage, type SkPicture } from '@shopify/react-native-skia';
+import { BlendMode, Canvas, Group, Picture, Rect, Shadow, Skia, type SkFont, type SkImage, type SkPicture } from '@shopify/react-native-skia';
 import { useMemo } from 'react';
 import { StyleSheet, type StyleProp, type ViewStyle } from 'react-native';
 
@@ -10,6 +10,7 @@ import { flatten } from './raster';
 import { bakeGhost, mirrorPicture } from './showThrough';
 import { emptyFace, inkSeed, isEmptyFace, paperSeed, type FaceContent, type FaceRef, type SheetContent } from './stack';
 import { strokeToPath, type Stroke } from './strokes';
+import { useSharedFont } from './useSharedFont';
 
 export type LetterLook = {
   paper: PaperKind;
@@ -32,15 +33,18 @@ export function useLetterPicture(
   fold: FoldKind = 'tri',
   { face, ghost }: FaceBake = {},
 ) {
-  const paper = paperFor(look.paper, width);
-  const font = useFont(HANDWRITING_FONTS[look.font].file, fontSizeFor(paper, width));
+  const loaded = useSharedFont(HANDWRITING_FONTS[look.font].file, fontSizeFor(paperFor(look.paper, width), width));
+  // The paper alone draws no text: it needn't wait for the font (nor be drawn again when it comes).
+  const paperOnly = layers === 'paper';
+  const font = paperOnly ? null : loaded;
   const sheet = face?.sheet ?? 0;
   const side = face?.side ?? 'recto';
   return useMemo(() => {
-    if (!font) return { picture: null, overflow: false };
+    if (!font && !paperOnly) return { picture: null, overflow: false };
+    const paper = paperFor(look.paper, width);
     const input = {
       text,
-      font,
+      font: font as SkFont,
       paper,
       ink: INKS[look.ink].rgb,
       seed: inkSeed(look.seed, { sheet, side }),
@@ -53,11 +57,34 @@ export function useLetterPicture(
       side,
       ghost,
     };
+    if (paperOnly) return { picture: recordLetter(input, { words: [], lines: 0, overflowAt: -1 }), overflow: false };
     const layout = layoutLetter(input);
     return { picture: recordLetter(input, layout), overflow: layout.overflowAt >= 0 };
-    // paper is derived from look.paper + width
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [font, text, look.paper, look.ink, look.seed, width, height, crease, layers, fold, sheet, side, ghost]);
+  }, [font, paperOnly, text, look.paper, look.ink, look.seed, width, height, crease, layers, fold, sheet, side, ghost]);
+}
+
+/**
+ * Whether `text` overflows this face: the layout alone, nothing recorded (the sheet you
+ * are typing on hides its ink meanwhile). Null until the font is in, or when not `enabled`.
+ */
+export function useLetterOverflow(text: string, look: LetterLook, width: number, height: number, face: FaceRef | undefined, enabled: boolean) {
+  const font = useSharedFont(HANDWRITING_FONTS[look.font].file, fontSizeFor(paperFor(look.paper, width), width));
+  const sheet = face?.sheet ?? 0;
+  const side = face?.side ?? 'recto';
+  return useMemo(() => {
+    if (!font || !enabled) return null;
+    const layout = layoutLetter({
+      text,
+      font,
+      paper: paperFor(look.paper, width),
+      ink: INKS[look.ink].rgb,
+      seed: inkSeed(look.seed, { sheet, side }),
+      sheet: { width, height },
+      crease: 0,
+      side,
+    });
+    return layout.overflowAt >= 0;
+  }, [font, enabled, text, look.paper, look.ink, look.seed, width, height, sheet, side]);
 }
 
 /** One sheet, both faces, as the reader sees them: each with its pen strokes and the other face showing through. */
@@ -83,7 +110,7 @@ export function useSheetFaces(
   fold: FoldKind,
   strokesWidth: number | undefined,
 ): SheetFaces | null {
-  const font = useFont(HANDWRITING_FONTS[look.font].file, fontSizeFor(paperFor(look.paper, width), width));
+  const font = useSharedFont(HANDWRITING_FONTS[look.font].file, fontSizeFor(paperFor(look.paper, width), width));
   return useMemo(
     () => (font && sheet ? bakeSheetFaces(font, sheet, index, look, width, height, crease, fold, strokesWidth) : null),
     // look matters through its paper, ink and seed (the font is loaded from look.font)
@@ -219,7 +246,7 @@ export function paperEdgeColor(paper: PaperKind) {
 
 /** The other face's ink as it shows through to this one (for the desk, which bakes paper and ink apart). */
 export function useGhostOf(face: FaceContent | undefined, ref: FaceRef, look: LetterLook, width: number, height: number, strokesWidth: number) {
-  const font = useFont(HANDWRITING_FONTS[look.font].file, fontSizeFor(paperFor(look.paper, width), width));
+  const font = useSharedFont(HANDWRITING_FONTS[look.font].file, fontSizeFor(paperFor(look.paper, width), width));
   return useMemo(
     () => (font && face ? faceGhost(font, face, ref, look, width, height, strokesWidth) : null),
     // look matters through its paper, ink and seed (the font is loaded from look.font)

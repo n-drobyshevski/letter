@@ -1,4 +1,5 @@
 import { mulberry32, range, subSeed, wobble } from '../lib/random';
+import { perfCount } from '../lib/perfCounters';
 
 /**
  * Lays out typed text as if written by hand: per-word jitter on top of a
@@ -43,6 +44,7 @@ export function layoutHandwriting(
   measure: (word: string) => number,
   opts: HandwritingOptions,
 ): HandwritingLayout {
+  perfCount('layoutHandwriting');
   const rand = mulberry32(subSeed(opts.seed, 'handwriting'));
   const space = measure(' ') || opts.fontSize * 0.28;
   const maxLines = opts.maxLines ?? Infinity;

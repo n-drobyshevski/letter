@@ -25,6 +25,7 @@ import { PEN_SKSL } from './deskShaders';
 import { rgb as hexRgb } from './deskUniforms';
 import { ITEM_MM } from './layout';
 import { PENS, type PenKey } from './types';
+import { perfCount } from '../../lib/perfCounters';
 
 /**
  * Picture recorders for what lies in the drawers and on the desk (spec §3.1, §5.4), ported from the
@@ -48,6 +49,7 @@ const q = (v: number) => Math.round(v * 100) / 100;
 function cached(key: string, make: () => SkPicture): SkPicture {
   let p = cache.get(key);
   if (!p) {
+    perfCount('recordItem');
     p = make();
     cache.set(key, p);
   }

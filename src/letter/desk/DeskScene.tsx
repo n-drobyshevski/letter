@@ -1,4 +1,3 @@
-import { Canvas, LinearGradient, Rect as SkRect, vec } from '@shopify/react-native-skia';
 import { useEffect, useMemo, useRef, useState, type ComponentRef, type ReactNode, type Ref } from 'react';
 import { AccessibilityInfo, Platform, Pressable, StyleSheet, Text, View, type LayoutChangeEvent } from 'react-native';
 import { GestureDetector } from 'react-native-gesture-handler';
@@ -28,6 +27,7 @@ import { CarryLayer, ItemHit, itemMm, useCarry, type Carry, type ItemDest, type 
 import { DESK_COPY } from './deskCopy';
 import { EDGE_SHADOW } from './deskPictures';
 import { DrawerBox, EdgeShadow } from './DrawerBox';
+import { Gradient } from './Gradient';
 import { DRAWER_WALL, restingPlaces } from './layout';
 import { drawerSlots } from './slots';
 import { Underlay } from './Underlay';
@@ -47,6 +47,8 @@ import {
   type Slot,
 } from './types';
 import { useDrawers, type Drawers } from './useDrawers';
+import { whenIdle } from '../../lib/idle';
+import { perfCount } from '../../lib/perfCounters';
 
 /**
  * The writing screens' desk (spec §2, §3): the scroll view with the desk top under the sheet, and a fixed
@@ -97,6 +99,7 @@ export function DeskScene({
   onPick,
   fixed,
 }: DeskSceneProps) {
+  perfCount('renderDeskScene');
   const copy = DESK_COPY[lang];
   const preset = country;
   const prefs = useMotionPrefs();
@@ -210,19 +213,10 @@ export function DeskScene({
     if (typing && !frozen) closeAll(rm);
   }, [typing, band.height, bandY, frozen, closeAll, rm]);
 
-  // Drawer boxes mount once the screen has settled (so the first opening never waits for them), or when used.
-  // (React Native 0.88 has no InteractionManager: two frames, then 500 ms.)
+  // Drawer boxes mount once the screen has settled (so the first opening never waits for them), or when used:
+  // 500 ms, then when the page is idle (React Native 0.88 has no InteractionManager).
   const [mountAll, setMountAll] = useState(false);
-  useEffect(() => {
-    let id: ReturnType<typeof setTimeout> | undefined;
-    const frame = requestAnimationFrame(() => {
-      id = setTimeout(() => setMountAll(true), 500);
-    });
-    return () => {
-      cancelAnimationFrame(frame);
-      if (id) clearTimeout(id);
-    };
-  }, []);
+  useEffect(() => whenIdle(() => setMountAll(true), 500, 2000), []);
   const mounted = (d: DrawerKey) => mountAll || shown === d || openKey === d || fixed?.drawer === d;
 
   // ------------------------------------------------------------------ the desk under an open drawer
@@ -268,23 +262,18 @@ export function DeskScene({
   }, [openKey, frozen, native, closeAll]);
   // Web: the column (title, sheet, controls) fades over its last 14 pt above the desk's near edge, so what
   // scrolls under the nosing slides under it instead of being sliced (the wood under it stays whole).
-  const fadeAt = (y: number) => {
-    const el = contentRef.current as unknown as HTMLElement | null;
-    if (!el) return;
-    const end = Math.round(band.top + y);
-    const mask = `linear-gradient(to bottom, #000 ${end - FADE}px, transparent ${end}px)`;
-    el.style.setProperty('mask-image', mask);
-    el.style.setProperty('-webkit-mask-image', mask);
-  };
+  const fadeAt = (y: number) => fadeColumn(contentRef.current, band.top, y);
   useAnimatedReaction(
     () => scrollY.get(),
     (y, prev) => {
       if (Platform.OS === 'web' && y !== prev) scheduleOnRN(fadeAt, y);
     },
   );
+  // Set again only when the desk's edge moves, not after every render.
+  const bandTop = band.top;
   useEffect(() => {
-    if (!native) fadeAt(scrollY.get());
-  });
+    if (!native) fadeColumn(contentRef.current, bandTop, scrollY.get());
+  }, [bandTop, native, scrollY]);
 
   // ------------------------------------------------------------------ what is in use, and where things lie
   // Primitives only: a keystroke (a new `look` object with the same kinds) never redraws the desk.
@@ -479,16 +468,19 @@ export function DeskScene({
         scrollEnabled={!open}
         onContentSizeChange={(_, h) => setContentH(Math.round(h))}
       >
+        {/* Drawn once the sheet and the content are measured: never first round a guessed rect. */}
         <Counted name="underlay" on={debug}>
-          <Underlay
-            layout={layout}
-            preset={preset}
-            seed={seed}
-            sheetRect={sheetRect}
-            contentHeight={Math.max(contentH, band.top)}
-            resting={layout.resting === 'sides' ? inUse : null}
-            restingStyle={restingStyle}
-          />
+          {sheetRect && contentH > 0 && (
+            <Underlay
+              layout={layout}
+              preset={preset}
+              seed={seed}
+              sheetRect={sheetRect}
+              contentHeight={Math.max(contentH, band.top)}
+              resting={layout.resting === 'sides' ? inUse : null}
+              restingStyle={restingStyle}
+            />
+          )}
         </Counted>
         <View
           ref={contentRef}
@@ -610,18 +602,18 @@ export function DeskScene({
 // ------------------------------------------------------------------ the floor
 
 /** The floor under the desk: a flat dark gradient (no wood: it is in the desk's shadow). One static canvas. */
+/** The column's fade (web): opaque down to `FADE` pt above the desk's near edge, gone at it. */
+function fadeColumn(column: unknown, bandTop: number, y: number) {
+  const el = column as HTMLElement | null;
+  if (!el) return;
+  const end = Math.round(bandTop + y);
+  const mask = `linear-gradient(to bottom, #000 ${end - FADE}px, transparent ${end}px)`;
+  el.style.setProperty('mask-image', mask);
+  el.style.setProperty('-webkit-mask-image', mask);
+}
+
 function Floor({ width, height }: { width: number; height: number }) {
-  return (
-    <Canvas
-      style={StyleSheet.flatten([styles.abs, { top: 0, width, height }])}
-      pointerEvents="none"
-      __destroyWebGLContextAfterRender={Platform.OS === 'web'}
-    >
-      <SkRect x={0} y={0} width={width} height={height}>
-        <LinearGradient start={vec(0, 0)} end={vec(0, height)} colors={[...DESK.floor]} />
-      </SkRect>
-    </Canvas>
-  );
+  return <Gradient width={width} height={height} kind={{ linear: [...DESK.floor] }} style={[styles.abs, { top: 0 }]} />;
 }
 
 /**
