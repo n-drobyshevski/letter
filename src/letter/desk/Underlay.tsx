@@ -1,12 +1,9 @@
-import { Canvas, Picture } from '@shopify/react-native-skia';
-import { Platform, StyleSheet, type StyleProp, type ViewStyle } from 'react-native';
+import { StyleSheet, type StyleProp, type ViewStyle } from 'react-native';
 import Animated, { type AnimatedStyle } from 'react-native-reanimated';
 
 import { keptPicture, layoutKey, recordResting, recordUnderlay, underlayHeight } from './deskPictures';
+import { StaticLayer } from './StaticLayer';
 import type { UnderlayProps } from './types';
-
-/** Static canvases on web give their WebGL context back after drawing (Chrome allows 16 per page). */
-const STATIC = Platform.OS === 'web';
 
 /**
  * The desk top under the scroll content (spec §5.4): wood over the whole content (its height rounded up
@@ -30,7 +27,7 @@ export function Underlay({
   const rect = r ? `${r.x},${r.y},${r.width},${r.height}` : '-';
   const key = ['underlay', layoutKey(layout), preset, seed, height, rect].join(':');
   // The desk top alone: a pick (a new resting item) never redraws the wood and leather.
-  const picture = keptPicture(key, () => recordUnderlay(layout, preset, seed, sheetRect, height, null));
+  const desk = () => keptPicture(key, () => recordUnderlay(layout, preset, seed, sheetRect, height, null));
   const restingKey = resting
     ? [
         'resting',
@@ -45,24 +42,19 @@ export function Underlay({
         resting.envelope.liner,
       ].join(':')
     : null;
-  const items =
-    resting && restingKey ? keptPicture(restingKey, () => recordResting(layout, seed, sheetRect, height, resting)) : null;
-  // Skia's web Canvas hands `style` to a DOM element, so it must be a flat object.
-  const canvasStyle = StyleSheet.flatten([styles.under, { width: layout.width, height }, style]);
   return (
     <>
-      <Canvas style={canvasStyle} pointerEvents="none" __destroyWebGLContextAfterRender={STATIC}>
-        <Picture picture={picture} />
-      </Canvas>
+      <StaticLayer cacheKey={key} width={layout.width} height={height} record={desk} style={[styles.under, style]} />
       {/* The laptop's resting items, on their own layer: they fade while a drawer is open. */}
-      {items && (
+      {resting && restingKey && (
         <Animated.View pointerEvents="none" style={[styles.under, { width: layout.width, height }, restingStyle]}>
-          <Canvas
-            style={StyleSheet.flatten([styles.under, { width: layout.width, height }])}
-            __destroyWebGLContextAfterRender={STATIC}
-          >
-            <Picture picture={items} />
-          </Canvas>
+          <StaticLayer
+            cacheKey={restingKey}
+            width={layout.width}
+            height={height}
+            record={() => keptPicture(restingKey, () => recordResting(layout, seed, sheetRect, height, resting))}
+            style={styles.under}
+          />
         </Animated.View>
       )}
     </>

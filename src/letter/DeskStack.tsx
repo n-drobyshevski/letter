@@ -1,5 +1,5 @@
-import { Canvas, Group, Image, Paint, Picture, RadialGradient, Rect, Skia, useFont, vec, type SkPicture, type Transforms3d } from '@shopify/react-native-skia';
-import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { Canvas, Group, Image, Paint, Picture, Rect, Skia, type SkPicture, type Transforms3d } from '@shopify/react-native-skia';
+import { useEffect, useEffectEvent, useId, useMemo, useRef, useState } from 'react';
 import { Keyboard, Platform, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { GestureDetector, MouseButton, PointerType, usePanGesture, useSimultaneousGestures, useTapGesture } from 'react-native-gesture-handler';
 import Animated, {
@@ -16,6 +16,8 @@ import Animated, {
 import { scheduleOnRN } from 'react-native-worklets';
 
 import { feel } from '../lib/haptics';
+import { whenIdle } from '../lib/idle';
+import { perfCount } from '../lib/perfCounters';
 import { useDeskKeys } from '../lib/useDeskKeys';
 import { HANDWRITING_FONTS } from '../theme/stationery';
 import { bakeSheetFaces, paperEdgeColor, useGhostOf, useSheetFaces, type LetterLook, type SheetFaces } from './LetterSheet';
@@ -54,7 +56,9 @@ import {
 } from './stack';
 import { MAX_TILT, freeGripOf, gripOf, type Grip } from './grip';
 import type { Stroke } from './strokes';
+import { Gradient } from './desk/Gradient';
 import { WritingDesk, type WritingMode } from './WritingDesk';
+import { useSharedFont } from './useSharedFont';
 
 /**
  * The writing desk with a small stack of sheets: write on the front, turn the
@@ -155,6 +159,7 @@ type Props = {
 };
 
 export function DeskStack({ look, width, height, mode, sheets, onSheets, maxSheets = MAX_SHEETS, placeholder, initialFace = 0, fixedTurn, fixedTilt, onEditing, onBusy, addSheetKey, controlsGap = 0 }: Props) {
+  perfCount('renderDeskStack');
   const [faceState, setFace] = useState<FaceRef>(() => {
     const sheet = Math.min(sheets.length - 1, Math.floor(initialFace / 2));
     return { sheet, side: initialFace % 2 && sheets[sheet]?.twoSided ? 'verso' : 'recto' };
@@ -170,13 +175,14 @@ export function DeskStack({ look, width, height, mode, sheets, onSheets, maxShee
   const other: FaceRef = { sheet: face.sheet, side: face.side === 'recto' ? 'verso' : 'recto' };
   const ghost = useGhostOf(faceOf(sheets, other), other, look, width, height, width);
   // Finished faces for the turn overlay: baked when the pen rests or a turn starts, not on every keystroke.
-  const font = useFont(HANDWRITING_FONTS[look.font].file, fontSizeFor(paperFor(look.paper, width), width));
+  const font = useSharedFont(HANDWRITING_FONTS[look.font].file, fontSizeFor(paperFor(look.paper, width), width));
   // The top sheet's faces are kept here rather than with the sheet: it is baked again after
   // every pause in the writing, and each bake holds two full-size images, so the one it
   // replaces is freed at once (only a turn draws it, and none is under way while you write).
   const desk = useId();
   useEffect(() => () => void topBakes.delete(desk), [desk]);
-  const facesOf = (i: number, s: SheetContent | undefined = sheets[i]) => {
+  const facesOf = (i: number, given?: SheetContent) => {
+    const s = given ?? sheets[i];
     if (!font || !s) return null;
     if (i !== face.sheet) return bakeSheetFaces(font, s, i, look, width, height, 0, 'tri', width);
     const id = `${look.paper}|${look.ink}|${look.font}|${look.seed}|${width}|${height}`;
@@ -187,11 +193,10 @@ export function DeskStack({ look, width, height, mode, sheets, onSheets, maxShee
     topBakes.set(desk, { sheet: s, index: i, look: id, faces });
     return faces;
   };
+  // QA frames only (?turn=): the letter doesn't change under a frozen frame.
   const frozen = useMemo(
     () => (fixedTurn !== undefined && font ? bakeSheetFaces(font, sheet, face.sheet, look, width, height, 0, 'tri', width) : null),
-    // QA frames only: bake once the font is in
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [fixedTurn, font],
+    [fixedTurn, font, sheet, face.sheet, look, width, height],
   );
   const reduceMotion = useReducedMotion();
 
@@ -285,20 +290,30 @@ export function DeskStack({ look, width, height, mode, sheets, onSheets, maxShee
 
   // The faces a turn from here would show, baked while the pen rests: a turn then starts
   // at once instead of baking under the hand.
+  // The sheets a turn from here could show: this one (if it turns over or a stack lies under it)
+  // and its neighbours in the stack.
+  const toPrebake = useEffectEvent(() => {
+    const near = loose ? [face.sheet] : [face.sheet, face.sheet + 1, face.sheet - 1];
+    return near.filter((i) => sheets[i] && (i !== face.sheet || sheets[i].twoSided || (!loose && sheets.length > 1)));
+  });
+  const prebakeOne = useEffectEvent((i: number) => {
+    // Never while a turn is drawing the top sheet's faces.
+    if (!target.get()) facesOf(i);
+  });
   useEffect(() => {
     if (!font || !MULTI_SHEET || fixedTurn !== undefined) return;
-    const timer = setTimeout(() => {
-      // Never while a turn is drawing the top sheet's faces.
-      if (target.get()) return;
-      const near = loose ? [face.sheet] : [face.sheet, face.sheet + 1, face.sheet - 1];
-      for (const i of near) {
-        const s = sheets[i];
-        if (s && (i !== face.sheet || s.twoSided || (!loose && sheets.length > 1))) facesOf(i);
-      }
-    }, 600);
-    return () => clearTimeout(timer);
-    // facesOf reads only these
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // After a pause in the writing, one sheet per idle moment (each bake is a GPU read-back):
+    // typing again cancels what is left.
+    let cancel = () => {};
+    const next = (rest: number[]) => {
+      if (!rest.length) return;
+      cancel = whenIdle(() => {
+        prebakeOne(rest[0]);
+        next(rest.slice(1));
+      }, 0);
+    };
+    cancel = whenIdle(() => next(toPrebake()), 600);
+    return () => cancel();
   }, [font, sheets, face.sheet, look, width, height, fixedTurn, loose]);
 
   const begin = (turn: Turn | null) => {
@@ -392,32 +407,32 @@ export function DeskStack({ look, width, height, mode, sheets, onSheets, maxShee
 
   // A turn under way, for the desk around the sheet (its drawers wait).
   const busy = turning !== null;
+  // Only the start and the end of a turn count.
+  const reportBusy = useEffectEvent((on: boolean) => onBusy?.(on));
   useEffect(() => {
     if (!busy) return;
-    onBusy?.(true);
-    return () => onBusy?.(false);
-    // only the start and the end of a turn count
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    reportBusy(true);
+    return () => reportBusy(false);
   }, [busy]);
 
   // «Ещё лист» from outside (a sheet taken from the drawer): only bumps made while mounted count.
   // One that comes while a sheet is turning waits for it to land; the slide starts on the next frame.
   const addSheetHandled = useRef(addSheetKey);
+  const addFromOutside = useEffectEvent(() => {
+    if (target.get()) return; // a drag took the sheet meanwhile: wait for it to land
+    addSheetHandled.current = addSheetKey;
+    if (!MULTI_SHEET || sheets.length >= maxSheets) return;
+    const blank = emptySheet(look.paper);
+    const turn = slide({ sheet: sheets.length, side: 'recto' }, () => onSheets([...sheets, blank]), blank);
+    if (turn) return play(turn);
+    // The hand's font is still loading: no turn to draw, lay the sheet straight away.
+    onSheets([...sheets, blank]);
+    setFace({ sheet: sheets.length, side: 'recto' });
+  });
   useEffect(() => {
     if (addSheetKey === addSheetHandled.current || busy) return;
-    const frame = requestAnimationFrame(() => {
-      if (target.get()) return; // a drag took the sheet meanwhile: wait for it to land
-      addSheetHandled.current = addSheetKey;
-      if (!MULTI_SHEET || sheets.length >= maxSheets) return;
-      const blank = emptySheet(look.paper);
-      const turn = slide({ sheet: sheets.length, side: 'recto' }, () => onSheets([...sheets, blank]), blank);
-      if (turn) return play(turn);
-      // The hand's font is still loading: no turn to draw, lay the sheet straight away.
-      onSheets([...sheets, blank]);
-      setFace({ sheet: sheets.length, side: 'recto' });
-    });
+    const frame = requestAnimationFrame(() => addFromOutside());
     return () => cancelAnimationFrame(frame);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [addSheetKey, busy]);
 
   // The sheet's edges: the finger writes p (0 → 1 is the whole turn) and the grip.
@@ -431,7 +446,8 @@ export function DeskStack({ look, width, height, mode, sheets, onSheets, maxShee
   // A free turn's way (unit vector, set as it starts) and whether this sheet has a back to turn to.
   const way = useSharedValue({ x: -1, y: 0 });
   const canFlipNow = useSharedValue(false);
-  const keys = useDeskKeys();
+  // Space and Shift switch their layers from shared values (no re-render on every space typed).
+  const keys = useDeskKeys({ turn: true });
   const idle = useSharedValue(false);
   // Which way the turn under way goes (1 forward, -1 back), and which ways this face can turn:
   // shared values, since the gestures' callbacks were made in an earlier render.
@@ -548,12 +564,16 @@ export function DeskStack({ look, width, height, mode, sheets, onSheets, maxShee
   };
   // Space + drag on the loose desk: the sheet under the pointer comes to the top and follows the
   // hand; sheets picked together go as one, none turned.
-  const [carrying, setCarrying] = useState(false);
+  const carrying = useSharedValue(false);
   const carried = useSharedValue(-1);
   const carriedWith = useSharedValue<number[]>([]);
   const startsAtGrab = useSharedValue<Placement[]>([]);
   const placeAtGrab = useSharedValue<Placement>(HOME);
   const grabAt = useSharedValue({ x: 0, y: 0 });
+  // The move and pick layers lie over the loose desk for good, taking the pointer only while
+  // their key is held (or a carry is under way).
+  const moveLayer = useAnimatedStyle(() => ({ pointerEvents: keys.move.get() || carrying.get() ? ('auto' as const) : ('none' as const) }));
+  const pickLayer = useAnimatedStyle(() => ({ pointerEvents: keys.pick.get() ? ('auto' as const) : ('none' as const) }));
   const carry = usePanGesture({
     enabled: loose,
     activeOffsetX: [-3, 3],
@@ -569,7 +589,7 @@ export function DeskStack({ look, width, height, mode, sheets, onSheets, maxShee
       placeAtGrab.set(pl);
       grabAt.set({ x: e.x - ox - area.width / 2 - pl.x, y: e.y - area.height / 2 - pl.y });
       scheduleOnRN(bringToTop, i, ids);
-      scheduleOnRN(setCarrying, true);
+      carrying.set(true);
     },
     onUpdate: (e) => {
       const i = carried.get();
@@ -588,7 +608,7 @@ export function DeskStack({ look, width, height, mode, sheets, onSheets, maxShee
     onFinalize: () => {
       const i = carried.get();
       carried.set(-1);
-      scheduleOnRN(setCarrying, false);
+      carrying.set(false);
       // Put down in front of you: straightened to write on.
       if (i >= 0) straighten(i);
     },
@@ -657,17 +677,16 @@ export function DeskStack({ look, width, height, mode, sheets, onSheets, maxShee
   });
   const deskGestures = useSimultaneousGestures(twist, letGo);
   // Esc lets it go too.
+  const letGoAll = useEffectEvent(() => choose([]));
   useEffect(() => {
     if (!loose || chosen.length === 0) return;
     const win = (globalThis as unknown as { window?: { addEventListener: (t: string, f: (e: { key: string }) => void) => void; removeEventListener: (t: string, f: (e: { key: string }) => void) => void } }).window;
     if (!win) return;
     const esc = (e: { key: string }) => {
-      if (e.key === 'Escape') choose([]);
+      if (e.key === 'Escape') letGoAll();
     };
     win.addEventListener('keydown', esc);
     return () => win.removeEventListener('keydown', esc);
-    // choose only sets the pick
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loose, chosen.length]);
   // The sheets under the top one, baked once each (never the top one: it changes as you write).
   const under = (i: number) => (loose && i !== face.sheet ? sheets[i] : undefined);
@@ -824,17 +843,13 @@ export function DeskStack({ look, width, height, mode, sheets, onSheets, maxShee
               )}
             </Animated.View>
             {/* Shift held: a layer over the desk takes clicks and picks the sheet under the pointer. */}
-            {keys.pickHeld && (
-              <GestureDetector gesture={chooser}>
-                <View style={[StyleSheet.absoluteFill, styles.choosing]} />
-              </GestureDetector>
-            )}
+            <GestureDetector gesture={chooser}>
+              <Animated.View style={[StyleSheet.absoluteFill, styles.choosing, pickLayer]} />
+            </GestureDetector>
             {/* Space held: a layer over the desk takes the drag and moves the sheet under the pointer. */}
-            {(keys.moveHeld || carrying) && (
-              <GestureDetector gesture={carry}>
-                <View style={[StyleSheet.absoluteFill, styles.grab]} />
-              </GestureDetector>
-            )}
+            <GestureDetector gesture={carry}>
+              <Animated.View style={[StyleSheet.absoluteFill, styles.grab, moveLayer]} />
+            </GestureDetector>
           </View>
         </GestureDetector>
       ) : (
@@ -914,8 +929,11 @@ function LooseSheet({
   width: number;
   height: number;
 }) {
+  // This sheet's own placement: the same object while it lies still (setting a shared value to the
+  // same object wakes no one), so moving the top sheet or another one doesn't redraw this canvas.
+  const mine = useDerivedValue(() => placements.value[index] ?? HOME);
   const transform = useDerivedValue(() => {
-    const pl = placements.value[index] ?? HOME;
+    const pl = mine.value;
     return [
       { translateX: inset + area.width / 2 + pl.x },
       { translateY: area.height / 2 + pl.y },
@@ -1067,11 +1085,7 @@ function CornerLift({ side, shown }: { side: 'left' | 'right'; shown: boolean })
   return (
     // The wrapper lets touches through: a Canvas drops pointerEvents on the web.
     <View style={[{ position: 'absolute', bottom: 0, [side]: 0, opacity: shown ? 1 : 0 }, styles.through]}>
-      <Canvas style={{ width: CORNER.w, height: CORNER.h }}>
-        <Rect x={0} y={0} width={CORNER.w} height={CORNER.h}>
-          <RadialGradient c={vec(x, CORNER.h)} r={30} colors={['rgba(30, 18, 8, 0.14)', 'rgba(30, 18, 8, 0)']} />
-        </Rect>
-      </Canvas>
+      <Gradient width={CORNER.w} height={CORNER.h} kind={{ radial: ['rgba(30, 18, 8, 0.14)', 'rgba(30, 18, 8, 0)'], cx: x, cy: CORNER.h, r: 30 }} />
     </View>
   );
 }
@@ -1080,17 +1094,27 @@ function CornerLift({ side, shown }: { side: 'left' | 'right'; shown: boolean })
 function StackEdges({ count, seed, width, height, paper }: { count: number; seed: number; width: number; height: number; paper: LetterLook['paper'] }) {
   const pad = 6;
   return (
-    <Canvas style={{ position: 'absolute', left: -pad, top: -pad, width: width + pad * 2, height: height + pad * 2 }} pointerEvents="none">
+    // Plain views: four rectangles needn't hold a canvas (on the web, a WebGL context).
+    <View style={{ position: 'absolute', left: -pad, top: -pad, width: width + pad * 2, height: height + pad * 2 }} pointerEvents="none">
       {Array.from({ length: Math.min(count, 2) }, (_, i) => {
         const j = sheetJitter(seed, i + 1);
         return (
-          <Group key={i} transform={[{ translateX: pad + j.dx * (2 + i) }, { translateY: pad + j.dy * (2 + i) + 1.5 * (i + 1) }]}>
-            <Rect x={0} y={0} width={width} height={height} color={paperEdgeColor(paper)} />
-            <Rect x={0} y={0} width={width} height={height} color="rgba(30, 18, 8, 0.25)" style="stroke" strokeWidth={0.7} />
-          </Group>
+          <View
+            key={i}
+            style={{
+              position: 'absolute',
+              left: pad + j.dx * (2 + i) - 0.35,
+              top: pad + j.dy * (2 + i) + 1.5 * (i + 1) - 0.35,
+              width: width + 0.7,
+              height: height + 0.7,
+              backgroundColor: paperEdgeColor(paper),
+              borderWidth: 0.7,
+              borderColor: 'rgba(30, 18, 8, 0.25)',
+            }}
+          />
         );
       })}
-    </Canvas>
+    </View>
   );
 }
 

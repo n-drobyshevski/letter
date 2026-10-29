@@ -13,6 +13,7 @@ import { layoutHandwriting, type HandwritingLayout } from './handwriting';
 import { paperUniforms, writingArea, type SheetGeometry, type Side } from './paperLayout';
 import { INK_SKSL, PAPER_SKSL } from './shaders';
 import { drawGhost } from './showThrough';
+import { perfCount } from '../lib/perfCounters';
 
 let paperEffect: SkRuntimeEffect | null = null;
 let inkEffect: SkRuntimeEffect | null = null;
@@ -75,6 +76,7 @@ export function layoutLetter(input: LetterRenderInput): HandwritingLayout {
  * runs once per change, and animations only move the resulting picture around.
  */
 export function recordLetter(input: LetterRenderInput, layout = layoutLetter(input)): SkPicture {
+  perfCount('recordLetter');
   const { paper, ink } = effects();
   const { width, height } = input.sheet;
   const recorder = Skia.PictureRecorder();

@@ -1,4 +1,4 @@
-import { Canvas, Group, Picture } from '@shopify/react-native-skia';
+import { Skia } from '@shopify/react-native-skia';
 import { useEffect, useMemo, useRef, useState, type ComponentRef, type Ref } from 'react';
 import { Platform, Pressable, StyleSheet, View } from 'react-native';
 import { GestureDetector, PointerType, usePanGesture } from 'react-native-gesture-handler';
@@ -18,6 +18,7 @@ import { scheduleOnRN } from 'react-native-worklets';
 
 import { feel } from '../../lib/haptics';
 import { itemPicture } from './deskPictures';
+import { StaticLayer } from './StaticLayer';
 import { ITEM_MM } from './layout';
 import { CARRY, TAP } from './motion';
 import {
@@ -454,6 +455,14 @@ export function CarryLayer({ layout, seed, carry, item, destination, motion }: C
   const cw = w + 2 * pad;
   const ch = h + 2 * pad;
   const picture = useMemo(() => (item ? itemPicture(item, S, seed) : null), [item, S, seed]);
+  // The item inside its padding (room for anything drawn past its edges), as one static layer.
+  const padded = () => {
+    const recorder = Skia.PictureRecorder();
+    const canvas = recorder.beginRecording(Skia.XYWHRect(0, 0, cw, ch));
+    canvas.translate(pad, pad);
+    if (picture) canvas.drawPicture(picture);
+    return recorder.finishRecordingAsPicture();
+  };
   // Shadows are drawn in canvas units, then scaled with the item: size them for the carried scale.
   const u = S / (layout.far * 1.05);
 
@@ -485,15 +494,7 @@ export function CarryLayer({ layout, seed, carry, item, destination, motion }: C
     <Animated.View pointerEvents="none" style={[styles.carry, { width: cw, height: ch }, style]}>
       <Animated.View style={[styles.shadow, box, { boxShadow: shadow(2, 3, 0.35) }, tight]} />
       <Animated.View style={[styles.shadow, box, { boxShadow: shadow(12, 20, 0.25) }, wide]} />
-      {/* Skia's web Canvas hands `style` to a DOM element, so it must be a flat object. */}
-      <Canvas
-        style={StyleSheet.flatten([styles.fill, { width: cw, height: ch }])}
-        __destroyWebGLContextAfterRender={Platform.OS === 'web'}
-      >
-        <Group transform={[{ translateX: pad }, { translateY: pad }]}>
-          <Picture picture={picture} />
-        </Group>
-      </Canvas>
+      <StaticLayer cacheKey={`carry:${item.id}:${S.toFixed(3)}:${seed}:${pad}`} width={cw} height={ch} record={padded} style={styles.fill} />
     </Animated.View>
   );
 }

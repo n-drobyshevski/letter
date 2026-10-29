@@ -36,15 +36,17 @@ const pressable = (el: El | null) =>
  * Space + drag moves a sheet, Shift + click picks several to move or turn as one; a plain
  * drag writes, draws or selects as usual.
  * Gesture Handler's events carry no keys, so the window's are followed here: as shared
- * values (read by gestures) and as state (the desk lays a turn, a move or a pick layer
- * over the sheets only while the key is held). Always off on native, where a finger turns the page.
+ * values (read by gestures) and, for the keys named in `held`, as state (a turn, move or
+ * pick layer mounted only while its key is held). The writing desk switches its move and
+ * pick layers from the shared values instead: Space and Shift are typed all the time, and
+ * a state change re-renders the whole desk. Always off on native, where a finger turns the page.
  *
  * Space + drag moves even while you write: the space that the key typed is taken back
  * when the drag starts (and holding Space never repeats it). A button you clicked keeps
  * the focus but not Space: Space + drag still moves (the button isn't pressed). One
  * reached with Tab is pressed by Space as usual. Space no longer scrolls the page.
  */
-export function useDeskKeys(): {
+export function useDeskKeys(held: { move?: boolean; turn?: boolean; pick?: boolean } = { move: true, turn: true, pick: true }): {
   turn: SharedValue<boolean>;
   move: SharedValue<boolean>;
   pick: SharedValue<boolean>;
@@ -55,14 +57,18 @@ export function useDeskKeys(): {
   const turn = useSharedValue(false);
   const move = useSharedValue(false);
   const pick = useSharedValue(false);
-  const [moveHeld, setMoveHeld] = useState(false);
-  const [turnHeld, setTurnHeld] = useState(false);
-  const [pickHeld, setPickHeld] = useState(false);
+  const [moveHeld, setMoveState] = useState(false);
+  const [turnHeld, setTurnState] = useState(false);
+  const [pickHeld, setPickState] = useState(false);
+  const { move: moveState = false, turn: turnState = false, pick: pickState = false } = held;
   useEffect(() => {
     if (Platform.OS !== 'web') return;
     const win = (globalThis as unknown as { window?: Target }).window;
     const doc = (globalThis as unknown as { document?: Doc }).document;
     if (!win || !doc) return;
+    const setMoveHeld = (on: boolean) => moveState && setMoveState(on);
+    const setTurnHeld = (on: boolean) => turnState && setTurnState(on);
+    const setPickHeld = (on: boolean) => pickState && setPickState(on);
     let space = false;
     // The space just typed into a text field by the Space now held, to take back if a drag starts.
     let typed: { el: El; at: number } | null = null;
@@ -151,6 +157,6 @@ export function useDeskKeys(): {
       win.removeEventListener('pointerdown', press as (e: never) => void, { capture: true });
       win.removeEventListener('blur', away);
     };
-  }, [turn, move, pick]);
+  }, [turn, move, pick, moveState, turnState, pickState]);
   return { turn, move, pick, moveHeld, turnHeld, pickHeld };
 }

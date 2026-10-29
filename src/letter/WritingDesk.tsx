@@ -5,8 +5,11 @@ import { GestureDetector, usePanGesture } from 'react-native-gesture-handler';
 import { useDerivedValue, useSharedValue, withTiming } from 'react-native-reanimated';
 import { scheduleOnRN } from 'react-native-worklets';
 
+import { perfCount } from '../lib/perfCounters';
+import { useSettled } from '../lib/useSettled';
 import { HANDWRITING_FONTS, INKS, type Rgb } from '../theme/stationery';
-import { useLetterPicture, type LetterLook } from './LetterSheet';
+import { useLetterOverflow, useLetterPicture, type LetterLook } from './LetterSheet';
+import { SCREEN_SCALE, flatten } from './raster';
 import { writingArea } from './renderLetter';
 import { fontSizeFor, paperFor } from './sheet';
 import type { FaceRef } from './stack';
@@ -45,6 +48,7 @@ type Props = {
 };
 
 export function WritingDesk({ look, width, height, mode, text, onText, strokes, onStrokes, placeholder, face, ghost, overflowNote, onEditing }: Props) {
+  perfCount('renderWritingDesk');
   const size = { width, height };
   const paper = paperFor(look.paper, width);
   const fontSize = fontSizeFor(paper, width);
@@ -60,13 +64,25 @@ export function WritingDesk({ look, width, height, mode, text, onText, strokes, 
     strokesRef.current = strokes;
   }, [strokes]);
 
+  // While the keyboard is on the sheet its ink is hidden (the native text shows instead), so
+  // the ink is laid out and recorded again only when the writing stops, not on every key;
+  // meanwhile the overflow note follows a layout of the text once the typing settles.
+  const [textAtFocus, setTextAtFocus] = useState(text);
   const { picture: paperPic } = useLetterPicture('', look, width, height, 0, 'paper', 'tri', { face, ghost });
-  const { picture: inkPic, overflow } = useLetterPicture(text, look, width, height, 0, 'ink', 'tri', { face });
+  const { picture: inkPic, overflow: inkOverflow } = useLetterPicture(editing ? textAtFocus : text, look, width, height, 0, 'ink', 'tri', { face });
+  const settled = useSettled(text, 200);
+  const typedOverflow = useLetterOverflow(settled, look, width, height, face, editing);
+  const overflow = editing ? (typedOverflow ?? inkOverflow) : inkOverflow;
+  // Both drawn as images at the screen's density: a redraw (a pen stroke, the ink fading back
+  // in) replays two images instead of the paper shader and every blurred word.
+  const paperFlat = useMemo(() => (paperPic ? flatten(paperPic, { width, height }, SCREEN_SCALE) : null), [paperPic, width, height]);
+  const inkFlat = useMemo(() => (inkPic ? flatten(inkPic, { width, height }, SCREEN_SCALE) : null), [inkPic, width, height]);
 
   // Ink layer fades out while typing (the native text is visible instead) and back in after.
   const inkOpacity = useSharedValue(1);
   const inkOpacityDerived = useDerivedValue(() => inkOpacity.value);
   const onFocus = () => {
+    setTextAtFocus(text);
     setEditing(true);
     onEditing?.(true);
     inkOpacity.set(withTiming(0, { duration: 120 }));
@@ -113,9 +129,9 @@ export function WritingDesk({ look, width, height, mode, text, onText, strokes, 
       <View style={{ width, height }}>
         <GestureDetector gesture={pen}>
           <Canvas style={StyleSheet.absoluteFill}>
-            {paperPic && <Picture picture={paperPic} />}
+            {paperFlat && <Picture picture={paperFlat} />}
             {/* pictures ignore group opacity, so fade through a layer paint */}
-            <Group layer={<Paint opacity={inkOpacityDerived} />}>{inkPic && <Picture picture={inkPic} />}</Group>
+            <Group layer={<Paint opacity={inkOpacityDerived} />}>{inkFlat && <Picture picture={inkFlat} />}</Group>
             <Group blendMode="multiply" opacity={0.93}>
               {strokePaths.map((p, i) => (
                 <Path key={i} path={p} color={ink.color} />

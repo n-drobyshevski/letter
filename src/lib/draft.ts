@@ -77,6 +77,18 @@ export function useDraft(): Draft | null {
   );
 }
 
+/** Only the draft's fold: a screen that writes the letter itself needn't re-render on its own keystrokes. */
+export function useDraftFold(): FoldKind | undefined {
+  return useSyncExternalStore(
+    (l) => {
+      listeners.add(l);
+      return () => listeners.delete(l);
+    },
+    () => draft?.fold,
+    () => draft?.fold,
+  );
+}
+
 export const isEmptyDraft = (d: Draft | null) => !d || d.sheets.every(isEmptySheet);
 
 /** The first words of the letter, for the desk's "on your desk" line. */
